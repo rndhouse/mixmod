@@ -12,17 +12,11 @@ The default strategy is:
 
 ```mermaid
 flowchart LR
-    Task[Task JSON] --> Codex[Codex supervisor]
-    Codex --> Brief[Compact handoff]
-    Task --> Mixmod[Mixmod CLI]
-    Brief --> Mixmod
-    Mixmod --> Worker[OpenCode worker]
-    Worker --> Qwen[Local Qwen/Ollama/GPU]
-    Worker --> Artifacts[Patch + compact artifacts]
-    Artifacts --> Codex
-    Codex --> Decision{approve / revise / stop}
-    Decision -->|revise| Mixmod
-    Decision -->|done| Report[metrics + report]
+    Codex[Codex supervisor] -->|compact handoff| Mixmod[Mixmod CLI]
+    Mixmod -->|task + handoff| OpenCode[OpenCode worker]
+    OpenCode -->|patch + artifacts| Codex
+    Codex -->|revise| Mixmod
+    Codex -->|approve or stop| Done[done]
 ```
 
 ## Latest Benchmark Highlights
