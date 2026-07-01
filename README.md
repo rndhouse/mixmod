@@ -12,7 +12,7 @@ The default strategy is:
 
 ```mermaid
 flowchart LR
-    Codex[Codex supervisor] -->|compact handoff| Mixmod[Mixmod CLI]
+    Codex[Codex supervisor] -->|handoff| Mixmod[Mixmod CLI]
     Mixmod -->|task + handoff| OpenCode[OpenCode worker]
     OpenCode -->|patch + artifacts| Codex
     Codex -->|revise| Mixmod
