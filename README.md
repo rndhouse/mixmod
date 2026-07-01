@@ -1,7 +1,7 @@
 # Mixmod
 
 Mixmod is an experimental CLI harness for testing whether Codex can spend fewer
-frontier tokens by supervising a local GPU-backed coding worker.
+Codex model tokens by supervising a local GPU-backed coding worker.
 
 The default strategy is:
 
@@ -44,9 +44,9 @@ This is a selected Codex-pass SWE-bench Lite pool, not a random sample.
 | `scikit-learn__scikit-learn-13584` | -73.7% | -34.9% |
 
 Aggregate result: Codex-only and Mixmod both resolved 10/10. Mixmod reduced
-frontier output tokens by 51.4% and total frontier tokens by 75.5%, with local
-Qwen/GPU inference verified on every Mixmod run. Runtime remains the main
-tradeoff: Mixmod took 85.7 minutes versus 22.8 minutes for Codex-only.
+Codex output tokens by 51.4% and total Codex tokens by 75.5%, with local Qwen/GPU
+inference verified on every Mixmod run. Runtime remains the main tradeoff:
+Mixmod took 85.7 minutes versus 22.8 minutes for Codex-only.
 
 ## Quick Start
 
