@@ -25,22 +25,28 @@ flowchart LR
     Decision -->|done| Report[metrics + report]
 ```
 
-## Benchmark Highlights
+## Latest Benchmark Highlights
 
-All runs below use selected SWE-bench Lite pools, not random samples. The main
-question is whether Mixmod preserves official patch quality while reducing
-frontier-token usage.
+Latest report: [SWE-bench current default 10-instance snapshot](docs/swebench-current-default-v1-10.md).
+This is a selected Codex-pass SWE-bench Lite pool, not a random sample.
 
-| Benchmark | Date | Pool | Official resolved | Frontier output | Total frontier tokens | Runtime | Notes |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| [Current default 10-instance](docs/swebench-current-default-v1-10.md) | 2026-07-01 | 10 | 10/10 -> 10/10 | -51.4% | -75.5% | 3.8x slower | Latest snapshot; local Qwen/GPU verified on every Mixmod run. |
-| [Current default 3-instance](docs/swebench-current-default-v1.md) | 2026-07-01 | 3 | 3/3 -> 3/3 | -53.1% | -74.0% | n/a | Same current strategy on the original selected pool. |
-| [Explicit gpt-5.5/high rerun](docs/swebench-explicit-gpt55-high-v1.md) | 2026-06-30 | 3 | 3/3 -> 2/3 | -79.3% | -90.8% | 1.7x slower | Token savings held, but one Mixmod arm produced an empty patch. |
-| [Codex-pass pilot](docs/swebench-codex-pass-pool-v1.md) | 2026-06-30 | 3 | 3/3 -> 3/3 | -85.4% | -91.1% | 1.3x slower | Earlier pilot; Codex reasoning effort was not pinned. |
+| Benchmark | Repo | Official result | Frontier output | Total frontier tokens | Runtime |
+| --- | --- | --- | ---: | ---: | ---: |
+| `pytest-dev__pytest-11143` | pytest | resolved -> resolved | -65.6% | -86.0% | 1.9x slower |
+| `scikit-learn__scikit-learn-13439` | scikit-learn | resolved -> resolved | -37.9% | -65.1% | 5.1x slower |
+| `sympy__sympy-20212` | SymPy | resolved -> resolved | -48.5% | -66.1% | 1.5x slower |
+| `django__django-12908` | Django | resolved -> resolved | -43.6% | -56.0% | 3.3x slower |
+| `pytest-dev__pytest-6116` | pytest | resolved -> resolved | -56.2% | -80.7% | 5.5x slower |
+| `django__django-13447` | Django | resolved -> resolved | -73.1% | -91.4% | 1.6x slower |
+| `django__django-15814` | Django | resolved -> resolved | -61.5% | -83.9% | 2.2x slower |
+| `django__django-11179` | Django | resolved -> resolved | -22.0% | -68.8% | 11.0x slower |
+| `sympy__sympy-13480` | SymPy | resolved -> resolved | -60.6% | -64.5% | 1.3x slower |
+| `scikit-learn__scikit-learn-13584` | scikit-learn | resolved -> resolved | -34.9% | -72.8% | 4.8x slower |
 
-Latest headline result: on the 10-instance selected pool, Codex-only and Mixmod
-both resolved 10/10, while Mixmod reduced frontier output tokens from 54,407 to
-26,469 and total frontier tokens from 4,642,623 to 1,137,724.
+Aggregate result: Codex-only and Mixmod both resolved 10/10. Mixmod reduced
+frontier output tokens by 51.4% and total frontier tokens by 75.5%, with local
+Qwen/GPU inference verified on every Mixmod run. The tradeoff was runtime:
+Mixmod took 85.7 minutes versus 22.8 minutes for Codex-only.
 
 ## Quick Start
 
@@ -69,37 +75,3 @@ target/debug/mixmod experiment record-codex-only checkout-brief \
 target/debug/mixmod experiment run-default checkout-brief --require-local
 target/debug/mixmod experiment report checkout-brief
 ```
-
-## Local Integration
-
-Mixmod keeps integration repo-local:
-
-- generated state lives under `.mixmod/`
-- repo-local Codex integration lives under `.codex/`
-- OpenCode defaults to `local-ollama/qwen3.6:27b`
-- global Codex and OpenCode config are not modified
-
-Useful commands:
-
-```sh
-target/debug/mixmod init
-target/debug/mixmod status
-target/debug/mixmod doctor
-target/debug/mixmod uninstall
-```
-
-## Artifacts
-
-Each worker run writes compact artifacts for Codex review:
-
-```text
-receipt.json
-report.md
-changes.patch
-tests.json
-metrics.json
-logs/
-```
-
-Default-strategy experiments also write `worker-brief.json`,
-`frontier-feedback.jsonl`, `final.patch`, and an experiment `report.md`.
