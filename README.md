@@ -30,7 +30,7 @@ flowchart LR
 Latest report: [SWE-bench current default 10-instance snapshot](docs/swebench-current-default-v1-10.md).
 This is a selected Codex-pass SWE-bench Lite pool, not a random sample.
 
-| Benchmark | Frontier inputs tokens | Frontier outputs tokens |
+| Benchmark | Codex inputs tokens | Codex outputs tokens |
 | --- | ---: | ---: |
 | `pytest-dev__pytest-11143` | -86.4% | -65.6% |
 | `scikit-learn__scikit-learn-13439` | -66.0% | -37.9% |
