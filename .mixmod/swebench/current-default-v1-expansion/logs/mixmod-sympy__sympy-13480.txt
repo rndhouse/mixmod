@@ -1,0 +1,24 @@
+Initializing Mixmod in /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-sympy__sympy-13480/work/default
+created .mixmod/tasks
+created .mixmod/runs
+created .mixmod/experiments
+created .mixmod/codex-home
+created .mixmod/backups
+created .codex/hooks
+created .mixmod/config.toml
+created opencode.json
+created .codex/mixmod-instructions.md
+created .codex/config.toml
+created .codex/hooks.json
+created .codex/hooks/mixmod-hook.sh
+Mixmod run run-20260701T164750Z-305377 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-sympy__sympy-13480/work/default/.mixmod/runs/default-proposal
+status: success
+compact artifacts:
+  .mixmod/runs/default-proposal/receipt.json
+  .mixmod/runs/default-proposal/report.md
+  .mixmod/runs/default-proposal/changes.patch
+  .mixmod/runs/default-proposal/tests.json
+  .mixmod/runs/default-proposal/metrics.json
+default strategy experiment wrote .mixmod/experiments/swebench-current-default-v1-sympy__sympy-13480/default/report.md
+
+$ /home/user/dev/mixmod/target/debug/mixmod experiment run-default swebench-current-default-v1-sympy__sympy-13480 --require-local

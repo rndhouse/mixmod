@@ -1,0 +1,204 @@
+{
+  "run": "codex-pass-pool-v1",
+  "selected_instances": [
+    "pytest-dev__pytest-11143",
+    "sympy__sympy-20212",
+    "scikit-learn__scikit-learn-13439"
+  ],
+  "selection_rule": "Use instances only after Codex-only official SWE-bench resolved=true.",
+  "codex_resolved": 3,
+  "mixmod_resolved": 3,
+  "codex_frontier_output_tokens": 13038,
+  "mixmod_frontier_output_tokens": 1907,
+  "codex_frontier_input_tokens": 1398349,
+  "mixmod_frontier_input_tokens": 122676,
+  "codex_frontier_total_tokens": 1413143,
+  "mixmod_frontier_total_tokens": 125634,
+  "codex_visible_bytes": 25523,
+  "mixmod_codex_visible_bytes": 78276,
+  "mixmod_codex_calls": 9,
+  "mixmod_opencode_calls": 5,
+  "mixmod_local_worker_text_bytes": 17288,
+  "all_mixmod_local_inference_verified": true,
+  "all_mixmod_gpu_activity_observed": true,
+  "opencode_models": [
+    "local-ollama/qwen3.6:27b (local-ollama/qwen3.6:27b)"
+  ],
+  "records": [
+    {
+      "instance_id": "pytest-dev__pytest-11143",
+      "experiment": "swebench-codex-pass-pool-v1-pytest-dev__pytest-11143",
+      "codex": {
+        "official": {
+          "resolved": true,
+          "patch_successfully_applied": true,
+          "fail_to_pass_success": 1,
+          "fail_to_pass_failure": 0,
+          "pass_to_pass_failure": 0
+        },
+        "frontier_input_tokens": 687356,
+        "frontier_output_tokens": 6177,
+        "frontier_reasoning_tokens": 977,
+        "frontier_total_tokens": 694510,
+        "codex_visible_bytes": 16984,
+        "patch_bytes": 1767,
+        "changed_file_count": 2,
+        "changed_line_count": 14,
+        "wall_clock_ms": 189471
+      },
+      "mixmod": {
+        "official": {
+          "resolved": true,
+          "patch_successfully_applied": true,
+          "fail_to_pass_success": 1,
+          "fail_to_pass_failure": 0,
+          "pass_to_pass_failure": 0
+        },
+        "frontier_input_tokens": 42670,
+        "frontier_output_tokens": 632,
+        "frontier_reasoning_tokens": 258,
+        "frontier_total_tokens": 43560,
+        "codex_visible_bytes": 33128,
+        "patch_bytes": 557,
+        "changed_file_count": 1,
+        "changed_line_count": 1,
+        "wall_clock_ms": 162176,
+        "codex_calls": 3,
+        "opencode_calls": 2,
+        "local_worker_text_bytes": 5442,
+        "local_inference_verified": true,
+        "gpu_activity_observed": true,
+        "backend_activity_observed": true,
+        "opencode_provider": "local-ollama",
+        "opencode_model": "qwen3.6:27b",
+        "opencode_model_arg": "local-ollama/qwen3.6:27b",
+        "final_codex_action": "revise",
+        "final_status": "needs_review"
+      },
+      "delta": {
+        "frontier_output_tokens": -5545,
+        "frontier_input_tokens": -644686,
+        "frontier_total_tokens": -650950,
+        "codex_visible_bytes": 16144
+      }
+    },
+    {
+      "instance_id": "sympy__sympy-20212",
+      "experiment": "swebench-codex-pass-pool-v1-sympy__sympy-20212",
+      "codex": {
+        "official": {
+          "resolved": true,
+          "patch_successfully_applied": true,
+          "fail_to_pass_success": 1,
+          "fail_to_pass_failure": 0,
+          "pass_to_pass_failure": 0
+        },
+        "frontier_input_tokens": 544302,
+        "frontier_output_tokens": 4747,
+        "frontier_reasoning_tokens": 594,
+        "frontier_total_tokens": 549643,
+        "codex_visible_bytes": 2794,
+        "patch_bytes": 934,
+        "changed_file_count": 2,
+        "changed_line_count": 5,
+        "wall_clock_ms": 153388
+      },
+      "mixmod": {
+        "official": {
+          "resolved": true,
+          "patch_successfully_applied": true,
+          "fail_to_pass_success": 1,
+          "fail_to_pass_failure": 0,
+          "pass_to_pass_failure": 0
+        },
+        "frontier_input_tokens": 39073,
+        "frontier_output_tokens": 594,
+        "frontier_reasoning_tokens": 289,
+        "frontier_total_tokens": 39956,
+        "codex_visible_bytes": 19187,
+        "patch_bytes": 502,
+        "changed_file_count": 1,
+        "changed_line_count": 2,
+        "wall_clock_ms": 236046,
+        "codex_calls": 3,
+        "opencode_calls": 2,
+        "local_worker_text_bytes": 5675,
+        "local_inference_verified": true,
+        "gpu_activity_observed": true,
+        "backend_activity_observed": true,
+        "opencode_provider": "local-ollama",
+        "opencode_model": "qwen3.6:27b",
+        "opencode_model_arg": "local-ollama/qwen3.6:27b",
+        "final_codex_action": "revise",
+        "final_status": "needs_review"
+      },
+      "delta": {
+        "frontier_output_tokens": -4153,
+        "frontier_input_tokens": -505229,
+        "frontier_total_tokens": -509687,
+        "codex_visible_bytes": 16393
+      }
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-13439",
+      "experiment": "swebench-codex-pass-pool-v1-scikit-learn__scikit-learn-13439",
+      "codex": {
+        "official": {
+          "resolved": true,
+          "patch_successfully_applied": true,
+          "fail_to_pass_success": 1,
+          "fail_to_pass_failure": 0,
+          "pass_to_pass_failure": 0
+        },
+        "frontier_input_tokens": 166691,
+        "frontier_output_tokens": 2114,
+        "frontier_reasoning_tokens": 185,
+        "frontier_total_tokens": 168990,
+        "codex_visible_bytes": 5745,
+        "patch_bytes": 928,
+        "changed_file_count": 2,
+        "changed_line_count": 5,
+        "wall_clock_ms": 56488
+      },
+      "mixmod": {
+        "official": {
+          "resolved": true,
+          "patch_successfully_applied": true,
+          "fail_to_pass_success": 1,
+          "fail_to_pass_failure": 0,
+          "pass_to_pass_failure": 0
+        },
+        "frontier_input_tokens": 40933,
+        "frontier_output_tokens": 681,
+        "frontier_reasoning_tokens": 504,
+        "frontier_total_tokens": 42118,
+        "codex_visible_bytes": 25961,
+        "patch_bytes": 467,
+        "changed_file_count": 1,
+        "changed_line_count": 3,
+        "wall_clock_ms": 108436,
+        "codex_calls": 3,
+        "opencode_calls": 1,
+        "local_worker_text_bytes": 6171,
+        "local_inference_verified": true,
+        "gpu_activity_observed": true,
+        "backend_activity_observed": true,
+        "opencode_provider": "local-ollama",
+        "opencode_model": "qwen3.6:27b",
+        "opencode_model_arg": "local-ollama/qwen3.6:27b",
+        "final_codex_action": "revise",
+        "final_status": "needs_review"
+      },
+      "delta": {
+        "frontier_output_tokens": -1433,
+        "frontier_input_tokens": -125758,
+        "frontier_total_tokens": -126872,
+        "codex_visible_bytes": 20216
+      }
+    }
+  ],
+  "frontier_output_token_delta": -11131,
+  "frontier_input_token_delta": -1275673,
+  "frontier_total_token_delta": -1287509,
+  "codex_visible_byte_delta": 52753
+}

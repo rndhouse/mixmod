@@ -1,0 +1,33 @@
+diff --git a/src/_pytest/assertion/rewrite.py b/src/_pytest/assertion/rewrite.py
+index 157903faf..9bf79f1e1 100644
+--- a/src/_pytest/assertion/rewrite.py
++++ b/src/_pytest/assertion/rewrite.py
+@@ -676,6 +676,7 @@ class AssertionRewriter(ast.NodeVisitor):
+                 expect_docstring
+                 and isinstance(item, ast.Expr)
+                 and isinstance(item.value, ast.Constant)
++                and isinstance(item.value.value, str)
+             ):
+                 doc = item.value.value
+                 if self.is_rewrite_disabled(doc):
+diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
+index d01803204..87f8b6e64 100644
+--- a/testing/test_assertrewrite.py
++++ b/testing/test_assertrewrite.py
+@@ -1437,6 +1437,16 @@ class TestIssue10743:
+         assert result.ret == 0
+ 
+ 
++class TestIssue11140:
++    def test_constant_not_picked_as_module_docstring(self) -> None:
++        m = rewrite("1\nassert 1 == 2")
++        for imp in m.body[:2]:
++            assert isinstance(imp, ast.Import)
++        assert isinstance(m.body[2], ast.Expr)
++        assert isinstance(m.body[2].value, ast.Constant)
++        assert m.body[2].value.value == 1
++
++
+ class TestIssue11028:
+     def test_assertion_walrus_operator_in_operand(self, pytester: Pytester) -> None:
+         pytester.makepyfile(

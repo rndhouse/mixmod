@@ -1,0 +1,22 @@
+{
+  "title": "Implement VIP order discounts",
+  "instructions": "Implement VIP discounts across the order service. VIP customers get a 10% discount only when subtotal is at least 100. Standard customers get no discount. summarize_order must use discount_rate and return rounded subtotal, discount, and total values. Keep the fix small and do not change tests.",
+  "files": [
+    "discounts.py",
+    "orders.py",
+    "test_orders.py"
+  ],
+  "tests": [
+    "python -m unittest -q"
+  ],
+  "constraints": [
+    "Do not change test_orders.py.",
+    "Prefer changes limited to discounts.py and orders.py.",
+    "Keep rounding behavior deterministic."
+  ],
+  "acceptance": [
+    "python -m unittest -q passes.",
+    "discount_rate(\"vip\", 100.0) returns 0.10.",
+    "summarize_order applies the VIP discount amount to total."
+  ]
+}

@@ -1,0 +1,30 @@
+Initializing Mixmod in /home/user/dev/mixmod/.mixmod/experiments/swebench-explicit-gpt55-high-v1-pytest-dev__pytest-11143/work/default
+unchanged .mixmod/tasks
+unchanged .mixmod/runs
+unchanged .mixmod/experiments
+unchanged .mixmod/codex-home
+unchanged .mixmod/backups
+unchanged .codex/hooks
+unchanged .mixmod/config.toml
+unchanged opencode.json
+unchanged .codex/mixmod-instructions.md
+unchanged .codex/config.toml
+unchanged .codex/hooks.json
+unchanged .codex/hooks/mixmod-hook.sh
+Mixmod run run-20260630T151037Z-1634695 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-explicit-gpt55-high-v1-pytest-dev__pytest-11143/work/default/.mixmod/runs/default-proposal
+status: needs_supervisor
+compact artifacts:
+  .mixmod/runs/default-proposal/receipt.json
+  .mixmod/runs/default-proposal/report.md
+  .mixmod/runs/default-proposal/changes.patch
+  .mixmod/runs/default-proposal/tests.json
+  .mixmod/runs/default-proposal/metrics.json
+Mixmod run run-20260630T151138Z-1634695 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-explicit-gpt55-high-v1-pytest-dev__pytest-11143/work/default/.mixmod/runs/default-revision
+status: success
+compact artifacts:
+  .mixmod/runs/default-revision/receipt.json
+  .mixmod/runs/default-revision/report.md
+  .mixmod/runs/default-revision/changes.patch
+  .mixmod/runs/default-revision/tests.json
+  .mixmod/runs/default-revision/metrics.json
+default strategy experiment wrote .mixmod/experiments/swebench-explicit-gpt55-high-v1-pytest-dev__pytest-11143/default/report.md

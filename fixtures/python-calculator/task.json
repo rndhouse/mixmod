@@ -1,0 +1,20 @@
+{
+  "title": "Fix divide-by-zero behavior",
+  "instructions": "Update calculator.divide so divide(1, 0) raises ValueError with the message \"division by zero\". Keep the implementation minimal and do not change the tests.",
+  "files": [
+    "calculator.py",
+    "test_calculator.py"
+  ],
+  "tests": [
+    "python -m unittest -q"
+  ],
+  "constraints": [
+    "Do not change test_calculator.py.",
+    "Keep the patch focused to calculator.py unless there is a strong reason.",
+    "Report the test command and result."
+  ],
+  "acceptance": [
+    "python -m unittest -q passes.",
+    "divide(1, 0) raises ValueError(\"division by zero\")."
+  ]
+}

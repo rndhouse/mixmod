@@ -1,0 +1,30 @@
+{
+    "total_instances": 3,
+    "submitted_instances": 3,
+    "completed_instances": 3,
+    "resolved_instances": 1,
+    "unresolved_instances": 2,
+    "empty_patch_instances": 0,
+    "error_instances": 0,
+    "completed_ids": [
+        "pallets__flask-4992",
+        "psf__requests-3362",
+        "pytest-dev__pytest-11143"
+    ],
+    "incomplete_ids": [],
+    "empty_patch_ids": [],
+    "submitted_ids": [
+        "pallets__flask-4992",
+        "psf__requests-3362",
+        "pytest-dev__pytest-11143"
+    ],
+    "resolved_ids": [
+        "pytest-dev__pytest-11143"
+    ],
+    "unresolved_ids": [
+        "pallets__flask-4992",
+        "psf__requests-3362"
+    ],
+    "error_ids": [],
+    "schema_version": 2
+}

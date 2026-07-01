@@ -1,0 +1,38 @@
+[
+  {
+    "instance_id": "pytest-dev__pytest-11143",
+    "experiment": "swebench-codex-pass-pool-v1-pytest-dev__pytest-11143",
+    "repo": "pytest-dev/pytest",
+    "base_commit": "6995257cf470d2143ad1683824962de4071c0eb7"
+  },
+  {
+    "instance_id": "sympy__sympy-20212",
+    "experiment": "swebench-codex-pass-pool-v1-sympy__sympy-20212",
+    "repo": "sympy/sympy",
+    "base_commit": "a106f4782a9dbe7f8fd16030f15401d977e03ae9"
+  },
+  {
+    "instance_id": "scikit-learn__scikit-learn-13439",
+    "experiment": "swebench-codex-pass-pool-v1-scikit-learn__scikit-learn-13439",
+    "repo": "scikit-learn/scikit-learn",
+    "base_commit": "a62775e99f2a5ea3d51db7160fad783f6cd8a4c5"
+  },
+  {
+    "instance_id": "django__django-12908",
+    "experiment": "swebench-codex-pass-pool-v1-django__django-12908",
+    "repo": "django/django",
+    "base_commit": "49ae7ce50a874f8a04cd910882fb9571ff3a0d7a"
+  },
+  {
+    "instance_id": "pytest-dev__pytest-6116",
+    "experiment": "swebench-codex-pass-pool-v1-pytest-dev__pytest-6116",
+    "repo": "pytest-dev/pytest",
+    "base_commit": "e670ff76cbad80108bde9bab616b66771b8653cf"
+  },
+  {
+    "instance_id": "django__django-16046",
+    "experiment": "swebench-codex-pass-pool-v1-django__django-16046",
+    "repo": "django/django",
+    "base_commit": "ec13e801b820614ff374cb0046092caab8d67249"
+  }
+]

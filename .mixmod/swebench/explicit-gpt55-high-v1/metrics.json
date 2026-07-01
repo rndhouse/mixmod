@@ -1,0 +1,69 @@
+{
+  "run_id": "explicit-gpt55-high-v1",
+  "date": "2026-06-30",
+  "instances": [
+    "pytest-dev__pytest-11143",
+    "sympy__sympy-20212",
+    "scikit-learn__scikit-learn-13439"
+  ],
+  "frontier": {
+    "model": "gpt-5.5",
+    "reasoning_effort": "high"
+  },
+  "worker": {
+    "opencode_model": "local-ollama/qwen3.6:27b",
+    "require_local": true,
+    "local_inference_verified": true,
+    "gpu_activity_observed": true,
+    "backend_activity_observed": true
+  },
+  "codex_only": {
+    "official_resolved": 3,
+    "official_completed": 3,
+    "official_empty_patch": 0,
+    "frontier_input_tokens": 1738235,
+    "frontier_output_tokens": 16412,
+    "frontier_reasoning_tokens": 3949,
+    "frontier_total_tokens": 1758596,
+    "codex_visible_bytes_proxy": 25535,
+    "frontier_output_bytes_proxy": 437220,
+    "codex_calls": 3,
+    "opencode_calls": 0,
+    "patch_bytes": 3202,
+    "changed_files": 6,
+    "changed_lines": 22,
+    "wall_clock_ms": 445639
+  },
+  "mixmod_default": {
+    "official_resolved": 2,
+    "official_completed": 2,
+    "official_empty_patch": 1,
+    "empty_patch_instances": [
+      "sympy__sympy-20212"
+    ],
+    "frontier_input_tokens": 155887,
+    "frontier_output_tokens": 3391,
+    "frontier_reasoning_tokens": 2062,
+    "frontier_total_tokens": 161340,
+    "codex_visible_bytes_proxy": 74005,
+    "frontier_output_bytes_proxy": 19909,
+    "codex_calls": 9,
+    "opencode_calls": 6,
+    "local_worker_text_bytes": 25581,
+    "artifact_bytes": 81134,
+    "patch_bytes": 1900,
+    "changed_files": 3,
+    "changed_lines": 18,
+    "wall_clock_ms": 775126
+  },
+  "deltas_mixmod_default_vs_codex_only": {
+    "frontier_input_tokens": -1582348,
+    "frontier_output_tokens": -13021,
+    "frontier_reasoning_tokens": -1887,
+    "frontier_total_tokens": -1597256,
+    "codex_visible_bytes_proxy": 48470,
+    "wall_clock_ms": 329487,
+    "official_resolved": -1
+  },
+  "conclusion": "Pinning Codex to gpt-5.5/high was a good experimental control. Mixmod default reduced frontier output tokens by 13021 across three Codex-pass SWE-bench Lite instances, but did not preserve patch quality because the SymPy worker path produced an empty patch."
+}

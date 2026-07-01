@@ -1,0 +1,43 @@
+# BEGIN MIXMOD MANAGED: config
+# Project-local Mixmod configuration. This file is intentionally repo-local.
+
+[opencode]
+provider = "local"
+model = "qwen-3.6-27b"
+require_local = true
+
+# Override with MIXMOD_OPENCODE_COMMAND when needed.
+command = "opencode"
+
+# Placeholders:
+# - {instruction}: full generated instruction text
+# - {instruction_file}: path to the generated instruction file
+# - {task_file}: path to the task JSON
+# - {mode}: Mixmod delegation mode
+# - {out_dir}: run artifact directory
+# - {model}: resolved model id
+# - {provider}: resolved provider id
+# - {model_arg}: explicit provider/model argument passed to OpenCode
+# - {session_id}: Mixmod-generated OpenCode session label
+# - {resume_session_id}: real OpenCode session id used for worker_mode=continue
+args = ["run", "--dangerously-skip-permissions", "--model", "{model_arg}", "--title", "{session_id}", "{instruction}"]
+
+heartbeat_seconds = 10
+worker_timeout_seconds = 600
+idle_timeout_seconds = 300
+
+local_providers = ["local", "local-ollama", "ollama", "lmstudio", "llama.cpp", "vllm", "localhost"]
+
+[opencode.local_verification]
+enabled = true
+gpu_command = "nvidia-smi"
+backend_command = "ollama ps"
+
+[opencode.model_aliases]
+"qwen-3.6-27b" = ["qwen-3.6-27b", "qwen3.6:27b", "qwen/qwen3.6-27b", "ollama/qwen3.6:27b", "local-ollama/qwen3.6:27b"]
+
+[frontier]
+model = "gpt-5.5"
+# Codex config key: model_reasoning_effort. Allowed: minimal, low, medium, high, xhigh.
+reasoning_effort = "high"
+# END MIXMOD MANAGED: config

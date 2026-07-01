@@ -1,0 +1,56 @@
+Initializing Mixmod in /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-django__django-11179/work/default
+created .mixmod/tasks
+created .mixmod/runs
+created .mixmod/experiments
+created .mixmod/codex-home
+created .mixmod/backups
+created .codex/hooks
+created .mixmod/config.toml
+created opencode.json
+created .codex/mixmod-instructions.md
+created .codex/config.toml
+created .codex/hooks.json
+created .codex/hooks/mixmod-hook.sh
+Mixmod run run-20260701T162833Z-272046 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-django__django-11179/work/default/.mixmod/runs/default-proposal
+status: success
+compact artifacts:
+  .mixmod/runs/default-proposal/receipt.json
+  .mixmod/runs/default-proposal/report.md
+  .mixmod/runs/default-proposal/changes.patch
+  .mixmod/runs/default-proposal/tests.json
+  .mixmod/runs/default-proposal/metrics.json
+Mixmod run run-20260701T163238Z-272046 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-django__django-11179/work/default/.mixmod/runs/default-revision
+status: needs_supervisor
+compact artifacts:
+  .mixmod/runs/default-revision/receipt.json
+  .mixmod/runs/default-revision/report.md
+  .mixmod/runs/default-revision/changes.patch
+  .mixmod/runs/default-revision/tests.json
+  .mixmod/runs/default-revision/metrics.json
+Mixmod run run-20260701T163358Z-272046 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-django__django-11179/work/default/.mixmod/runs/default-revision-2
+status: needs_supervisor
+compact artifacts:
+  .mixmod/runs/default-revision-2/receipt.json
+  .mixmod/runs/default-revision-2/report.md
+  .mixmod/runs/default-revision-2/changes.patch
+  .mixmod/runs/default-revision-2/tests.json
+  .mixmod/runs/default-revision-2/metrics.json
+Mixmod run run-20260701T163919Z-272046 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-django__django-11179/work/default/.mixmod/runs/default-revision-3
+status: needs_supervisor
+compact artifacts:
+  .mixmod/runs/default-revision-3/receipt.json
+  .mixmod/runs/default-revision-3/report.md
+  .mixmod/runs/default-revision-3/changes.patch
+  .mixmod/runs/default-revision-3/tests.json
+  .mixmod/runs/default-revision-3/metrics.json
+Mixmod run run-20260701T164207Z-272046 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-django__django-11179/work/default/.mixmod/runs/default-revision-4
+status: needs_supervisor
+compact artifacts:
+  .mixmod/runs/default-revision-4/receipt.json
+  .mixmod/runs/default-revision-4/report.md
+  .mixmod/runs/default-revision-4/changes.patch
+  .mixmod/runs/default-revision-4/tests.json
+  .mixmod/runs/default-revision-4/metrics.json
+default strategy experiment wrote .mixmod/experiments/swebench-current-default-v1-django__django-11179/default/report.md
+
+$ /home/user/dev/mixmod/target/debug/mixmod experiment run-default swebench-current-default-v1-django__django-11179 --require-local

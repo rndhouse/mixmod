@@ -1,0 +1,30 @@
+Initializing Mixmod in /home/user/dev/mixmod/.mixmod/experiments/swebench-explicit-gpt55-high-v1-scikit-learn__scikit-learn-13439/work/default
+created .mixmod/tasks
+created .mixmod/runs
+created .mixmod/experiments
+created .mixmod/codex-home
+created .mixmod/backups
+created .codex/hooks
+created .mixmod/config.toml
+created opencode.json
+created .codex/mixmod-instructions.md
+created .codex/config.toml
+created .codex/hooks.json
+created .codex/hooks/mixmod-hook.sh
+Mixmod run run-20260630T151824Z-1646652 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-explicit-gpt55-high-v1-scikit-learn__scikit-learn-13439/work/default/.mixmod/runs/default-proposal
+status: success
+compact artifacts:
+  .mixmod/runs/default-proposal/receipt.json
+  .mixmod/runs/default-proposal/report.md
+  .mixmod/runs/default-proposal/changes.patch
+  .mixmod/runs/default-proposal/tests.json
+  .mixmod/runs/default-proposal/metrics.json
+Mixmod run run-20260630T152020Z-1646652 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-explicit-gpt55-high-v1-scikit-learn__scikit-learn-13439/work/default/.mixmod/runs/default-revision
+status: success
+compact artifacts:
+  .mixmod/runs/default-revision/receipt.json
+  .mixmod/runs/default-revision/report.md
+  .mixmod/runs/default-revision/changes.patch
+  .mixmod/runs/default-revision/tests.json
+  .mixmod/runs/default-revision/metrics.json
+default strategy experiment wrote .mixmod/experiments/swebench-explicit-gpt55-high-v1-scikit-learn__scikit-learn-13439/default/report.md

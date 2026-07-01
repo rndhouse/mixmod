@@ -1,0 +1,12 @@
+# BEGIN MIXMOD MANAGED: codex-config
+# Conservative repo-local Mixmod integration metadata.
+# Hooks are defined in .codex/hooks.json and route to the local Mixmod endpoint.
+
+[mixmod]
+enabled = true
+instructions = ".codex/mixmod-instructions.md"
+hooks = ".codex/hooks.json"
+hook = ".codex/hooks/mixmod-hook.sh"
+state = ".mixmod"
+codex_home = ".mixmod/codex-home"
+# END MIXMOD MANAGED: codex-config

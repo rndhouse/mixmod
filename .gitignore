@@ -1,0 +1,30 @@
+/target/
+/logs/
+__pycache__/
+*.py[cod]
+AGENTS.md
+
+# Mixmod generated state can include large SWE-bench worktrees, nested Git
+# repositories, temporary Codex homes, local auth copies, and dependency caches.
+/.mixmod/*
+!/.mixmod/config.toml
+!/.mixmod/swebench/
+/.mixmod/swebench/*
+!/.mixmod/swebench/codex-pass-pool-v1/
+!/.mixmod/swebench/codex-pass-pool-v1/**
+!/.mixmod/swebench/current-default-v1/
+!/.mixmod/swebench/current-default-v1/**
+!/.mixmod/swebench/current-default-v1-expansion/
+!/.mixmod/swebench/current-default-v1-expansion/**
+!/.mixmod/swebench/expect-patch-v1/
+!/.mixmod/swebench/expect-patch-v1/**
+!/.mixmod/swebench/explicit-gpt55-high-v1/
+!/.mixmod/swebench/explicit-gpt55-high-v1/**
+
+# Do not track generated benchmark worktrees or repo caches even under
+# explicitly kept summary directories.
+/.mixmod/**/work/
+/.mixmod/**/repo-cache/
+/.mixmod/**/codex-home/
+/.mixmod/**/.tmp/
+/.mixmod/**/uv-cache/

@@ -1,0 +1,72 @@
+Initializing Mixmod in /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/work/default
+created .mixmod/tasks
+created .mixmod/runs
+created .mixmod/experiments
+created .mixmod/codex-home
+created .mixmod/backups
+created .codex/hooks
+created .mixmod/config.toml
+created opencode.json
+created .codex/mixmod-instructions.md
+created .codex/config.toml
+created .codex/hooks.json
+created .codex/hooks/mixmod-hook.sh
+Mixmod run run-20260701T155353Z-215831 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/work/default/.mixmod/runs/default-proposal
+status: success
+compact artifacts:
+  .mixmod/runs/default-proposal/receipt.json
+  .mixmod/runs/default-proposal/report.md
+  .mixmod/runs/default-proposal/changes.patch
+  .mixmod/runs/default-proposal/tests.json
+  .mixmod/runs/default-proposal/metrics.json
+Mixmod run run-20260701T155811Z-215831 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/work/default/.mixmod/runs/default-revision
+status: needs_supervisor
+compact artifacts:
+  .mixmod/runs/default-revision/receipt.json
+  .mixmod/runs/default-revision/report.md
+  .mixmod/runs/default-revision/changes.patch
+  .mixmod/runs/default-revision/tests.json
+  .mixmod/runs/default-revision/metrics.json
+Mixmod run run-20260701T160202Z-215831 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/work/default/.mixmod/runs/default-revision-2
+status: needs_supervisor
+compact artifacts:
+  .mixmod/runs/default-revision-2/receipt.json
+  .mixmod/runs/default-revision-2/report.md
+  .mixmod/runs/default-revision-2/changes.patch
+  .mixmod/runs/default-revision-2/tests.json
+  .mixmod/runs/default-revision-2/metrics.json
+Mixmod run run-20260701T160408Z-215831 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/work/default/.mixmod/runs/default-revision-3
+status: success
+compact artifacts:
+  .mixmod/runs/default-revision-3/receipt.json
+  .mixmod/runs/default-revision-3/report.md
+  .mixmod/runs/default-revision-3/changes.patch
+  .mixmod/runs/default-revision-3/tests.json
+  .mixmod/runs/default-revision-3/metrics.json
+Mixmod run run-20260701T160551Z-215831 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/work/default/.mixmod/runs/default-revision-4
+status: needs_supervisor
+compact artifacts:
+  .mixmod/runs/default-revision-4/receipt.json
+  .mixmod/runs/default-revision-4/report.md
+  .mixmod/runs/default-revision-4/changes.patch
+  .mixmod/runs/default-revision-4/tests.json
+  .mixmod/runs/default-revision-4/metrics.json
+Mixmod run run-20260701T160834Z-215831 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/work/default/.mixmod/runs/default-revision-5
+status: success
+compact artifacts:
+  .mixmod/runs/default-revision-5/receipt.json
+  .mixmod/runs/default-revision-5/report.md
+  .mixmod/runs/default-revision-5/changes.patch
+  .mixmod/runs/default-revision-5/tests.json
+  .mixmod/runs/default-revision-5/metrics.json
+Mixmod run run-20260701T161147Z-215831 wrote artifacts to /home/user/dev/mixmod/.mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/work/default/.mixmod/runs/default-revision-6
+status: success
+compact artifacts:
+  .mixmod/runs/default-revision-6/receipt.json
+  .mixmod/runs/default-revision-6/report.md
+  .mixmod/runs/default-revision-6/changes.patch
+  .mixmod/runs/default-revision-6/tests.json
+  .mixmod/runs/default-revision-6/metrics.json
+default strategy experiment wrote .mixmod/experiments/swebench-current-default-v1-pytest-dev__pytest-6116/default/report.md
+
+$ /home/user/dev/mixmod/target/debug/mixmod experiment run-default swebench-current-default-v1-pytest-dev__pytest-6116 --require-local

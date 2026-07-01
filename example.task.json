@@ -1,0 +1,15 @@
+{
+  "title": "Example bounded patch",
+  "instructions": "Make one small, reviewable code change and report what changed. Replace this with a real experiment task.",
+  "files": [],
+  "tests": ["cargo test"],
+  "constraints": [
+    "Keep the patch focused.",
+    "Return concise output.",
+    "Do not paste long logs."
+  ],
+  "acceptance": [
+    "The change is represented in changes.patch.",
+    "Tests run are listed in the report."
+  ]
+}

@@ -1,0 +1,1 @@
+recorded automated Codex-only baseline at .mixmod/experiments/swebench-codex-pass-pool-v1-sympy__sympy-20212/codex-only

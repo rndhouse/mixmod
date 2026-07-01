@@ -1,0 +1,24 @@
+{
+  "title": "Implement checkout promotions and validation",
+  "instructions": "Implement the checkout rules across catalog, promotions, and checkout. Unknown SKUs must raise ValueError(\"unknown sku: <sku>\"). Quantities above product stock must raise ValueError(\"insufficient stock: <sku>\"). Marker lines get a 10% line discount when quantity is at least 10. VIP customers get a 5% order discount when the discounted subtotal is at least 50. summarize_cart must return rounded line subtotals, discounts, totals, aggregate subtotal, aggregate discount, and final total. Keep the tests unchanged.",
+  "files": [
+    "catalog.py",
+    "promotions.py",
+    "checkout.py",
+    "test_checkout.py"
+  ],
+  "tests": [
+    "python -m unittest -q"
+  ],
+  "constraints": [
+    "Do not change test_checkout.py.",
+    "Prefer changes limited to catalog.py, promotions.py, and checkout.py.",
+    "Round monetary values to two decimal places at the returned boundaries.",
+    "Apply VIP order discount after line discounts."
+  ],
+  "acceptance": [
+    "python -m unittest -q passes.",
+    "Unknown SKUs and insufficient stock raise the specified ValueError messages.",
+    "Marker bulk line discount and VIP order discount are both applied correctly."
+  ]
+}
