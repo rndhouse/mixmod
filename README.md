@@ -30,18 +30,18 @@ flowchart LR
 Latest report: [SWE-bench current default 10-instance snapshot](docs/swebench-current-default-v1-10.md).
 This is a selected Codex-pass SWE-bench Lite pool, not a random sample.
 
-| Benchmark | Repo | Official result | Frontier output | Total frontier tokens | Runtime |
-| --- | --- | --- | ---: | ---: | ---: |
-| `pytest-dev__pytest-11143` | pytest | resolved -> resolved | -65.6% | -86.0% | 1.9x slower |
-| `scikit-learn__scikit-learn-13439` | scikit-learn | resolved -> resolved | -37.9% | -65.1% | 5.1x slower |
-| `sympy__sympy-20212` | SymPy | resolved -> resolved | -48.5% | -66.1% | 1.5x slower |
-| `django__django-12908` | Django | resolved -> resolved | -43.6% | -56.0% | 3.3x slower |
-| `pytest-dev__pytest-6116` | pytest | resolved -> resolved | -56.2% | -80.7% | 5.5x slower |
-| `django__django-13447` | Django | resolved -> resolved | -73.1% | -91.4% | 1.6x slower |
-| `django__django-15814` | Django | resolved -> resolved | -61.5% | -83.9% | 2.2x slower |
-| `django__django-11179` | Django | resolved -> resolved | -22.0% | -68.8% | 11.0x slower |
-| `sympy__sympy-13480` | SymPy | resolved -> resolved | -60.6% | -64.5% | 1.3x slower |
-| `scikit-learn__scikit-learn-13584` | scikit-learn | resolved -> resolved | -34.9% | -72.8% | 4.8x slower |
+| Benchmark | Frontier input | Frontier output | Total frontier tokens | Runtime |
+| --- | ---: | ---: | ---: | ---: |
+| `pytest-dev__pytest-11143` | -86.4% | -65.6% | -86.0% | 1.9x slower |
+| `scikit-learn__scikit-learn-13439` | -66.0% | -37.9% | -65.1% | 5.1x slower |
+| `sympy__sympy-20212` | -66.4% | -48.5% | -66.1% | 1.5x slower |
+| `django__django-12908` | -56.3% | -43.6% | -56.0% | 3.3x slower |
+| `pytest-dev__pytest-6116` | -81.4% | -56.2% | -80.7% | 5.5x slower |
+| `django__django-13447` | -91.9% | -73.1% | -91.4% | 1.6x slower |
+| `django__django-15814` | -84.5% | -61.5% | -83.9% | 2.2x slower |
+| `django__django-11179` | -70.0% | -22.0% | -68.8% | 11.0x slower |
+| `sympy__sympy-13480` | -64.8% | -60.6% | -64.5% | 1.3x slower |
+| `scikit-learn__scikit-learn-13584` | -73.7% | -34.9% | -72.8% | 4.8x slower |
 
 Aggregate result: Codex-only and Mixmod both resolved 10/10. Mixmod reduced
 frontier output tokens by 51.4% and total frontier tokens by 75.5%, with local
