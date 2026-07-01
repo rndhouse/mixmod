@@ -16,7 +16,7 @@ flowchart LR
     Mixmod -->|task + handoff| OpenCode[OpenCode worker]
     OpenCode -->|patch + artifacts| Codex
     Codex -->|revise| Mixmod
-    Codex -->|approve or stop| Done[done]
+    Codex -->|approve| Done[done]
 ```
 
 ## Latest Benchmark Highlights
