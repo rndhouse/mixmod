@@ -10,8 +10,6 @@ Early benchmark results show a **75.5% aggregate reduction in GPT-5.5 token usag
 * Input tokens fell by 76.1%.
 * Per-instance total token reductions ranged from 56.0% to 91.4%.
 
-The tradeoff is runtime. With the local model running on an RTX 3090, Mixmod took 85.7 minutes versus 22.8 minutes for GPT-5.5 alone.
-
 ```mermaid
 flowchart TD
     B[GPT-5.5
