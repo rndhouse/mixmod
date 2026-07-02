@@ -14,7 +14,8 @@ The default strategy is:
 flowchart LR
     Codex[Codex supervisor] -->|handoff| Mixmod[Mixmod CLI]
     Mixmod -->|task + handoff| OpenCode[OpenCode worker]
-    OpenCode -->|patch + artifacts| Codex
+    OpenCode -->|status| Mixmod
+    Mixmod -->|artifacts| Codex
     Codex -->|revise| Mixmod
     Codex -->|approve| Done[done]
 ```
