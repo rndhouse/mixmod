@@ -230,7 +230,7 @@ pub(crate) fn ensure_debug_command_enabled(command: &str) -> Result<()> {
         return Ok(());
     }
     bail!(
-        "{command} is hidden for normal Codex use. Use `mixmod delegate --task <task.json> --out <run-dir>` instead. Set {DEBUG_COMMANDS_ENV}=1 only for manual debugging."
+        "{command} is hidden for normal Codex use. Use `mixmod exec --task <task.json> --out <run-dir>` instead. Set {DEBUG_COMMANDS_ENV}=1 only for manual debugging."
     )
 }
 

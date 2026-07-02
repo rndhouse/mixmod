@@ -216,15 +216,15 @@ fn supervise_args_launch_background_run_with_resume() {
 fn debug_commands_are_gated_by_default() {
     let error = ensure_debug_command_enabled("mixmod run").unwrap_err();
 
-    assert!(error.to_string().contains("mixmod delegate"));
+    assert!(error.to_string().contains("mixmod exec"));
     assert!(error.to_string().contains("MIXMOD_DEBUG_COMMANDS=1"));
 }
 
 #[test]
-fn delegate_command_is_public_cli_surface() {
+fn exec_command_is_public_cli_surface() {
     let cli = Cli::try_parse_from([
         "mixmod",
-        "delegate",
+        "exec",
         "--task",
         "task.json",
         "--out",
@@ -234,7 +234,7 @@ fn delegate_command_is_public_cli_surface() {
     .unwrap();
 
     match cli.command {
-        Commands::Delegate {
+        Commands::Exec {
             task,
             out,
             require_local,
@@ -245,8 +245,10 @@ fn delegate_command_is_public_cli_surface() {
             assert!(require_local);
             assert!(resume_session.is_none());
         }
-        _ => panic!("expected delegate command"),
+        _ => panic!("expected exec command"),
     }
+
+    assert!(Cli::try_parse_from(["mixmod", "delegate"]).is_err());
 }
 
 #[test]

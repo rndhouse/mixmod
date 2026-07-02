@@ -126,7 +126,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             ensure_debug_command_enabled("mixmod doctor")?;
             doctor_project(&root)
         }
-        Commands::Delegate {
+        Commands::Exec {
             task,
             out,
             require_local,
