@@ -1,26 +1,31 @@
 # Mixmod
 
-Mixmod is an experimental CLI harness for testing whether Codex can spend fewer
-Codex model tokens by supervising a local GPU-backed coding worker.
+Mixmod is an experimental LLM harness for reducing frontier LLM token usage.
 
-The default strategy is:
+It tests whether a strong frontier model can supervise a cheaper local model while preserving result quality. The current benchmarked pairing is GPT-5.5 supervising Qwen3.6-27B on a single RTX 3090.
 
-1. Codex reads the task and emits a compact worker handoff.
-2. Mixmod passes the original task plus handoff to local OpenCode/Qwen.
-3. Codex reviews compact artifacts and asks the worker to revise, approves, or
-   stops the loop.
+Early benchmark results show a **75.5% aggregate reduction in GPT-5.5 token usage** on the latest 10-instance SWE-bench Lite pool:
+
+* Output tokens fell by 51.4%.
+* Input tokens fell by 76.1%.
+* Per-instance total token reductions ranged from 56.0% to 91.4%.
+
+The tradeoff is runtime. With the local model running on an RTX 3090, Mixmod took 85.7 minutes versus 22.8 minutes for GPT-5.5 alone.
 
 ```mermaid
 flowchart TD
-    A[Codex writes a short worker brief]
-    B[Mixmod runs OpenCode/Qwen locally]
-    C[OpenCode returns patch and compact artifacts]
-    D[Codex reviews artifacts]
+    B[GPT-5.5
+    instructs Qwen3.6-27B]
+    C[Qwen3.6-27B
+    modifies code]
+    D[GPT-5.5
+    reviews]
     E{Approve?}
-    F[Final report]
-    G[Codex asks worker to revise]
+    F[Task complete]
+    G[GPT-5.5
+    prepares feedback]
 
-    A --> B --> C --> D --> E
+    B --> C --> D --> E
     E -->|yes| F
     E -->|no| G --> B
 ```
@@ -28,9 +33,11 @@ flowchart TD
 ## Latest Benchmark Highlights
 
 Latest report: [SWE-bench current default 10-instance snapshot](docs/swebench-current-default-v1-10.md).
-This is a selected Codex-pass SWE-bench Lite pool, not a random sample.
+This is a selected SWE-bench Lite pool where GPT-5.5 could solve every task. Mixmod is testing token reduction, not capability improvement.
 
-| Benchmark | Codex inputs tokens | Codex outputs tokens |
+This table shows the per-task reduction in GPT-5.5 tokens when using Mixmod instead of running GPT-5.5 alone.
+
+| Benchmark | GPT-5.5 input tokens | GPT-5.5 output tokens |
 | --- | ---: | ---: |
 | `pytest-dev__pytest-11143` | -86.4% | -65.6% |
 | `scikit-learn__scikit-learn-13439` | -66.0% | -37.9% |
@@ -43,10 +50,9 @@ This is a selected Codex-pass SWE-bench Lite pool, not a random sample.
 | `sympy__sympy-13480` | -64.8% | -60.6% |
 | `scikit-learn__scikit-learn-13584` | -73.7% | -34.9% |
 
-Aggregate result: Codex-only and Mixmod both resolved 10/10. Mixmod reduced
-Codex output tokens by 51.4% and total Codex tokens by 75.5%, with local Qwen/GPU
-inference verified on every Mixmod run. Runtime remains the main tradeoff:
-Mixmod took 85.7 minutes versus 22.8 minutes for Codex-only.
+Mixmod reduced GPT-5.5 output tokens by 51.4% and total GPT-5.5 tokens by 75.5%, with local Qwen/GPU inference verified on every Mixmod run.
+
+See the full benchmark report [docs/swebench-current-default-v1-10.md](docs/swebench-current-default-v1-10.md) for methodology, per-run details, runtime results, and caveats.
 
 ## Quick Start
 
