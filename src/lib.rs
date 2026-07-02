@@ -3,7 +3,7 @@
 use std::env;
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -42,7 +42,7 @@ pub use experiment::{
     DefaultRunOptions, experiment_init, experiment_record_codex_only, experiment_record_mixmod,
     experiment_recover, experiment_run_default,
 };
-pub use install::{doctor_project, hook_entrypoint, init_project, status_project};
+pub use install::{doctor_project, init_project, status_project};
 pub use opencode::{OpenCodeOutput, OpenCodeRequest, OpenCodeRunner, ShellOpenCodeRunner};
 pub use report::experiment_report;
 pub use run::{run_mixmod_task, run_mixmod_task_with_options};
@@ -96,9 +96,6 @@ const OPENCODE_CONFIG: &str = ".mixmod/opencode.json";
 const LEGACY_OPENCODE_CONFIG: &str = "opencode.json";
 #[cfg(test)]
 const CODEX_INSTRUCTIONS: &str = ".codex/mixmod-instructions.md";
-const CODEX_HOOKS_CONFIG: &str = ".codex/hooks.json";
-#[cfg(test)]
-const CODEX_HOOK: &str = ".codex/hooks/mixmod-hook.sh";
 const LIVE_STATUS_FILE: &str = "live-status.json";
 const SUPERVISOR_CONTROL_FILE: &str = "control.json";
 const SUPERVISOR_CONTROL_LOG: &str = "supervisor-control.jsonl";
@@ -174,10 +171,6 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             ensure_debug_command_enabled("mixmod supervise")?;
             ensure_project_state(&root, false)?;
             supervise_mixmod_task(&root, mode, &task, &out, require_local, resume_session)
-        }
-        Commands::Hook { args } => {
-            ensure_debug_command_enabled("mixmod hook")?;
-            hook_entrypoint(&root, args)
         }
         Commands::Live { command } => match command {
             LiveCommand::Status { run, json } => live_status(&root, &run, json),

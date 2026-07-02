@@ -30,20 +30,8 @@ pub(crate) fn ensure_project_state(root: &Path, verbose: bool) -> Result<()> {
         }
     }
 
-    write_managed_file(
-        root,
-        MIXMOD_CONFIG,
-        &default_config_content(),
-        false,
-        verbose,
-    )?;
-    write_managed_file(
-        root,
-        OPENCODE_CONFIG,
-        &opencode_config_content(),
-        false,
-        verbose,
-    )?;
+    write_managed_file(root, MIXMOD_CONFIG, &default_config_content(), verbose)?;
+    write_managed_file(root, OPENCODE_CONFIG, &opencode_config_content(), verbose)?;
     Ok(())
 }
 
@@ -108,18 +96,6 @@ pub fn doctor_project(root: &Path) -> Result<()> {
         issues.push("opencode missing");
     }
 
-    if env::var("MIXMOD_HOOK_DEPTH")
-        .ok()
-        .and_then(|value| value.parse::<u32>().ok())
-        .unwrap_or(0)
-        > 1
-    {
-        println!("warn: MIXMOD_HOOK_DEPTH is greater than 1; hook recursion guard is active");
-        issues.push("hook recursion guard active");
-    } else {
-        println!("ok: hook recursion guard is not active");
-    }
-
     if issues.is_empty() {
         println!("doctor: ok");
         Ok(())
@@ -130,40 +106,6 @@ pub fn doctor_project(root: &Path) -> Result<()> {
             issues.join(", ")
         )
     }
-}
-
-pub fn hook_entrypoint(root: &Path, args: Vec<String>) -> Result<()> {
-    if env::var("MIXMOD_DISABLE_HOOKS").as_deref() == Ok("1") {
-        println!("mixmod hook: disabled by MIXMOD_DISABLE_HOOKS=1");
-        return Ok(());
-    }
-
-    let depth = env::var("MIXMOD_HOOK_DEPTH")
-        .ok()
-        .and_then(|value| value.parse::<u32>().ok())
-        .unwrap_or(0);
-    if depth > 1 {
-        println!("mixmod hook: recursion guard active; passing through");
-        return Ok(());
-    }
-
-    let mut stdin = String::new();
-    let _ = std::io::stdin().read_to_string(&mut stdin);
-    let log_path = root.join(".mixmod/hooks.jsonl");
-    let event = json!({
-        "timestamp": Utc::now().to_rfc3339(),
-        "args": args,
-        "stdin_bytes": stdin.len() as u64,
-        "stdin_preview": truncate_for_report(&stdin, 1200),
-        "depth": depth,
-        "status": "pass-through"
-    });
-    append_jsonl(&log_path, &event)?;
-    println!(
-        "mixmod hook: logged pass-through event to {}",
-        display_path(root, &log_path)
-    );
-    Ok(())
 }
 
 fn default_config_content() -> String {
@@ -256,59 +198,7 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
     )
 }
 
-fn codex_hooks_content() -> String {
-    r#"{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/mixmod-hook.sh\" session-start",
-            "timeout": 10,
-            "statusMessage": "Mixmod session hook"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/mixmod-hook.sh\" user-prompt-submit",
-            "timeout": 10,
-            "statusMessage": "Mixmod prompt hook"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.codex/hooks/mixmod-hook.sh\" stop",
-            "timeout": 10,
-            "statusMessage": "Mixmod stop hook"
-          }
-        ]
-      }
-    ]
-  }
-}
-"#
-    .to_string()
-}
-
-fn write_managed_file(
-    root: &Path,
-    rel: &str,
-    content: &str,
-    executable: bool,
-    verbose: bool,
-) -> Result<()> {
+fn write_managed_file(root: &Path, rel: &str, content: &str, verbose: bool) -> Result<()> {
     let path = root.join(rel);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -333,9 +223,6 @@ fn write_managed_file(
             println!("{} {rel}", if existed { "updated" } else { "created" });
         }
     }
-    if executable {
-        set_executable(&path)?;
-    }
     Ok(())
 }
 
@@ -357,13 +244,9 @@ pub(crate) fn is_managed_file(path: &Path) -> bool {
         return true;
     }
     let file_name = path.file_name().and_then(OsStr::to_str);
-    (file_name == Some("opencode.json")
+    file_name == Some("opencode.json")
         && (content.trim_end() == opencode_config_content().trim_end()
-            || content.trim_end() == legacy_opencode_config_content().trim_end()))
-        || (path
-            .to_string_lossy()
-            .ends_with(CODEX_HOOKS_CONFIG.trim_start_matches("./"))
-            && content.trim_end() == codex_hooks_content().trim_end())
+            || content.trim_end() == legacy_opencode_config_content().trim_end())
 }
 
 fn file_state(path: &Path) -> String {
@@ -416,23 +299,6 @@ fn is_executable(path: &Path) -> bool {
 #[cfg(not(unix))]
 fn is_executable(path: &Path) -> bool {
     path.is_file()
-}
-
-#[cfg(unix)]
-fn set_executable(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut permissions = fs::metadata(path)
-        .with_context(|| format!("failed to read metadata for {}", path.display()))?
-        .permissions();
-    permissions.set_mode(permissions.mode() | 0o755);
-    fs::set_permissions(path, permissions)
-        .with_context(|| format!("failed to set executable permissions on {}", path.display()))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_executable(_path: &Path) -> Result<()> {
-    Ok(())
 }
 
 pub(crate) fn yes_no(value: bool) -> &'static str {

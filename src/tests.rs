@@ -605,8 +605,8 @@ fn init_manages_only_mixmod_local_files() {
     assert!(is_managed_file(&root.join(OPENCODE_CONFIG)));
     assert!(root.join(MIXMOD_CODEX_HOME).is_dir());
     assert!(!root.join(CODEX_INSTRUCTIONS).exists());
-    assert!(!root.join(CODEX_HOOKS_CONFIG).exists());
-    assert!(!root.join(CODEX_HOOK).exists());
+    assert!(!root.join(".codex/hooks.json").exists());
+    assert!(!root.join(".codex/hooks").exists());
     assert!(root.join(".mixmod/backups").exists());
     assert_eq!(
         fs::read_to_string(root.join(".codex/config.toml")).unwrap(),

@@ -1018,7 +1018,6 @@ fn spawn_opencode_process(config: SpawnOpenCodeProcess<'_>) -> Result<RunningOpe
     let mut child = opencode_command(config.command, config.root)
         .args(config.args)
         .current_dir(config.root)
-        .env("MIXMOD_DISABLE_HOOKS", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

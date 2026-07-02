@@ -61,12 +61,6 @@ pub enum Commands {
         #[arg(long)]
         resume_session: Option<String>,
     },
-    /// Entry point for legacy repo-local Codex hooks.
-    #[command(hide = true)]
-    Hook {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     /// Inspect or steer one running Mixmod/OpenCode worker run.
     Live {
         #[command(subcommand)]

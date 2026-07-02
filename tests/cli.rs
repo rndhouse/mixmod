@@ -55,7 +55,7 @@ fn read_json(path: &Path) -> Value {
 }
 
 #[test]
-fn internal_commands_are_debug_only() {
+fn internal_commands_are_hidden_or_removed() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -80,8 +80,8 @@ fn internal_commands_are_debug_only() {
         &[("MIXMOD_DEBUG_COMMANDS", "1")],
     ));
     assert_failure(run_mixmod(root, &["doctor"]));
-    assert_failure(run_mixmod(root, &["hook", "session-start"]));
     assert_failure(run_mixmod(root, &["experiment", "init", "demo"]));
+    assert_failure(run_mixmod(root, &["hook", "session-start"]));
     assert_failure(run_mixmod(root, &["uninstall"]));
 }
 
