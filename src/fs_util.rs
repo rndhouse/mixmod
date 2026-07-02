@@ -279,21 +279,6 @@ pub(crate) fn append_jsonl(path: &Path, value: &Value) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn remove_dir_if_empty(path: PathBuf) -> Result<()> {
-    if path.exists()
-        && path.is_dir()
-        && fs::read_dir(&path)
-            .with_context(|| format!("failed to read directory {}", path.display()))?
-            .next()
-            .is_none()
-    {
-        fs::remove_dir(&path)
-            .with_context(|| format!("failed to remove directory {}", path.display()))?;
-        println!("removed empty {}", path.display());
-    }
-    Ok(())
-}
-
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -343,18 +328,6 @@ pub(crate) fn display_path(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .map(|rel| rel.to_string_lossy().to_string())
         .unwrap_or_else(|_| path.to_string_lossy().to_string())
-}
-
-pub(crate) fn sanitize_path(path: &str) -> String {
-    path.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 pub(crate) fn make_run_id(prefix: &str) -> String {

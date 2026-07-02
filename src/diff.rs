@@ -5,7 +5,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-use crate::{OPENCODE_CONFIG, PatchStats};
+use crate::PatchStats;
 
 pub fn patch_stats(patch: &str) -> PatchStats {
     let mut files = BTreeSet::new();
@@ -78,7 +78,6 @@ pub(crate) fn git_diff_with_untracked(root: &Path) -> Result<String> {
             ".",
             ":(exclude).mixmod",
             ":(exclude).codex",
-            ":(exclude)opencode.json",
             ":(exclude)task.json",
         ])
         .output()
@@ -122,7 +121,6 @@ pub(crate) fn git_diff_with_untracked(root: &Path) -> Result<String> {
         if rel.starts_with(".mixmod/")
             || rel.starts_with(".codex/")
             || rel == ".mixmod"
-            || rel == OPENCODE_CONFIG
             || rel == "task.json"
         {
             continue;

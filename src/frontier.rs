@@ -122,7 +122,7 @@ pub(crate) fn run_codex_exec_turn(
         &artifact_dir.join(format!("{label}-prompt.md")),
         prompt.as_bytes(),
     )?;
-    let code_home = work_dir.join(".mixmod/codex-home");
+    let code_home = codex_home_for_work_dir(work_dir);
     fs::create_dir_all(&code_home)
         .with_context(|| format!("failed to create Codex home {}", code_home.display()))?;
     let copied_auth = copy_codex_auth_if_available(&code_home)?;
@@ -535,6 +535,11 @@ pub(crate) fn aggregate_frontier_usage(turns: &[FrontierUsageSample]) -> Frontie
     }
     usage
 }
+
+pub(crate) fn codex_home_for_work_dir(work_dir: &Path) -> PathBuf {
+    work_dir.join(MIXMOD_CODEX_HOME)
+}
+
 pub(crate) fn copy_codex_auth_if_available(code_home: &Path) -> Result<bool> {
     let home = env::var("HOME").unwrap_or_default();
     let source = Path::new(&home).join(".codex/auth.json");

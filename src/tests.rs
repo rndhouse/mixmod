@@ -422,6 +422,7 @@ fn interrupt_continue_restarts_opencode_with_same_session_inside_one_run() {
     let calls_path = root.join("calls.txt");
     let script = format!(
         r#"#!/bin/sh
+printf 'cmd=%s env=%s args=%s\n' "$1" "$OPENCODE_CONFIG" "$*" >> "{}"
 if [ "$1" = "models" ]; then
   echo "local-ollama/qwen3.6:27b"
   exit 0
@@ -430,7 +431,6 @@ if [ "$1" = "db" ]; then
   echo '[{{"id":"ses_fake"}}]'
   exit 0
 fi
-printf '%s\n' "$*" >> "{}"
 case " $* " in
   *" --session ses_fake "*)
     echo "resumed"
@@ -511,6 +511,13 @@ esac
     assert_eq!(output.supervisor_control_events.len(), 1);
     assert_eq!(output.opencode_segments.len(), 2);
     let calls = fs::read_to_string(calls_path).unwrap();
+    assert!(
+        calls.contains(
+            opencode_config_path(root)
+                .to_str()
+                .expect("OpenCode config path should be UTF-8")
+        )
+    );
     assert!(calls.contains("--session ses_fake"));
     assert!(calls.contains("Finish from the current session."));
     assert!(!calls.contains("--session ses_fake FULL ORIGINAL INSTRUCTION"));
@@ -584,23 +591,44 @@ fn subtracts_unchanged_preexisting_diff_blocks() {
 }
 
 #[test]
-fn init_and_uninstall_manage_only_local_files() {
+fn init_manages_only_mixmod_local_files() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fs::create_dir_all(root.join(".codex")).unwrap();
     fs::write(root.join(".codex/config.toml"), "existing = true\n").unwrap();
+    fs::write(root.join(LEGACY_OPENCODE_CONFIG), "{\"user\":true}\n").unwrap();
 
     init_project(root).unwrap();
     assert!(is_managed_file(&root.join(MIXMOD_CONFIG)));
-    assert!(is_managed_file(&root.join(CODEX_INSTRUCTIONS)));
-    assert!(is_managed_file(&root.join(CODEX_CONFIG)));
-    assert!(root.join(".mixmod/backups").exists());
-
-    uninstall_project(root).unwrap();
+    assert!(is_managed_file(&root.join(OPENCODE_CONFIG)));
+    assert!(root.join(MIXMOD_CODEX_HOME).is_dir());
     assert!(!root.join(CODEX_INSTRUCTIONS).exists());
+    assert!(!root.join(CODEX_HOOKS_CONFIG).exists());
+    assert!(!root.join(CODEX_HOOK).exists());
+    assert!(root.join(".mixmod/backups").exists());
     assert_eq!(
         fs::read_to_string(root.join(".codex/config.toml")).unwrap(),
         "existing = true\n"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join(LEGACY_OPENCODE_CONFIG)).unwrap(),
+        "{\"user\":true}\n"
+    );
+}
+
+#[test]
+fn codex_exec_uses_mixmod_scoped_codex_home() {
+    assert_eq!(
+        codex_home_for_work_dir(Path::new("/tmp/work")),
+        PathBuf::from("/tmp/work").join(MIXMOD_CODEX_HOME)
+    );
+}
+
+#[test]
+fn opencode_uses_mixmod_scoped_config() {
+    assert_eq!(
+        opencode_config_path(Path::new("/tmp/work")),
+        PathBuf::from("/tmp/work").join(OPENCODE_CONFIG)
     );
 }
 

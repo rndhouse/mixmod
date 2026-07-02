@@ -58,12 +58,5 @@ Requirements: Codex and OpenCode.
 
 ```sh
 cargo install mixmod
-mixmod init
-mixmod status
-```
-
-Run the default loop:
-
-```sh
 mixmod delegate --task task.json --out .mixmod/runs/example --require-local
 ```

@@ -23,4 +23,4 @@ python-compile:
 		scripts/swebench_screen_codex_pass.py
 
 status: build
-	target/debug/mixmod status >/dev/null
+	MIXMOD_DEBUG_COMMANDS=1 target/debug/mixmod status >/dev/null

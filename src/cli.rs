@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
 #[command(name = "mixmod")]
-#[command(about = "Experimental CLI harness for Codex-supervised local delegation")]
+#[command(about = "Reduce frontier LLM cost with supervised worker models")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -13,11 +13,11 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Create project-local Mixmod state and repo-local Codex integration files.
+    /// Create project-local Mixmod state and OpenCode configuration.
+    #[command(hide = true)]
     Init,
-    /// Remove only Mixmod-managed repo-local integration files.
-    Uninstall,
     /// Show local Mixmod and tool status.
+    #[command(hide = true)]
     Status,
     /// Validate the local environment and print actionable diagnostics.
     Doctor,
@@ -60,7 +60,7 @@ pub enum Commands {
         #[arg(long)]
         resume_session: Option<String>,
     },
-    /// Entry point for repo-local Codex hooks.
+    /// Entry point for legacy repo-local Codex hooks.
     Hook {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,

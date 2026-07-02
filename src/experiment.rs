@@ -412,7 +412,7 @@ impl DefaultExperimentRun<'_> {
                 display_path(root, &work_dir)
             );
         }
-        init_project(&work_dir)?;
+        ensure_project_state(&work_dir, false)?;
 
         let config = load_config(&work_dir)?;
         let frontier = config.frontier.clone();
@@ -743,7 +743,7 @@ pub fn experiment_recover(root: &Path, name: &str, require_local: bool) -> Resul
             display_path(root, &work_dir)
         );
     }
-    init_project(&work_dir)?;
+    ensure_project_state(&work_dir, false)?;
 
     let default_dir = exp_dir.join("default");
     let worker_task = default_dir.join("worker-task.json");

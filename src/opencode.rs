@@ -82,8 +82,12 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| self.config.opencode.command.clone());
-        let selection =
-            resolve_opencode_model(&command, &self.config.opencode, request.require_local)?;
+        let selection = resolve_opencode_model(
+            &command,
+            &request.root,
+            &self.config.opencode,
+            request.require_local,
+        )?;
         let args = env::var("MIXMOD_OPENCODE_ARGS")
             .ok()
             .map(|value| {
@@ -246,11 +250,12 @@ pub(crate) struct VerifiedCommandOutput {
 
 fn resolve_opencode_model(
     command: &str,
+    root: &Path,
     config: &OpenCodeConfig,
     require_local_override: bool,
 ) -> Result<OpenCodeModelSelection> {
     let require_local = require_local_override || config.require_local;
-    let models = Command::new(command)
+    let models = opencode_command(command, root)
         .arg("models")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -273,7 +278,7 @@ fn resolve_opencode_model(
         .map(ToOwned::to_owned)
         .ok_or_else(|| {
             anyhow!(
-                "configured OpenCode model `{}` with aliases {:?} was not found in `{command} models`; run `mixmod init` to install repo-local `{}` or update `.mixmod/config.toml` to a listed local model",
+                "configured OpenCode model `{}` with aliases {:?} was not found in `{command} models`; Mixmod expects `{}` to expose the default local model, or update `.mixmod/config.toml` to a listed local model",
                 configured_model,
                 aliases,
                 OPENCODE_CONFIG
@@ -1010,7 +1015,7 @@ struct SpawnOpenCodeProcess<'a> {
 }
 
 fn spawn_opencode_process(config: SpawnOpenCodeProcess<'_>) -> Result<RunningOpenCodeProcess> {
-    let mut child = Command::new(config.command)
+    let mut child = opencode_command(config.command, config.root)
         .args(config.args)
         .current_dir(config.root)
         .env("MIXMOD_DISABLE_HOOKS", "1")
@@ -1336,6 +1341,7 @@ fn resolve_opencode_session_id(
         sql_string_literal_content(&work_dir.to_string_lossy())
     );
     let output = Command::new(command)
+        .env("OPENCODE_CONFIG", opencode_config_path(work_dir))
         .args(["db", &sql, "--format", "json"])
         .output()
         .with_context(|| format!("failed to query OpenCode sessions with `{command} db`"))?;
@@ -1360,6 +1366,16 @@ fn resolve_opencode_session_id(
             .map(ToOwned::to_owned));
     }
     Ok(None)
+}
+
+pub(crate) fn opencode_config_path(root: &Path) -> PathBuf {
+    root.join(OPENCODE_CONFIG)
+}
+
+fn opencode_command(command: &str, root: &Path) -> Command {
+    let mut process = Command::new(command);
+    process.env("OPENCODE_CONFIG", opencode_config_path(root));
+    process
 }
 
 fn sql_string_literal_content(value: &str) -> String {

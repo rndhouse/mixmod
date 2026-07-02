@@ -2,7 +2,7 @@
 # Project-local Mixmod configuration. This file is intentionally repo-local.
 
 [opencode]
-provider = "local"
+provider = "mixmod-local-ollama"
 model = "qwen-3.6-27b"
 require_local = true
 
@@ -26,7 +26,7 @@ heartbeat_seconds = 10
 worker_timeout_seconds = 600
 idle_timeout_seconds = 300
 
-local_providers = ["local", "local-ollama", "ollama", "lmstudio", "llama.cpp", "vllm", "localhost"]
+local_providers = ["local", "mixmod-local-ollama", "local-ollama", "ollama", "lmstudio", "llama.cpp", "vllm", "localhost"]
 
 [opencode.local_verification]
 enabled = true
@@ -34,7 +34,7 @@ gpu_command = "nvidia-smi"
 backend_command = "ollama ps"
 
 [opencode.model_aliases]
-"qwen-3.6-27b" = ["qwen-3.6-27b", "qwen3.6:27b", "qwen/qwen3.6-27b", "ollama/qwen3.6:27b", "local-ollama/qwen3.6:27b"]
+"qwen-3.6-27b" = ["qwen-3.6-27b", "qwen3.6:27b", "qwen/qwen3.6-27b", "ollama/qwen3.6:27b", "local-ollama/qwen3.6:27b", "mixmod-local-ollama/qwen3.6:27b"]
 
 [frontier]
 model = "gpt-5.5"

@@ -16,10 +16,31 @@ fn run_mixmod(root: &Path, args: &[&str]) -> Output {
         .unwrap_or_else(|error| panic!("failed to run mixmod {args:?}: {error}"))
 }
 
+fn run_mixmod_with_env(root: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(mixmod_bin());
+    command.args(args).current_dir(root);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    command
+        .output()
+        .unwrap_or_else(|error| panic!("failed to run mixmod {args:?}: {error}"))
+}
+
 fn assert_success(output: Output) {
     if !output.status.success() {
         panic!(
             "command failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+fn assert_failure(output: Output) {
+    if output.status.success() {
+        panic!(
+            "command unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
@@ -34,20 +55,31 @@ fn read_json(path: &Path) -> Value {
 }
 
 #[test]
-fn init_status_and_uninstall_round_trip() {
+fn init_and_status_are_debug_only() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
-    assert_success(run_mixmod(root, &["init"]));
+    assert_failure(run_mixmod(root, &["init"]));
+    assert!(!root.join(".mixmod/config.toml").exists());
+
+    assert_success(run_mixmod_with_env(
+        root,
+        &["init"],
+        &[("MIXMOD_DEBUG_COMMANDS", "1")],
+    ));
     assert!(root.join(".mixmod/config.toml").exists());
-    assert!(root.join("opencode.json").exists());
-    assert!(root.join(".codex/mixmod-instructions.md").exists());
-
-    assert_success(run_mixmod(root, &["status"]));
-    assert_success(run_mixmod(root, &["uninstall"]));
-
+    assert!(root.join(".mixmod/codex-home").exists());
+    assert!(root.join(".mixmod/opencode.json").exists());
     assert!(!root.join("opencode.json").exists());
     assert!(!root.join(".codex/mixmod-instructions.md").exists());
+
+    assert_failure(run_mixmod(root, &["status"]));
+    assert_success(run_mixmod_with_env(
+        root,
+        &["status"],
+        &[("MIXMOD_DEBUG_COMMANDS", "1")],
+    ));
+    assert_failure(run_mixmod(root, &["uninstall"]));
 }
 
 #[test]
@@ -76,6 +108,11 @@ fn live_control_writes_control_file() {
     ));
 
     let control = read_json(&root.join(".mixmod/runs/demo/control.json"));
+    assert!(root.join(".mixmod/config.toml").exists());
+    assert!(root.join(".mixmod/opencode.json").exists());
+    assert!(root.join(".mixmod/codex-home").exists());
+    assert!(!root.join("opencode.json").exists());
+    assert!(!root.join(".codex").exists());
     assert_eq!(control["action"], "interrupt_context_focus");
     assert_eq!(control["worker_mode"], "context_focus");
     assert_eq!(control["message_to_worker"], "Focus on the parser.");
