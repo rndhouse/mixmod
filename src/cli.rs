@@ -24,14 +24,21 @@ pub enum Commands {
     Doctor,
     /// Run a Mixmod task non-interactively.
     Exec {
-        #[arg(long)]
-        task: PathBuf,
+        /// Read task details from a structured JSON task file.
+        #[arg(long, value_name = "TASK_JSON")]
+        task: Option<PathBuf>,
+        /// Resume a specific OpenCode worker session.
         #[arg(long)]
         resume_session: Option<String>,
+        /// Codex supervisor model, optionally suffixed with reasoning effort.
         #[arg(long, value_name = "MODEL[:EFFORT]")]
         supervisor_model: Option<String>,
+        /// OpenCode worker model, optionally prefixed with a provider.
         #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
         worker_model: Option<String>,
+        /// Natural-language task request.
+        #[arg(value_name = "PROMPT", num_args = 0.., trailing_var_arg = true)]
+        prompt: Vec<String>,
     },
     /// Debug-only foreground worker command.
     #[command(hide = true)]

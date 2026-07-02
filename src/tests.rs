@@ -232,7 +232,7 @@ fn debug_commands_are_gated_by_default() {
 
 #[test]
 fn exec_command_is_public_cli_surface() {
-    let cli = Cli::try_parse_from(["mixmod", "exec", "--task", "task.json"]).unwrap();
+    let cli = Cli::try_parse_from(["mixmod", "exec", "Fix", "checkout", "totals"]).unwrap();
 
     match cli.command {
         Commands::Exec {
@@ -240,11 +240,22 @@ fn exec_command_is_public_cli_surface() {
             resume_session,
             supervisor_model,
             worker_model,
+            prompt,
         } => {
-            assert_eq!(task, PathBuf::from("task.json"));
+            assert!(task.is_none());
             assert!(resume_session.is_none());
             assert!(supervisor_model.is_none());
             assert!(worker_model.is_none());
+            assert_eq!(prompt, vec!["Fix", "checkout", "totals"]);
+        }
+        _ => panic!("expected exec command"),
+    }
+
+    let cli = Cli::try_parse_from(["mixmod", "exec", "--task", "task.json"]).unwrap();
+    match cli.command {
+        Commands::Exec { task, prompt, .. } => {
+            assert_eq!(task, Some(PathBuf::from("task.json")));
+            assert!(prompt.is_empty());
         }
         _ => panic!("expected exec command"),
     }
@@ -271,12 +282,11 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
     let cli = Cli::try_parse_from([
         "mixmod",
         "exec",
-        "--task",
-        "task.json",
         "--supervisor-model",
         "gpt-5.5:high",
         "--worker-model",
         "mixmod-local-ollama/qwen3.6:27b",
+        "Fix checkout totals.",
     ])
     .unwrap();
 
@@ -284,6 +294,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         Commands::Exec {
             supervisor_model,
             worker_model,
+            prompt,
             ..
         } => {
             assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
@@ -291,9 +302,45 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
                 worker_model,
                 Some("mixmod-local-ollama/qwen3.6:27b".to_string())
             );
+            assert_eq!(prompt, vec!["Fix checkout totals."]);
         }
         _ => panic!("expected exec command"),
     }
+}
+
+#[test]
+fn exec_task_resolution_writes_prompt_tasks() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join(".mixmod/tasks")).unwrap();
+
+    let task_path = resolve_exec_task(
+        root,
+        None,
+        vec!["Fix".to_string(), "checkout totals.".to_string()],
+    )
+    .unwrap();
+    assert!(task_path.starts_with(root.join(".mixmod/tasks")));
+    let task = read_json_file(&task_path).unwrap();
+    assert_eq!(get_str(&task, "title"), Some("Fix checkout totals."));
+    assert_eq!(get_str(&task, "instructions"), Some("Fix checkout totals."));
+
+    assert!(
+        resolve_exec_task(
+            root,
+            Some(PathBuf::from("task.json")),
+            vec!["Fix".to_string()]
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not both")
+    );
+    assert!(
+        resolve_exec_task(root, None, Vec::new())
+            .unwrap_err()
+            .to_string()
+            .contains("provide a prompt")
+    );
 }
 
 #[test]

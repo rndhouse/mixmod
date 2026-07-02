@@ -87,7 +87,7 @@ pub(crate) use run::{run_mixmod_task_with_session, run_task_tests, shell_command
 
 use task::{
     TaskSpec, agent_visible_task_value, ensure_agent_visible_task_file, read_task_json,
-    task_markdown_from_json, write_agent_visible_task_file,
+    task_markdown_from_json, write_agent_visible_task_file, write_prompt_task_file,
 };
 
 const MANAGED_MARKER: &str = "MIXMOD MANAGED";
@@ -130,8 +130,10 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             resume_session,
             supervisor_model,
             worker_model,
+            prompt,
         } => {
             ensure_project_state(&root, false)?;
+            let task = resolve_exec_task(&root, task, prompt)?;
             let out = root.join(".mixmod/runs").join(make_run_id("run"));
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
             supervise_mixmod_task(
@@ -255,5 +257,22 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 ExperimentCommand::Report { name } => experiment_report(&root, &name).map(|_| ()),
             }
         }
+    }
+}
+
+fn resolve_exec_task(
+    root: &Path,
+    task: Option<PathBuf>,
+    prompt_parts: Vec<String>,
+) -> Result<PathBuf> {
+    let prompt = prompt_parts.join(" ");
+    let has_prompt = !prompt.trim().is_empty();
+    match (task, has_prompt) {
+        (Some(_), true) => {
+            bail!("provide either a prompt or --task <task.json>, not both")
+        }
+        (Some(task), false) => Ok(task),
+        (None, true) => write_prompt_task_file(root, &prompt),
+        (None, false) => bail!("provide a prompt or --task <task.json>"),
     }
 }

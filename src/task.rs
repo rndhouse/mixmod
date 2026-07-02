@@ -6,13 +6,13 @@
 //! so those fields cannot leak into prompts or worktree files.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::write_pretty_json;
+use crate::{make_run_id, write_pretty_json};
 
 /// Normalized task shape used by Mixmod run and experiment code.
 #[derive(Debug, Deserialize, Serialize)]
@@ -70,6 +70,20 @@ pub(crate) fn read_task_json(path: &Path) -> Result<(Value, TaskSpec)> {
             .to_string();
     }
     Ok((value, spec))
+}
+
+/// Write a managed task JSON file for a natural-language prompt.
+pub(crate) fn write_prompt_task_file(root: &Path, prompt: &str) -> Result<PathBuf> {
+    let trimmed = prompt.trim();
+    let path = root
+        .join(".mixmod/tasks")
+        .join(format!("{}.json", make_run_id("task")));
+    let task = json!({
+        "title": prompt_title(trimmed),
+        "instructions": trimmed
+    });
+    write_pretty_json(&path, &task, "prompt task")?;
+    Ok(path)
 }
 
 /// Copy `source` to `target`, stripping evaluator-only metadata first.
@@ -198,6 +212,20 @@ fn markdown_list(items: &[String]) -> String {
             .map(|item| format!("- {item}"))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+}
+
+fn prompt_title(prompt: &str) -> String {
+    let first_line = prompt
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("Mixmod task")
+        .trim();
+    let title = first_line.chars().take(80).collect::<String>();
+    if title.is_empty() {
+        "Mixmod task".to_string()
+    } else {
+        title
     }
 }
 
