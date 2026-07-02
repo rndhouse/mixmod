@@ -201,6 +201,10 @@ fn supervise_args_launch_background_run_with_resume() {
         Path::new("/tmp/run"),
         true,
         Some("ses_123"),
+        &ModelOverrides::new(
+            Some("gpt-5.5:high".to_string()),
+            Some("mixmod-local-ollama/qwen3.6:27b".to_string()),
+        ),
     );
 
     assert_eq!(args[0], "run");
@@ -210,6 +214,12 @@ fn supervise_args_launch_background_run_with_resume() {
         args.windows(2)
             .any(|pair| pair[0] == "--resume-session" && pair[1] == "ses_123")
     );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "--supervisor-model" && pair[1] == "gpt-5.5:high")
+    );
+    assert!(args.windows(2).any(|pair| pair[0] == "--worker-model"
+        && pair[1] == "mixmod-local-ollama/qwen3.6:27b"));
 }
 
 #[test]
@@ -239,16 +249,91 @@ fn exec_command_is_public_cli_surface() {
             out,
             require_local,
             resume_session,
+            supervisor_model,
+            worker_model,
         } => {
             assert_eq!(task, PathBuf::from("task.json"));
             assert_eq!(out, PathBuf::from(".mixmod/runs/demo"));
             assert!(require_local);
             assert!(resume_session.is_none());
+            assert!(supervisor_model.is_none());
+            assert!(worker_model.is_none());
         }
         _ => panic!("expected exec command"),
     }
 
     assert!(Cli::try_parse_from(["mixmod", "delegate"]).is_err());
+}
+
+#[test]
+fn exec_accepts_supervisor_and_worker_model_flags() {
+    let cli = Cli::try_parse_from([
+        "mixmod",
+        "exec",
+        "--task",
+        "task.json",
+        "--out",
+        ".mixmod/runs/demo",
+        "--supervisor-model",
+        "gpt-5.5:high",
+        "--worker-model",
+        "mixmod-local-ollama/qwen3.6:27b",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Commands::Exec {
+            supervisor_model,
+            worker_model,
+            ..
+        } => {
+            assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
+            assert_eq!(
+                worker_model,
+                Some("mixmod-local-ollama/qwen3.6:27b".to_string())
+            );
+        }
+        _ => panic!("expected exec command"),
+    }
+}
+
+#[test]
+fn model_overrides_apply_supervisor_and_worker_models() {
+    let mut config = MixmodConfig::default();
+
+    ModelOverrides::new(
+        Some("gpt-5.5:xhigh".to_string()),
+        Some("ollama/qwen3.6:27b".to_string()),
+    )
+    .apply_to_config(&mut config)
+    .unwrap();
+
+    assert_eq!(config.frontier.model, "gpt-5.5");
+    assert_eq!(config.frontier.reasoning_effort, "xhigh");
+    assert_eq!(config.opencode.provider, "ollama");
+    assert_eq!(config.opencode.model, "qwen3.6:27b");
+    assert!(
+        config
+            .opencode
+            .model_aliases
+            .get("qwen3.6:27b")
+            .unwrap()
+            .contains(&"ollama/qwen3.6:27b".to_string())
+    );
+}
+
+#[test]
+fn model_overrides_reject_invalid_supervisor_effort() {
+    let mut config = MixmodConfig::default();
+    let error = ModelOverrides::new(Some("gpt-5.5:turbo".to_string()), None)
+        .apply_to_config(&mut config)
+        .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported supervisor reasoning effort")
+    );
 }
 
 #[test]

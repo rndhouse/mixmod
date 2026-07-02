@@ -36,7 +36,9 @@ pub use artifacts::{
     TestCommandResult, WorkerBrief,
 };
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
-pub use config::{FrontierConfig, LocalVerificationConfig, MixmodConfig, OpenCodeConfig};
+pub use config::{
+    FrontierConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
+};
 pub use diff::patch_stats;
 pub use experiment::{
     DefaultRunOptions, experiment_init, experiment_record_codex_only, experiment_record_mixmod,
@@ -128,8 +130,11 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             out,
             require_local,
             resume_session,
+            supervisor_model,
+            worker_model,
         } => {
             ensure_project_state(&root, false)?;
+            let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
             supervise_mixmod_task(
                 &root,
                 DelegationMode::Patch,
@@ -137,6 +142,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 &out,
                 require_local,
                 resume_session,
+                model_overrides,
             )
         }
         Commands::Run {
@@ -145,10 +151,13 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             out,
             require_local,
             resume_session,
+            supervisor_model,
+            worker_model,
         } => {
             ensure_debug_command_enabled("mixmod run")?;
             ensure_project_state(&root, false)?;
-            let config = load_config(&root)?;
+            let mut config = load_config(&root)?;
+            ModelOverrides::new(supervisor_model, worker_model).apply_to_config(&mut config)?;
             let runner = ShellOpenCodeRunner::new(config);
             run_mixmod_task_with_session(
                 &root,
@@ -167,10 +176,21 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             out,
             require_local,
             resume_session,
+            supervisor_model,
+            worker_model,
         } => {
             ensure_debug_command_enabled("mixmod supervise")?;
             ensure_project_state(&root, false)?;
-            supervise_mixmod_task(&root, mode, &task, &out, require_local, resume_session)
+            let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
+            supervise_mixmod_task(
+                &root,
+                mode,
+                &task,
+                &out,
+                require_local,
+                resume_session,
+                model_overrides,
+            )
         }
         Commands::Control { command } => {
             ensure_debug_command_enabled("mixmod control")?;

@@ -126,6 +126,7 @@ pub(crate) fn supervise_mixmod_task(
     out_arg: &Path,
     require_local: bool,
     resume_session: Option<String>,
+    model_overrides: ModelOverrides,
 ) -> Result<()> {
     let task_path = absolutize(root, task_arg);
     let out_dir = absolutize(root, out_arg);
@@ -147,6 +148,7 @@ pub(crate) fn supervise_mixmod_task(
         &out_dir,
         require_local,
         resume_session.as_deref(),
+        &model_overrides,
     );
     let mut command = Command::new(&exe);
     command
@@ -184,6 +186,7 @@ pub(crate) fn supervise_mixmod_task(
         "run_dir": run_display,
         "require_local": require_local,
         "resume_session": resume_session,
+        "model_overrides": model_overrides,
         "command": command_for_metrics,
         "internal_env": {
             "MIXMOD_DEBUG_COMMANDS": "1"
@@ -240,6 +243,7 @@ pub(crate) fn supervise_run_args(
     out_dir: &Path,
     require_local: bool,
     resume_session: Option<&str>,
+    model_overrides: &ModelOverrides,
 ) -> Vec<String> {
     let mut args = vec![
         "run".to_string(),
@@ -255,6 +259,22 @@ pub(crate) fn supervise_run_args(
     if let Some(session) = resume_session.filter(|value| !value.trim().is_empty()) {
         args.push("--resume-session".to_string());
         args.push(session.to_string());
+    }
+    if let Some(model) = model_overrides
+        .supervisor_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        args.push("--supervisor-model".to_string());
+        args.push(model.to_string());
+    }
+    if let Some(model) = model_overrides
+        .worker_model
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        args.push("--worker-model".to_string());
+        args.push(model.to_string());
     }
     args
 }

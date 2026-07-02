@@ -32,6 +32,10 @@ pub enum Commands {
         require_local: bool,
         #[arg(long)]
         resume_session: Option<String>,
+        #[arg(long, value_name = "MODEL[:EFFORT]")]
+        supervisor_model: Option<String>,
+        #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
+        worker_model: Option<String>,
     },
     /// Debug-only low-level foreground worker command.
     #[command(hide = true)]
@@ -46,6 +50,10 @@ pub enum Commands {
         require_local: bool,
         #[arg(long)]
         resume_session: Option<String>,
+        #[arg(long, value_name = "MODEL[:EFFORT]")]
+        supervisor_model: Option<String>,
+        #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
+        worker_model: Option<String>,
     },
     /// Debug-only explicit-mode background worker launcher.
     #[command(hide = true)]
@@ -60,6 +68,10 @@ pub enum Commands {
         require_local: bool,
         #[arg(long)]
         resume_session: Option<String>,
+        #[arg(long, value_name = "MODEL[:EFFORT]")]
+        supervisor_model: Option<String>,
+        #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
+        worker_model: Option<String>,
     },
     /// Debug-only run inspection and steering commands.
     #[command(hide = true)]
