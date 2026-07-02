@@ -246,7 +246,7 @@ pub(crate) fn supervise_run_args(
     model_overrides: &ModelOverrides,
 ) -> Vec<String> {
     let mut args = vec![
-        "run".to_string(),
+        "run-worker".to_string(),
         mode.to_string(),
         "--task".to_string(),
         task_path.to_string_lossy().to_string(),

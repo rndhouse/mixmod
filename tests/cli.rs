@@ -83,6 +83,17 @@ fn internal_commands_are_hidden_or_removed() {
     assert_failure(run_mixmod(root, &["experiment", "init", "demo"]));
     assert_failure(run_mixmod(
         root,
+        &[
+            "run-worker",
+            "patch",
+            "--task",
+            "task.json",
+            "--out",
+            ".mixmod/runs/demo",
+        ],
+    ));
+    assert_failure(run_mixmod(
+        root,
         &["control", "status", "--run", ".mixmod/runs/demo"],
     ));
     assert_failure(run_mixmod(
@@ -90,6 +101,8 @@ fn internal_commands_are_hidden_or_removed() {
         &["live", "status", "--run", ".mixmod/runs/demo"],
     ));
     assert_failure(run_mixmod(root, &["hook", "session-start"]));
+    assert_failure(run_mixmod(root, &["run"]));
+    assert_failure(run_mixmod(root, &["supervise"]));
     assert_failure(run_mixmod(root, &["uninstall"]));
 }
 

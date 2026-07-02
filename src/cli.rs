@@ -37,9 +37,10 @@ pub enum Commands {
         #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
         worker_model: Option<String>,
     },
-    /// Debug-only low-level foreground worker command.
+    /// Debug-only foreground worker command.
     #[command(hide = true)]
-    Run {
+    #[command(name = "run-worker")]
+    RunWorker {
         #[arg(value_enum)]
         mode: DelegationMode,
         #[arg(long)]
@@ -55,9 +56,10 @@ pub enum Commands {
         #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
         worker_model: Option<String>,
     },
-    /// Debug-only explicit-mode background worker launcher.
+    /// Debug-only background supervisor launcher.
     #[command(hide = true)]
-    Supervise {
+    #[command(name = "run-supervisor")]
+    RunSupervisor {
         #[arg(value_enum)]
         mode: DelegationMode,
         #[arg(long)]

@@ -207,7 +207,7 @@ fn supervise_args_launch_background_run_with_resume() {
         ),
     );
 
-    assert_eq!(args[0], "run");
+    assert_eq!(args[0], "run-worker");
     assert_eq!(args[1], "patch");
     assert!(args.contains(&"--require-local".to_string()));
     assert!(
@@ -224,7 +224,7 @@ fn supervise_args_launch_background_run_with_resume() {
 
 #[test]
 fn debug_commands_are_gated_by_default() {
-    let error = ensure_debug_command_enabled("mixmod run").unwrap_err();
+    let error = ensure_debug_command_enabled("mixmod run-worker").unwrap_err();
 
     assert!(error.to_string().contains("mixmod exec"));
     assert!(error.to_string().contains("MIXMOD_DEBUG_COMMANDS=1"));

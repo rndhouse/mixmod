@@ -145,7 +145,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 model_overrides,
             )
         }
-        Commands::Run {
+        Commands::RunWorker {
             mode,
             task,
             out,
@@ -154,7 +154,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             supervisor_model,
             worker_model,
         } => {
-            ensure_debug_command_enabled("mixmod run")?;
+            ensure_debug_command_enabled("mixmod run-worker")?;
             ensure_project_state(&root, false)?;
             let mut config = load_config(&root)?;
             ModelOverrides::new(supervisor_model, worker_model).apply_to_config(&mut config)?;
@@ -170,7 +170,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             )
             .map(|_| ())
         }
-        Commands::Supervise {
+        Commands::RunSupervisor {
             mode,
             task,
             out,
@@ -179,7 +179,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             supervisor_model,
             worker_model,
         } => {
-            ensure_debug_command_enabled("mixmod supervise")?;
+            ensure_debug_command_enabled("mixmod run-supervisor")?;
             ensure_project_state(&root, false)?;
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
             supervise_mixmod_task(
