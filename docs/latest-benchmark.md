@@ -1,22 +1,22 @@
-# SWE-bench Current Default Strategy 10-Instance Snapshot
+# SWE-bench Lite: GPT-5.5 Alone vs Mixmod-Supervised Qwen
 
 Date: 2026-07-01
 
-This report captures the current Mixmod default strategy on a 10-instance SWE-bench Lite pool. It includes the original three current-strategy instances plus seven additional instances selected by screening for Codex-only official resolves under the same explicit frontier settings.
+This report compares GPT-5.5 solving tasks directly with Mixmod's default strategy, where GPT-5.5 supervises a Qwen3.6-27B worker. The selected 10-instance SWE-bench Lite pool includes the original three snapshot instances plus seven additional instances selected by screening for GPT-5.5 direct official resolves under the same GPT-5.5 high-reasoning settings.
 
 ## Executive Summary
 
-The current Mixmod default strategy preserved patch quality on this selected pool while materially reducing frontier-token usage.
+On this selected GPT-5.5-pass pool, Mixmod preserved official patch quality while materially reducing GPT-5.5 token usage.
 
-- Codex-only resolved: 10/10
-- Mixmod default resolved: 10/10
-- Frontier output-token reduction: 51.4%
-- Frontier input-token reduction: 76.1%
-- Total frontier-token reduction: 75.5%
-- Local worker: `local-ollama/qwen3.6:27b`
-- Local inference and GPU activity: verified on every Mixmod run
+- Total GPT-5.5 token reduction: 75.5%
+- GPT-5.5 input-token reduction: 76.1%
+- GPT-5.5 output-token reduction: 51.4%
+- Official SWE-bench resolves: GPT-5.5 alone 10/10; Mixmod with Qwen 10/10
+- Worker model: `local-ollama/qwen3.6:27b`
+- Local Qwen inference and GPU activity: verified on every Mixmod run
+- Runtime tradeoff: 85.7 min for Mixmod vs 22.8 min for GPT-5.5 alone
 
-This supports the current working hypothesis for this selected pool: Codex can spend fewer output tokens by supervising a local OpenCode/Qwen worker, while preserving official SWE-bench patch success.
+This supports the current working hypothesis for this selected pool: GPT-5.5 can spend fewer tokens by supervising a Qwen3.6-27B worker, while preserving official SWE-bench patch success.
 
 ## Selection
 
@@ -26,7 +26,7 @@ The original three instances were:
 - `scikit-learn__scikit-learn-13439`
 - `sympy__sympy-20212`
 
-The seven additional instances were selected by running Codex-only baselines with `gpt-5.5` and high reasoning effort, then keeping instances that resolved under the official SWE-bench evaluator:
+The seven additional instances were selected by running GPT-5.5 direct baselines with high reasoning effort, then keeping instances that resolved under the official SWE-bench evaluator:
 
 - `django__django-12908`
 - `pytest-dev__pytest-6116`
@@ -45,39 +45,40 @@ Repository mix:
 
 ## Strategy
 
-Mixmod default strategy:
+Model flow in the Mixmod run:
 
-1. Codex receives the user task and produces a compact worker handoff.
-2. Mixmod passes the original task plus Codex handoff to OpenCode.
-3. OpenCode runs locally with `local-ollama/qwen3.6:27b`.
-4. Codex reviews compact artifacts and either asks for another worker attempt, stops as inconclusive/blocked, or approves.
-5. If a patch is expected and OpenCode exits with no diff, Mixmod performs one neutral empty-patch follow-up for that worker attempt.
+1. GPT-5.5 receives the user task and produces a compact worker handoff.
+2. Mixmod sends the original task plus handoff to Qwen3.6-27B through OpenCode.
+3. Qwen3.6-27B modifies and tests the code locally.
+4. GPT-5.5 reviews compact artifacts and either asks for another worker attempt, stops as inconclusive/blocked, or approves.
+5. If a patch is expected and the worker exits with no diff, Mixmod performs one neutral empty-patch follow-up for that worker attempt.
 
-In this report, "Mixmod frontier output tokens" means Codex output tokens during the Mixmod run, not local OpenCode/Qwen output.
+Token accounting: all token counts in this report are GPT-5.5 tokens. Local Qwen output is reported separately as worker text bytes.
 
 ## Environment
 
-- Frontier model: `gpt-5.5`
-- Frontier reasoning effort: `high`
-- Local worker: `local-ollama/qwen3.6:27b`
-- Local inference verified: yes on all 10 Mixmod runs
+- Measured model: `gpt-5.5`
+- GPT-5.5 reasoning effort: `high`
+- Worker model: `local-ollama/qwen3.6:27b`
+- Worker runner: OpenCode
+- Local Qwen inference verified: yes on all 10 Mixmod runs
 - GPU activity observed: yes on all 10 Mixmod runs
-- Global Codex config: untouched during runs; observed hash `b7582816e9bd3139357a8c24c9ea8f0276b9bc445a2e4237046ca9ca40254235`
+- Codex CLI config: untouched during runs; observed hash `b7582816e9bd3139357a8c24c9ea8f0276b9bc445a2e4237046ca9ca40254235`
 
 ## Headline Results
 
-| Metric | Codex-only | Mixmod default | Delta |
+| Metric | GPT-5.5 alone | Mixmod: GPT-5.5 + Qwen | Delta |
 |---|---:|---:|---:|
 | Official SWE-bench resolved | 10/10 | 10/10 | 0 |
-| Frontier output tokens | 54,407 | 26,469 | -27,938 (-51.4%) |
-| Frontier input tokens | 4,571,174 | 1,093,597 | -3,477,577 (-76.1%) |
-| Total frontier tokens | 4,642,623 | 1,137,724 | -3,504,899 (-75.5%) |
+| GPT-5.5 output tokens | 54,407 | 26,469 | -27,938 (-51.4%) |
+| GPT-5.5 input tokens | 4,571,174 | 1,093,597 | -3,477,577 (-76.1%) |
+| Total GPT-5.5 tokens | 4,642,623 | 1,137,724 | -3,504,899 (-75.5%) |
 | Patch bytes | 17,354 | 14,931 | -2,423 |
 | Changed lines | 139 | 137 | -2 |
 
 ## Per-Instance Output Tokens
 
-| Instance | Repo | Official Codex-only | Official Mixmod | Codex-only output | Mixmod frontier output | Output delta |
+| Instance | Repo | Official GPT-5.5 alone | Official Mixmod | GPT-5.5-alone output | Mixmod GPT-5.5 output | Output delta |
 |---|---|---:|---:|---:|---:|---:|
 | `pytest-dev__pytest-11143` | pytest | resolved | resolved | 6,864 | 2,361 | -4,503 (-65.6%) |
 | `scikit-learn__scikit-learn-13439` | scikit-learn | resolved | resolved | 4,058 | 2,518 | -1,540 (-37.9%) |
@@ -92,7 +93,7 @@ In this report, "Mixmod frontier output tokens" means Codex output tokens during
 
 ## Per-Instance Total Tokens
 
-| Instance | Codex-only input | Mixmod input | Input delta | Codex-only total | Mixmod total | Total delta |
+| Instance | GPT-5.5-alone input | Mixmod GPT-5.5 input | Input delta | GPT-5.5-alone total | Mixmod GPT-5.5 total | Total delta |
 |---|---:|---:|---:|---:|---:|---:|
 | `pytest-dev__pytest-11143` | 698,755 | 95,054 | -603,701 (-86.4%) | 707,314 | 98,939 | -608,375 (-86.0%) |
 | `scikit-learn__scikit-learn-13439` | 267,497 | 91,004 | -176,493 (-66.0%) | 272,543 | 95,235 | -177,308 (-65.1%) |
@@ -105,9 +106,9 @@ In this report, "Mixmod frontier output tokens" means Codex output tokens during
 | `sympy__sympy-13480` | 198,789 | 69,956 | -128,833 (-64.8%) | 202,578 | 71,875 | -130,703 (-64.5%) |
 | `scikit-learn__scikit-learn-13584` | 573,480 | 150,852 | -422,628 (-73.7%) | 584,656 | 159,128 | -425,528 (-72.8%) |
 
-## Worker Metrics
+## Loop Metrics
 
-| Instance | Codex calls | OpenCode calls | Local worker text bytes | Mixmod final status |
+| Instance | GPT-5.5 turns | Qwen worker turns | Qwen worker text bytes | Mixmod final status |
 |---|---:|---:|---:|---|
 | `pytest-dev__pytest-11143` | 3 | 2 | 19,061 | `approved_by_codex` |
 | `scikit-learn__scikit-learn-13439` | 5 | 4 | 26,845 | `approved_by_codex` |
@@ -121,20 +122,20 @@ In this report, "Mixmod frontier output tokens" means Codex output tokens during
 | `scikit-learn__scikit-learn-13584` | 6 | 5 | 63,560 | `approved_by_codex` |
 | **Total** | **39** | **29** | **325,665** | |
 
-`django__django-11179` is notable because Codex stopped the loop rather than approving, but the final patch still resolved under the official SWE-bench evaluator. That should be reviewed as a strategy/control-flow issue separately from patch quality.
+`django__django-11179` is notable because GPT-5.5 stopped the Mixmod loop rather than approving, but the final patch still resolved under the official SWE-bench evaluator. That should be reviewed as a strategy/control-flow issue separately from patch quality.
 
 ## Runtime
 
-Mixmod was substantially slower than Codex-only in this snapshot.
+Mixmod was substantially slower than GPT-5.5 alone in this snapshot.
 
-| Metric | Codex-only | Mixmod default | Delta |
+| Metric | GPT-5.5 alone | Mixmod: GPT-5.5 + Qwen | Delta |
 |---|---:|---:|---:|
 | Total wall-clock time | 22.8 min | 85.7 min | +62.9 min |
 | Runtime ratio | 1.0x | 3.8x | +2.8x |
 
 Per-instance wall-clock ratios:
 
-| Instance | Codex-only | Mixmod default | Ratio |
+| Instance | GPT-5.5 alone | Mixmod | Ratio |
 |---|---:|---:|---:|
 | `pytest-dev__pytest-11143` | 2.9 min | 5.5 min | 1.9x |
 | `scikit-learn__scikit-learn-13439` | 1.8 min | 9.2 min | 5.1x |
@@ -147,9 +148,9 @@ Per-instance wall-clock ratios:
 | `sympy__sympy-13480` | 1.2 min | 1.6 min | 1.3x |
 | `scikit-learn__scikit-learn-13584` | 3.3 min | 15.7 min | 4.8x |
 
-The runtime result is the main tradeoff in the current prototype: Mixmod preserved official patch success and reduced frontier-token use, but took about 3.8x longer overall. The slowest runs were the ones requiring repeated OpenCode revision attempts.
+The runtime result is the main tradeoff in the current prototype: Mixmod preserved official patch success and reduced GPT-5.5 token use, but took about 3.8x longer overall. The slowest runs were the ones requiring repeated Qwen worker attempts.
 
-## Artifacts
+## Reproducibility Notes
 
 - Three-instance snapshot: `docs/archive/swebench-current-default-v1.md`
 - Expansion screening state: `.mixmod/swebench/current-default-v1-expansion/screen-state.json`
@@ -160,14 +161,14 @@ The runtime result is the main tradeoff in the current prototype: Mixmod preserv
 
 ## Conclusion
 
-On this 10-instance SWE-bench Lite pool, Mixmod current-default matched Codex-only official patch success: both resolved 10/10. Mixmod reduced frontier output tokens from 54,407 to 26,469, a 51.4% reduction, while using local OpenCode/Qwen with verified GPU activity on every Mixmod run.
+On this 10-instance SWE-bench Lite pool, Mixmod with GPT-5.5 supervising Qwen3.6-27B matched GPT-5.5-alone official patch success: both resolved 10/10. Mixmod reduced GPT-5.5 output tokens from 54,407 to 26,469, a 51.4% reduction, while local Qwen inference and GPU activity were verified on every Mixmod run.
 
-The frontier input-token reduction was also large at 76.1%, but the primary claim remains output-token reduction with preserved official patch quality on this selected Codex-pass pool.
+The GPT-5.5 input-token reduction was also large at 76.1%, but the primary claim remains output-token reduction with preserved official patch quality on this selected GPT-5.5-pass pool.
 
 ## Caveats
 
-This is a selected Codex-pass pool, not a random SWE-bench Lite sample. The result should be read as: when Codex can solve the task directly, Mixmod often preserved success while reducing frontier output tokens.
+This is a selected GPT-5.5-pass pool, not a random SWE-bench Lite sample. The result should be read as: when GPT-5.5 can solve the task directly, Mixmod often preserved success while reducing GPT-5.5 output tokens.
 
 The pool is still small at 10 instances. It includes four Django instances, though additional screening was adjusted to avoid making the pool Django-only.
 
-Some Mixmod runs required many worker turns. `pytest-dev__pytest-6116` used 7 OpenCode calls and 8 Codex calls; `django__django-11179` used 5 OpenCode calls and ended with `stopped_by_codex` even though the official evaluator resolved the patch. Those cases are useful evidence for improving loop control, not failures of patch quality.
+Some Mixmod runs required many worker turns. `pytest-dev__pytest-6116` used 7 Qwen worker turns and 8 GPT-5.5 turns; `django__django-11179` used 5 Qwen worker turns and ended with `stopped_by_codex` even though the official evaluator resolved the patch. Those cases are useful evidence for improving loop control, not failures of patch quality.
