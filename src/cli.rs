@@ -27,8 +27,6 @@ pub enum Commands {
         #[arg(long)]
         task: PathBuf,
         #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
         resume_session: Option<String>,
         #[arg(long, value_name = "MODEL[:EFFORT]")]
         supervisor_model: Option<String>,

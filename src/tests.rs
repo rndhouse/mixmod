@@ -232,26 +232,16 @@ fn debug_commands_are_gated_by_default() {
 
 #[test]
 fn exec_command_is_public_cli_surface() {
-    let cli = Cli::try_parse_from([
-        "mixmod",
-        "exec",
-        "--task",
-        "task.json",
-        "--out",
-        ".mixmod/runs/demo",
-    ])
-    .unwrap();
+    let cli = Cli::try_parse_from(["mixmod", "exec", "--task", "task.json"]).unwrap();
 
     match cli.command {
         Commands::Exec {
             task,
-            out,
             resume_session,
             supervisor_model,
             worker_model,
         } => {
             assert_eq!(task, PathBuf::from("task.json"));
-            assert_eq!(out, PathBuf::from(".mixmod/runs/demo"));
             assert!(resume_session.is_none());
             assert!(supervisor_model.is_none());
             assert!(worker_model.is_none());
@@ -261,6 +251,9 @@ fn exec_command_is_public_cli_surface() {
 
     assert!(Cli::try_parse_from(["mixmod", "delegate"]).is_err());
     assert!(
+        Cli::try_parse_from(["mixmod", "exec", "--task", "task.json", "--require-local",]).is_err()
+    );
+    assert!(
         Cli::try_parse_from([
             "mixmod",
             "exec",
@@ -268,7 +261,6 @@ fn exec_command_is_public_cli_surface() {
             "task.json",
             "--out",
             ".mixmod/runs/demo",
-            "--require-local",
         ])
         .is_err()
     );
@@ -281,8 +273,6 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         "exec",
         "--task",
         "task.json",
-        "--out",
-        ".mixmod/runs/demo",
         "--supervisor-model",
         "gpt-5.5:high",
         "--worker-model",

@@ -127,12 +127,12 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
         }
         Commands::Exec {
             task,
-            out,
             resume_session,
             supervisor_model,
             worker_model,
         } => {
             ensure_project_state(&root, false)?;
+            let out = root.join(".mixmod/runs").join(make_run_id("run"));
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
             supervise_mixmod_task(
                 &root,

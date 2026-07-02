@@ -58,5 +58,5 @@ Requirements: Codex and OpenCode.
 
 ```sh
 cargo install mixmod
-mixmod exec --task task.json --out .mixmod/runs/example
+mixmod exec --task task.json
 ```
