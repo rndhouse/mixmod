@@ -122,7 +122,10 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             ensure_debug_command_enabled("mixmod status")?;
             status_project(&root)
         }
-        Commands::Doctor => doctor_project(&root),
+        Commands::Doctor => {
+            ensure_debug_command_enabled("mixmod doctor")?;
+            doctor_project(&root)
+        }
         Commands::Delegate {
             task,
             out,

@@ -20,6 +20,7 @@ pub enum Commands {
     #[command(hide = true)]
     Status,
     /// Validate the local environment and print actionable diagnostics.
+    #[command(hide = true)]
     Doctor,
     /// Delegate bounded work to a live-supervised local OpenCode worker.
     Delegate {

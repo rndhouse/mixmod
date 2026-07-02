@@ -55,7 +55,7 @@ fn read_json(path: &Path) -> Value {
 }
 
 #[test]
-fn init_and_status_are_debug_only() {
+fn init_status_and_doctor_are_debug_only() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -79,6 +79,7 @@ fn init_and_status_are_debug_only() {
         &["status"],
         &[("MIXMOD_DEBUG_COMMANDS", "1")],
     ));
+    assert_failure(run_mixmod(root, &["doctor"]));
     assert_failure(run_mixmod(root, &["uninstall"]));
 }
 
