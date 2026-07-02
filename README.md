@@ -11,13 +11,18 @@ The default strategy is:
    stops the loop.
 
 ```mermaid
-flowchart LR
-    Codex[Codex supervisor] -->|handoff| Mixmod[Mixmod CLI]
-    Mixmod -->|handoff| OpenCode[OpenCode worker]
-    OpenCode -->|status| Mixmod
-    Mixmod -->|artifacts| Codex
-    Codex -->|revise| Mixmod
-    Codex -->|approve| Mixmod
+flowchart TD
+    A[Codex writes a short worker brief]
+    B[Mixmod runs OpenCode/Qwen locally]
+    C[OpenCode returns patch and compact artifacts]
+    D[Codex reviews artifacts]
+    E{Approve?}
+    F[Final report]
+    G[Ask worker to revise]
+
+    A --> B --> C --> D --> E
+    E -->|yes| F
+    E -->|no| G --> B
 ```
 
 ## Latest Benchmark Highlights
