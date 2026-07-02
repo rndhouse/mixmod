@@ -455,7 +455,7 @@ esac
         fs::set_permissions(&fake_opencode, perms).unwrap();
     }
 
-    let out_dir = root.join(".mixmod/runs/live-control-test");
+    let out_dir = root.join(".mixmod/runs/control-send-test");
     let request = OpenCodeRequest {
         root: root.to_path_buf(),
         mode: DelegationMode::Patch,

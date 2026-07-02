@@ -81,19 +81,48 @@ fn internal_commands_are_hidden_or_removed() {
     ));
     assert_failure(run_mixmod(root, &["doctor"]));
     assert_failure(run_mixmod(root, &["experiment", "init", "demo"]));
+    assert_failure(run_mixmod(
+        root,
+        &["control", "status", "--run", ".mixmod/runs/demo"],
+    ));
+    assert_failure(run_mixmod(
+        root,
+        &["live", "status", "--run", ".mixmod/runs/demo"],
+    ));
     assert_failure(run_mixmod(root, &["hook", "session-start"]));
     assert_failure(run_mixmod(root, &["uninstall"]));
 }
 
 #[test]
-fn live_control_writes_control_file() {
+fn control_send_writes_control_file() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
-    assert_success(run_mixmod(
+    assert_success(run_mixmod_with_env(
         root,
         &[
-            "live",
+            "control",
+            "send",
+            "--run",
+            ".mixmod/runs/demo",
+            "--action",
+            "interrupt_context_focus",
+            "--message",
+            "Focus on the parser.",
+            "--focus-file",
+            "src/parser.rs",
+            "--check",
+            "cargo test parser",
+            "--risk",
+            "context drift",
+        ],
+        &[("MIXMOD_DEBUG_COMMANDS", "1")],
+    ));
+
+    assert_failure(run_mixmod(
+        root,
+        &[
+            "control",
             "control",
             "--run",
             ".mixmod/runs/demo",

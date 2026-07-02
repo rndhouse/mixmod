@@ -10,7 +10,7 @@ pub(crate) fn live_status(root: &Path, run: &Path, json_output: bool) -> Result<
         json!({
             "status": "unavailable",
             "status_file": display_path(root, &status_path),
-            "note": "live status is written only while a Mixmod worker run is active"
+            "note": "run status is written only while a Mixmod worker run is active"
         })
     });
     let receipt = read_json_file(&run_dir.join("receipt.json")).ok();
@@ -32,7 +32,7 @@ pub(crate) fn live_status(root: &Path, run: &Path, json_output: bool) -> Result<
     });
     if json_output {
         let output = serde_json::to_string_pretty(&output)
-            .context("failed to serialize live status output")?;
+            .context("failed to serialize control status output")?;
         println!("{output}");
     } else {
         let status_value = output.get("status").unwrap_or(&Value::Null);
@@ -104,7 +104,7 @@ pub(crate) fn live_control(
         focus_files: focus_files.to_vec(),
         required_checks: required_checks.to_vec(),
         risk: risk.unwrap_or("").to_string(),
-        source: "mixmod live control".to_string(),
+        source: "mixmod control send".to_string(),
     };
     let control_path = run_dir.join(SUPERVISOR_CONTROL_FILE);
     write_pretty_json(&control_path, &control, "supervisor control")?;
@@ -190,10 +190,10 @@ pub(crate) fn supervise_mixmod_task(
         },
         "stdout_log": display_path(root, &stdout_log),
         "stderr_log": display_path(root, &stderr_log),
-        "live_status": format!("mixmod live status --run {run_display}"),
-        "live_status_json": format!("mixmod live status --run {run_display} --json"),
-        "control_continue": format!("mixmod live control --run {run_display} --action interrupt_continue --message '<message>'"),
-        "control_context_focus": format!("mixmod live control --run {run_display} --action interrupt_context_focus --message '<message>'"),
+        "control_status": format!("MIXMOD_DEBUG_COMMANDS=1 mixmod control status --run {run_display}"),
+        "control_status_json": format!("MIXMOD_DEBUG_COMMANDS=1 mixmod control status --run {run_display} --json"),
+        "control_continue": format!("MIXMOD_DEBUG_COMMANDS=1 mixmod control send --run {run_display} --action interrupt_continue --message '<message>'"),
+        "control_context_focus": format!("MIXMOD_DEBUG_COMMANDS=1 mixmod control send --run {run_display} --action interrupt_context_focus --message '<message>'"),
         "compact_artifacts": [
             display_path(root, &out_dir.join("receipt.json")),
             display_path(root, &out_dir.join("report.md")),
@@ -202,9 +202,9 @@ pub(crate) fn supervise_mixmod_task(
             display_path(root, &out_dir.join("metrics.json"))
         ],
         "notes": [
-            "This command returns immediately so the same Codex session can inspect live status while OpenCode runs.",
+            "This command returns immediately so the same Codex session can inspect run status while OpenCode runs.",
             "stdout/stderr from the background Mixmod process are written under logs/.",
-            "Use mixmod live control or write control.json to steer or interrupt the worker."
+            "For manual debugging, set MIXMOD_DEBUG_COMMANDS=1 and use mixmod control send, or write control.json to steer or interrupt the worker."
         ]
     });
     write_pretty_json(
@@ -218,9 +218,9 @@ pub(crate) fn supervise_mixmod_task(
     println!("run: {run_display}");
     println!("stdout: {}", display_path(root, &stdout_log));
     println!("stderr: {}", display_path(root, &stderr_log));
-    println!("status: mixmod live status --run {run_display}");
+    println!("debug status: MIXMOD_DEBUG_COMMANDS=1 mixmod control status --run {run_display}");
     println!(
-        "control: mixmod live control --run {run_display} --action interrupt_continue --message '<message>'"
+        "debug control: MIXMOD_DEBUG_COMMANDS=1 mixmod control send --run {run_display} --action interrupt_continue --message '<message>'"
     );
     Ok(())
 }

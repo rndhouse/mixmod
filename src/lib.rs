@@ -35,7 +35,7 @@ pub use artifacts::{
     Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent, TestArtifact,
     TestCommandResult, WorkerBrief,
 };
-pub use cli::{Cli, Commands, DelegationMode, ExperimentCommand, LiveCommand};
+pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub use config::{FrontierConfig, LocalVerificationConfig, MixmodConfig, OpenCodeConfig};
 pub use diff::patch_stats;
 pub use experiment::{
@@ -172,28 +172,31 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             ensure_project_state(&root, false)?;
             supervise_mixmod_task(&root, mode, &task, &out, require_local, resume_session)
         }
-        Commands::Live { command } => match command {
-            LiveCommand::Status { run, json } => live_status(&root, &run, json),
-            LiveCommand::Control {
-                run,
-                action,
-                message,
-                focus_files,
-                required_checks,
-                risk,
-            } => {
-                ensure_project_state(&root, false)?;
-                live_control(
-                    &root,
-                    &run,
-                    &action,
-                    message.as_deref(),
-                    &focus_files,
-                    &required_checks,
-                    risk.as_deref(),
-                )
+        Commands::Control { command } => {
+            ensure_debug_command_enabled("mixmod control")?;
+            match command {
+                ControlCommand::Status { run, json } => live_status(&root, &run, json),
+                ControlCommand::Send {
+                    run,
+                    action,
+                    message,
+                    focus_files,
+                    required_checks,
+                    risk,
+                } => {
+                    ensure_project_state(&root, false)?;
+                    live_control(
+                        &root,
+                        &run,
+                        &action,
+                        message.as_deref(),
+                        &focus_files,
+                        &required_checks,
+                        risk.as_deref(),
+                    )
+                }
             }
-        },
+        }
         Commands::Experiment { command } => {
             ensure_debug_command_enabled("mixmod experiment")?;
             match command {

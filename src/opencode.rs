@@ -584,7 +584,7 @@ impl LocalVerificationRun<'_> {
                             backend_activity_observed: backend_activity_seen,
                             status: "running",
                         }),
-                        "live status",
+                        "run status",
                     )?;
                     append_jsonl(
                         &heartbeat_path,
@@ -801,7 +801,7 @@ impl LocalVerificationRun<'_> {
                 backend_activity_observed: backend_activity_seen,
                 status: final_status,
             }),
-            "live status",
+            "run status",
         )?;
 
         append_jsonl(

@@ -61,10 +61,11 @@ pub enum Commands {
         #[arg(long)]
         resume_session: Option<String>,
     },
-    /// Inspect or steer one running Mixmod/OpenCode worker run.
-    Live {
+    /// Debug-only run inspection and steering commands.
+    #[command(hide = true)]
+    Control {
         #[command(subcommand)]
-        command: LiveCommand,
+        command: ControlCommand,
     },
     /// Manage repeatable Mixmod experiments.
     #[command(hide = true)]
@@ -75,8 +76,8 @@ pub enum Commands {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum LiveCommand {
-    /// Print compact live status for a worker run directory.
+pub enum ControlCommand {
+    /// Print compact status for a worker run directory.
     Status {
         #[arg(long)]
         run: PathBuf,
@@ -84,7 +85,7 @@ pub enum LiveCommand {
         json: bool,
     },
     /// Send a supervisor control action for a running worker.
-    Control {
+    Send {
         #[arg(long)]
         run: PathBuf,
         #[arg(long)]
