@@ -4,6 +4,8 @@
 
 It tests whether a strong frontier model can supervise a cheaper local model while preserving result quality. The current benchmarked pairing is GPT-5.5 supervising Qwen3.6-27B on a single RTX 3090.
 
+Follow [x.com/rndhouse](https://x.com/rndhouse) for project updates.
+
 Early benchmark results show a **75.5% aggregate reduction in GPT-5.5 token usage** on the latest 10-instance SWE-bench Lite pool:
 
 * Output tokens fell by 51.4%.
