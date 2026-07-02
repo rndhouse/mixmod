@@ -18,7 +18,7 @@ flowchart TD
     D[Codex reviews artifacts]
     E{Approve?}
     F[Final report]
-    G[Ask worker to revise]
+    G[Codex asks worker to revise]
 
     A --> B --> C --> D --> E
     E -->|yes| F
