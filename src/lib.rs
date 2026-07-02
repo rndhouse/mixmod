@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 mod artifacts;
 mod cli;
 mod config;
+mod default_strategy;
 mod diff;
 mod experiment;
 mod frontier;
@@ -39,6 +40,7 @@ pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub use config::{
     FrontierConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
 };
+pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
 pub use experiment::{
     DefaultRunOptions, experiment_init, experiment_record_codex_only, experiment_record_mixmod,
@@ -136,14 +138,14 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             let task = resolve_exec_task(&root, task, prompt)?;
             let out = root.join(".mixmod/runs").join(make_run_id("run"));
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
-            supervise_mixmod_task(
+            run_default_strategy(
                 &root,
-                DelegationMode::Patch,
                 &task,
                 &out,
-                false,
-                resume_session,
-                model_overrides,
+                DefaultStrategyOptions {
+                    resume_session,
+                    model_overrides,
+                },
             )
         }
         Commands::RunWorker {
