@@ -2,8 +2,7 @@
 name = "mixmod"
 version = "0.1.0"
 edition = "2024"
-description = "Experimental CLI harness for Codex-supervised local delegation"
-homepage = "https://mixmod.tech"
+description = "Reduce frontier LLM cost with supervised worker models"
 
 [dependencies]
 anyhow = "1"

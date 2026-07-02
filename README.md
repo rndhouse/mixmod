@@ -32,7 +32,7 @@ flowchart TD
 
 ## Latest Benchmark Highlights
 
-Latest report: [SWE-bench current default 10-instance snapshot](docs/swebench-current-default-v1-10.md).
+Latest report: [SWE-bench current default 10-instance snapshot](docs/latest-benchmark.md).
 This is a selected SWE-bench Lite pool where GPT-5.5 could solve every task. Mixmod is testing token reduction, not capability improvement.
 
 This table shows the per-task reduction in GPT-5.5 tokens when using Mixmod instead of running GPT-5.5 alone.
@@ -52,32 +52,20 @@ This table shows the per-task reduction in GPT-5.5 tokens when using Mixmod inst
 
 Mixmod reduced GPT-5.5 output tokens by 51.4% and total GPT-5.5 tokens by 75.5%, with local Qwen/GPU inference verified on every Mixmod run.
 
-See the full benchmark report [docs/swebench-current-default-v1-10.md](docs/swebench-current-default-v1-10.md) for methodology, per-run details, runtime results, and caveats.
+See the full benchmark report [docs/latest-benchmark.md](docs/latest-benchmark.md) for methodology, per-run details, runtime results, and caveats.
 
 ## Quick Start
 
+Requirements: Codex and OpenCode.
+
 ```sh
-cargo build
-make check
-target/debug/mixmod init
-target/debug/mixmod status
+cargo install mixmod
+mixmod init
+mixmod status
 ```
 
-Run one delegated task:
+Run the default loop:
 
 ```sh
-target/debug/mixmod delegate \
-  --task example.task.json \
-  --out .mixmod/runs/example \
-  --require-local
-```
-
-Run an experiment:
-
-```sh
-target/debug/mixmod experiment init checkout-brief --fixture fixtures/python-checkout
-target/debug/mixmod experiment record-codex-only checkout-brief \
-  --task .mixmod/experiments/checkout-brief/task.json
-target/debug/mixmod experiment run-default checkout-brief --require-local
-target/debug/mixmod experiment report checkout-brief
+mixmod delegate --task task.json --out .mixmod/runs/example --require-local
 ```

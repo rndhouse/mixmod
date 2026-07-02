@@ -151,7 +151,7 @@ The runtime result is the main tradeoff in the current prototype: Mixmod preserv
 
 ## Artifacts
 
-- Three-instance snapshot: `docs/swebench-current-default-v1.md`
+- Three-instance snapshot: `docs/archive/swebench-current-default-v1.md`
 - Expansion screening state: `.mixmod/swebench/current-default-v1-expansion/screen-state.json`
 - Expansion Mixmod state: `.mixmod/swebench/current-default-v1-expansion/mixmod-state.json`
 - Expansion official summaries: `.mixmod/swebench/current-default-v1-expansion/eval/official-summary/`
