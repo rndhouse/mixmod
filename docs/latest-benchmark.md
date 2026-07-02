@@ -76,22 +76,24 @@ Token accounting: all token counts in this report are GPT-5.5 tokens. Local Qwen
 | Patch bytes | 17,354 | 14,931 | -2,423 |
 | Changed lines | 139 | 137 | -2 |
 
-## Per-Instance Output Tokens
+## Per-Instance GPT-5.5 Output Tokens
 
-| Instance | Repo | Official GPT-5.5 alone | Official Mixmod | GPT-5.5-alone output | Mixmod GPT-5.5 output | Output delta |
-|---|---|---:|---:|---:|---:|---:|
-| `pytest-dev__pytest-11143` | pytest | resolved | resolved | 6,864 | 2,361 | -4,503 (-65.6%) |
-| `scikit-learn__scikit-learn-13439` | scikit-learn | resolved | resolved | 4,058 | 2,518 | -1,540 (-37.9%) |
-| `sympy__sympy-20212` | SymPy | resolved | resolved | 5,490 | 2,826 | -2,664 (-48.5%) |
-| `django__django-12908` | Django | resolved | resolved | 2,994 | 1,689 | -1,305 (-43.6%) |
-| `pytest-dev__pytest-6116` | pytest | resolved | resolved | 9,848 | 4,317 | -5,531 (-56.2%) |
-| `django__django-13447` | Django | resolved | resolved | 4,573 | 1,228 | -3,345 (-73.1%) |
-| `django__django-15814` | Django | resolved | resolved | 5,982 | 2,305 | -3,677 (-61.5%) |
-| `django__django-11179` | Django | resolved | resolved | 4,023 | 3,139 | -884 (-22.0%) |
-| `sympy__sympy-13480` | SymPy | resolved | resolved | 3,117 | 1,229 | -1,888 (-60.6%) |
-| `scikit-learn__scikit-learn-13584` | scikit-learn | resolved | resolved | 7,458 | 4,857 | -2,601 (-34.9%) |
+All 10 instances resolved under the official SWE-bench evaluator for both GPT-5.5 alone and Mixmod, so the per-instance tables focus on token differences.
 
-## Per-Instance Total Tokens
+| Instance | GPT-5.5-alone output | Mixmod GPT-5.5 output | Output delta |
+|---|---:|---:|---:|
+| `pytest-dev__pytest-11143` | 6,864 | 2,361 | -4,503 (-65.6%) |
+| `scikit-learn__scikit-learn-13439` | 4,058 | 2,518 | -1,540 (-37.9%) |
+| `sympy__sympy-20212` | 5,490 | 2,826 | -2,664 (-48.5%) |
+| `django__django-12908` | 2,994 | 1,689 | -1,305 (-43.6%) |
+| `pytest-dev__pytest-6116` | 9,848 | 4,317 | -5,531 (-56.2%) |
+| `django__django-13447` | 4,573 | 1,228 | -3,345 (-73.1%) |
+| `django__django-15814` | 5,982 | 2,305 | -3,677 (-61.5%) |
+| `django__django-11179` | 4,023 | 3,139 | -884 (-22.0%) |
+| `sympy__sympy-13480` | 3,117 | 1,229 | -1,888 (-60.6%) |
+| `scikit-learn__scikit-learn-13584` | 7,458 | 4,857 | -2,601 (-34.9%) |
+
+## Per-Instance GPT-5.5 Total Tokens
 
 | Instance | GPT-5.5-alone input | Mixmod GPT-5.5 input | Input delta | GPT-5.5-alone total | Mixmod GPT-5.5 total | Total delta |
 |---|---:|---:|---:|---:|---:|---:|
@@ -108,21 +110,21 @@ Token accounting: all token counts in this report are GPT-5.5 tokens. Local Qwen
 
 ## Loop Metrics
 
-| Instance | GPT-5.5 turns | Qwen worker turns | Qwen worker text bytes | Mixmod final status |
-|---|---:|---:|---:|---|
-| `pytest-dev__pytest-11143` | 3 | 2 | 19,061 | `approved_by_codex` |
-| `scikit-learn__scikit-learn-13439` | 5 | 4 | 26,845 | `approved_by_codex` |
-| `sympy__sympy-20212` | 2 | 1 | 8,414 | `approved_by_codex` |
-| `django__django-12908` | 3 | 2 | 14,305 | `approved_by_codex` |
-| `pytest-dev__pytest-6116` | 8 | 7 | 92,874 | `approved_by_codex` |
-| `django__django-13447` | 2 | 1 | 11,874 | `approved_by_codex` |
-| `django__django-15814` | 2 | 1 | 16,204 | `approved_by_codex` |
-| `django__django-11179` | 6 | 5 | 65,402 | `stopped_by_codex` |
-| `sympy__sympy-13480` | 2 | 1 | 7,126 | `approved_by_codex` |
-| `scikit-learn__scikit-learn-13584` | 6 | 5 | 63,560 | `approved_by_codex` |
-| **Total** | **39** | **29** | **325,665** | |
+| Instance | GPT-5.5 turns | Qwen worker turns | Qwen worker text bytes |
+|---|---:|---:|---:|
+| `pytest-dev__pytest-11143` | 3 | 2 | 19,061 |
+| `scikit-learn__scikit-learn-13439` | 5 | 4 | 26,845 |
+| `sympy__sympy-20212` | 2 | 1 | 8,414 |
+| `django__django-12908` | 3 | 2 | 14,305 |
+| `pytest-dev__pytest-6116` | 8 | 7 | 92,874 |
+| `django__django-13447` | 2 | 1 | 11,874 |
+| `django__django-15814` | 2 | 1 | 16,204 |
+| `django__django-11179` | 6 | 5 | 65,402 |
+| `sympy__sympy-13480` | 2 | 1 | 7,126 |
+| `scikit-learn__scikit-learn-13584` | 6 | 5 | 63,560 |
+| **Total** | **39** | **29** | **325,665** |
 
-`django__django-11179` is notable because GPT-5.5 stopped the Mixmod loop rather than approving, but the final patch still resolved under the official SWE-bench evaluator. That should be reviewed as a strategy/control-flow issue separately from patch quality.
+Nine Mixmod loops ended with GPT-5.5 approval. `django__django-11179` is notable because GPT-5.5 stopped the loop rather than approving, but the final patch still resolved under the official SWE-bench evaluator. That should be reviewed as a strategy/control-flow issue separately from patch quality.
 
 ## Runtime
 
