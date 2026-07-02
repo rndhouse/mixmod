@@ -29,8 +29,6 @@ pub enum Commands {
         #[arg(long)]
         out: PathBuf,
         #[arg(long)]
-        require_local: bool,
-        #[arg(long)]
         resume_session: Option<String>,
         #[arg(long, value_name = "MODEL[:EFFORT]")]
         supervisor_model: Option<String>,

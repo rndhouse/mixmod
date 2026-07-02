@@ -239,7 +239,6 @@ fn exec_command_is_public_cli_surface() {
         "task.json",
         "--out",
         ".mixmod/runs/demo",
-        "--require-local",
     ])
     .unwrap();
 
@@ -247,14 +246,12 @@ fn exec_command_is_public_cli_surface() {
         Commands::Exec {
             task,
             out,
-            require_local,
             resume_session,
             supervisor_model,
             worker_model,
         } => {
             assert_eq!(task, PathBuf::from("task.json"));
             assert_eq!(out, PathBuf::from(".mixmod/runs/demo"));
-            assert!(require_local);
             assert!(resume_session.is_none());
             assert!(supervisor_model.is_none());
             assert!(worker_model.is_none());
@@ -263,6 +260,18 @@ fn exec_command_is_public_cli_surface() {
     }
 
     assert!(Cli::try_parse_from(["mixmod", "delegate"]).is_err());
+    assert!(
+        Cli::try_parse_from([
+            "mixmod",
+            "exec",
+            "--task",
+            "task.json",
+            "--out",
+            ".mixmod/runs/demo",
+            "--require-local",
+        ])
+        .is_err()
+    );
 }
 
 #[test]

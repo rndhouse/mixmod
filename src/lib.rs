@@ -128,7 +128,6 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
         Commands::Exec {
             task,
             out,
-            require_local,
             resume_session,
             supervisor_model,
             worker_model,
@@ -140,7 +139,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 DelegationMode::Patch,
                 &task,
                 &out,
-                require_local,
+                false,
                 resume_session,
                 model_overrides,
             )
