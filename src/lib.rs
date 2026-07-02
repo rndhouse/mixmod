@@ -175,7 +175,10 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             ensure_project_state(&root, false)?;
             supervise_mixmod_task(&root, mode, &task, &out, require_local, resume_session)
         }
-        Commands::Hook { args } => hook_entrypoint(&root, args),
+        Commands::Hook { args } => {
+            ensure_debug_command_enabled("mixmod hook")?;
+            hook_entrypoint(&root, args)
+        }
         Commands::Live { command } => match command {
             LiveCommand::Status { run, json } => live_status(&root, &run, json),
             LiveCommand::Control {
@@ -198,41 +201,44 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 )
             }
         },
-        Commands::Experiment { command } => match command {
-            ExperimentCommand::Init { name, fixture } => {
-                ensure_project_state(&root, false)?;
-                experiment_init(&root, &name, fixture.as_deref())
+        Commands::Experiment { command } => {
+            ensure_debug_command_enabled("mixmod experiment")?;
+            match command {
+                ExperimentCommand::Init { name, fixture } => {
+                    ensure_project_state(&root, false)?;
+                    experiment_init(&root, &name, fixture.as_deref())
+                }
+                ExperimentCommand::RecordCodexOnly { name, task } => {
+                    ensure_project_state(&root, false)?;
+                    experiment_record_codex_only(&root, &name, &task)
+                }
+                ExperimentCommand::RecordMixmod { name, task } => {
+                    ensure_project_state(&root, false)?;
+                    experiment_record_mixmod(&root, &name, &task)
+                }
+                ExperimentCommand::RunDefault {
+                    name,
+                    require_local,
+                } => {
+                    ensure_project_state(&root, false)?;
+                    experiment_run_default(&root, &name, DefaultRunOptions { require_local })
+                }
+                ExperimentCommand::RunBudgeted {
+                    name,
+                    require_local,
+                } => {
+                    ensure_project_state(&root, false)?;
+                    experiment_run_default(&root, &name, DefaultRunOptions { require_local })
+                }
+                ExperimentCommand::Recover {
+                    name,
+                    require_local,
+                } => {
+                    ensure_project_state(&root, false)?;
+                    experiment_recover(&root, &name, require_local)
+                }
+                ExperimentCommand::Report { name } => experiment_report(&root, &name).map(|_| ()),
             }
-            ExperimentCommand::RecordCodexOnly { name, task } => {
-                ensure_project_state(&root, false)?;
-                experiment_record_codex_only(&root, &name, &task)
-            }
-            ExperimentCommand::RecordMixmod { name, task } => {
-                ensure_project_state(&root, false)?;
-                experiment_record_mixmod(&root, &name, &task)
-            }
-            ExperimentCommand::RunDefault {
-                name,
-                require_local,
-            } => {
-                ensure_project_state(&root, false)?;
-                experiment_run_default(&root, &name, DefaultRunOptions { require_local })
-            }
-            ExperimentCommand::RunBudgeted {
-                name,
-                require_local,
-            } => {
-                ensure_project_state(&root, false)?;
-                experiment_run_default(&root, &name, DefaultRunOptions { require_local })
-            }
-            ExperimentCommand::Recover {
-                name,
-                require_local,
-            } => {
-                ensure_project_state(&root, false)?;
-                experiment_recover(&root, &name, require_local)
-            }
-            ExperimentCommand::Report { name } => experiment_report(&root, &name).map(|_| ()),
-        },
+        }
     }
 }

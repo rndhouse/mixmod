@@ -62,6 +62,7 @@ pub enum Commands {
         resume_session: Option<String>,
     },
     /// Entry point for legacy repo-local Codex hooks.
+    #[command(hide = true)]
     Hook {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -72,6 +73,7 @@ pub enum Commands {
         command: LiveCommand,
     },
     /// Manage repeatable Mixmod experiments.
+    #[command(hide = true)]
     Experiment {
         #[command(subcommand)]
         command: ExperimentCommand,

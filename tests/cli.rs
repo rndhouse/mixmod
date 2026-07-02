@@ -55,7 +55,7 @@ fn read_json(path: &Path) -> Value {
 }
 
 #[test]
-fn init_status_and_doctor_are_debug_only() {
+fn internal_commands_are_debug_only() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -80,6 +80,8 @@ fn init_status_and_doctor_are_debug_only() {
         &[("MIXMOD_DEBUG_COMMANDS", "1")],
     ));
     assert_failure(run_mixmod(root, &["doctor"]));
+    assert_failure(run_mixmod(root, &["hook", "session-start"]));
+    assert_failure(run_mixmod(root, &["experiment", "init", "demo"]));
     assert_failure(run_mixmod(root, &["uninstall"]));
 }
 
@@ -155,7 +157,7 @@ fn experiment_codex_only_task_copy_strips_hidden_metadata() {
     )
     .unwrap();
 
-    assert_success(run_mixmod(
+    assert_success(run_mixmod_with_env(
         root,
         &[
             "experiment",
@@ -164,6 +166,7 @@ fn experiment_codex_only_task_copy_strips_hidden_metadata() {
             "--fixture",
             fixture.to_str().unwrap(),
         ],
+        &[("MIXMOD_DEBUG_COMMANDS", "1")],
     ));
 
     let empty_path = TempDir::new().unwrap();
@@ -177,6 +180,7 @@ fn experiment_codex_only_task_copy_strips_hidden_metadata() {
         ])
         .current_dir(root)
         .env("PATH", empty_path.path())
+        .env("MIXMOD_DEBUG_COMMANDS", "1")
         .output()
         .unwrap();
     assert!(!output.status.success());
