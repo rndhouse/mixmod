@@ -9,8 +9,52 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
+
+
+def fnv1a64(value: bytes) -> int:
+    hash_value = 0xCBF29CE484222325
+    for byte in value:
+        hash_value ^= byte
+        hash_value = (hash_value * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return hash_value
+
+
+def sanitize_project_name(value: str) -> str:
+    cleaned = "".join(ch if ch.isascii() and (ch.isalnum() or ch in "-_") else "-" for ch in value).strip("-")
+    return cleaned or "root"
+
+
+def project_id(root: Path) -> str:
+    canonical = root.resolve()
+    name = sanitize_project_name(canonical.name or "root")
+    return f"{name}-{fnv1a64(str(canonical).encode()):016x}"
+
+
+def state_root() -> Path:
+    override = os.environ.get("MIXMOD_STATE_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+    xdg_state = os.environ.get("XDG_STATE_HOME")
+    if xdg_state:
+        return Path(xdg_state).expanduser().resolve() / "mixmod"
+    home = os.environ.get("HOME")
+    if home:
+        return Path(home).expanduser().resolve() / ".local" / "state" / "mixmod"
+    return Path(tempfile.gettempdir()) / "mixmod"
+
+
+def project_state(root: Path) -> Path:
+    return state_root() / "projects" / project_id(root)
+
+
+def display_path(root: Path, path: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
 
 
 def repo_key(repo: str) -> str:
@@ -51,11 +95,12 @@ def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None, log: Path 
 
 
 def ensure_default_worktree(root: Path, item: dict[str, Any]) -> None:
-    exp_dir = root / ".mixmod" / "experiments" / item["experiment"]
+    state = project_state(root)
+    exp_dir = state / "experiments" / item["experiment"]
     work_dir = exp_dir / "work" / "default"
     if work_dir.exists():
         return
-    cache = root / ".mixmod" / "swebench" / "repo-cache" / repo_key(item["repo"])
+    cache = state / "swebench" / "repo-cache" / repo_key(item["repo"])
     if not cache.exists():
         raise RuntimeError(f"missing repo cache for {item['repo']}: {cache}")
     work_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -87,8 +132,7 @@ def write_prediction_jsonl(instance_id: str, patch_path: Path, output: Path) -> 
 def move_eval_summary(root: Path, run_id: str) -> Path:
     src = root / f"mixmod-current-default-v1-expansion.{run_id}.json"
     dst = (
-        root
-        / ".mixmod"
+        project_state(root)
         / "swebench"
         / "current-default-v1-expansion"
         / "eval"
@@ -122,7 +166,7 @@ def evaluate(root: Path, item: dict[str, Any], prediction: Path, run_id: str, lo
             "--run_id",
             run_id,
             "--report_dir",
-            str(root / ".mixmod" / "swebench" / "current-default-v1-expansion" / "eval"),
+            str(project_state(root) / "swebench" / "current-default-v1-expansion" / "eval"),
         ],
         cwd=root,
         env=env,
@@ -142,7 +186,8 @@ def main() -> int:
     args = parser.parse_args()
 
     root = args.root.resolve()
-    pool = root / ".mixmod" / "swebench" / "current-default-v1-expansion"
+    state = project_state(root)
+    pool = state / "swebench" / "current-default-v1-expansion"
     screen_state = read_json(pool / "screen-state.json")
     selected = screen_state["resolved"]
     if args.limit:
@@ -161,7 +206,7 @@ def main() -> int:
         instance_id = item["instance_id"]
         if instance_id in completed:
             continue
-        exp_dir = root / ".mixmod" / "experiments" / item["experiment"]
+        exp_dir = state / "experiments" / item["experiment"]
         default_dir = exp_dir / "default"
         metrics_path = default_dir / "metrics.json"
         patch_path = default_dir / "final.patch"
@@ -211,7 +256,7 @@ def main() -> int:
             "final_status": metrics.get("final_status"),
             "final_verdict": metrics.get("final_verdict"),
             "resolved": resolved,
-            "official_summary": str(summary_path.relative_to(root)) if summary_path else None,
+            "official_summary": display_path(root, summary_path) if summary_path else None,
         }
         state.setdefault("completed", []).append(record)
         completed.add(instance_id)

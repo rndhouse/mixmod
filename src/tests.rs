@@ -302,7 +302,7 @@ fn exec_command_is_public_cli_surface() {
             "--task",
             "task.json",
             "--out",
-            ".mixmod/runs/demo",
+            "runs/demo",
         ])
         .is_err()
     );
@@ -343,7 +343,6 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
 fn exec_task_resolution_writes_prompt_tasks() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
-    fs::create_dir_all(root.join(".mixmod/tasks")).unwrap();
 
     let task_path = resolve_exec_task(
         root,
@@ -351,7 +350,8 @@ fn exec_task_resolution_writes_prompt_tasks() {
         vec!["Fix".to_string(), "checkout totals.".to_string()],
     )
     .unwrap();
-    assert!(task_path.starts_with(root.join(".mixmod/tasks")));
+    assert!(task_path.starts_with(state_layout(root).tasks()));
+    assert!(!root.join(".mixmod").exists());
     let task = read_json_file(&task_path).unwrap();
     assert_eq!(get_str(&task, "title"), Some("Fix checkout totals."));
     assert_eq!(get_str(&task, "instructions"), Some("Fix checkout totals."));
@@ -516,12 +516,13 @@ fn resumed_opencode_args_use_specific_session_without_title() {
 }
 
 fn test_opencode_request(root: &Path) -> OpenCodeRequest {
+    let out_dir = state_layout(root).runs().join("test");
     OpenCodeRequest {
         root: root.to_path_buf(),
         mode: DelegationMode::Patch,
         task_path: root.join("task.json"),
-        out_dir: root.join(".mixmod/runs/test"),
-        instruction_path: root.join(".mixmod/runs/test/opencode-instructions.md"),
+        out_dir: out_dir.clone(),
+        instruction_path: out_dir.join("opencode-instructions.md"),
         instruction: "FULL ORIGINAL INSTRUCTION".to_string(),
         session_id: "opencode-session-test".to_string(),
         resume_session_id: None,
@@ -640,7 +641,7 @@ esac
         fs::set_permissions(&fake_opencode, perms).unwrap();
     }
 
-    let out_dir = root.join(".mixmod/runs/control-send-test");
+    let out_dir = state_layout(root).runs().join("control-send-test");
     let request = OpenCodeRequest {
         root: root.to_path_buf(),
         mode: DelegationMode::Patch,
@@ -722,7 +723,7 @@ fn frontier_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("patch_decision"));
     assert!(prompt.contains("revise_previous"));
     assert!(prompt.contains("summarize the concrete source/test edits to recover"));
-    assert!(prompt.contains("Do not ask the worker to inspect .mixmod."));
+    assert!(prompt.contains("Do not ask the worker to inspect Mixmod state"));
     assert!(prompt.contains("previous worker context is discarded"));
     assert!(prompt.contains("Do not implement code. Do not edit files."));
     assert!(prompt.contains("Do not ask the user for approval."));
@@ -868,7 +869,7 @@ fn subtracts_unchanged_preexisting_diff_blocks() {
 }
 
 #[test]
-fn init_manages_only_mixmod_local_files() {
+fn init_manages_only_central_state_files() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fs::create_dir_all(root.join(".codex")).unwrap();
@@ -876,13 +877,15 @@ fn init_manages_only_mixmod_local_files() {
     fs::write(root.join(LEGACY_OPENCODE_CONFIG), "{\"user\":true}\n").unwrap();
 
     init_project(root).unwrap();
-    assert!(is_managed_file(&root.join(MIXMOD_CONFIG)));
-    assert!(is_managed_file(&root.join(OPENCODE_CONFIG)));
-    assert!(root.join(MIXMOD_CODEX_HOME).is_dir());
+    let layout = state_layout(root);
+    assert!(is_managed_file(&layout.config()));
+    assert!(is_managed_file(&layout.opencode_config()));
+    assert!(layout.codex_home().is_dir());
+    assert!(layout.backups().is_dir());
+    assert!(!root.join(".mixmod").exists());
     assert!(!root.join(CODEX_INSTRUCTIONS).exists());
     assert!(!root.join(".codex/hooks.json").exists());
     assert!(!root.join(".codex/hooks").exists());
-    assert!(root.join(".mixmod/backups").exists());
     assert_eq!(
         fs::read_to_string(root.join(".codex/config.toml")).unwrap(),
         "existing = true\n"
@@ -897,7 +900,7 @@ fn init_manages_only_mixmod_local_files() {
 fn codex_app_server_uses_mixmod_scoped_codex_home() {
     assert_eq!(
         codex_home_for_work_dir(Path::new("/tmp/work")),
-        PathBuf::from("/tmp/work").join(MIXMOD_CODEX_HOME)
+        state_layout(Path::new("/tmp/work")).codex_home()
     );
 }
 
@@ -905,32 +908,26 @@ fn codex_app_server_uses_mixmod_scoped_codex_home() {
 fn opencode_uses_mixmod_scoped_config() {
     assert_eq!(
         opencode_config_path(Path::new("/tmp/work")),
-        PathBuf::from("/tmp/work").join(OPENCODE_CONFIG)
+        state_layout(Path::new("/tmp/work")).opencode_config()
     );
 }
 
 #[test]
-fn opencode_config_denies_mixmod_artifact_access() {
+fn opencode_config_is_written_to_central_state() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
     init_project(root).unwrap();
-    let config = read_json_file(&root.join(OPENCODE_CONFIG)).unwrap();
+    let config_path = state_layout(root).opencode_config();
+    let config = read_json_file(&config_path).unwrap();
 
-    for tool in ["read", "edit", "glob", "grep"] {
-        assert_eq!(
-            get_str(&config["permission"][tool], ".mixmod/**"),
-            Some("deny")
-        );
-        assert_eq!(
-            get_str(&config["permission"][tool], "**/.mixmod/**"),
-            Some("deny")
-        );
-    }
+    assert!(config_path.starts_with(state_layout(root).project_dir()));
+    assert!(!root.join("opencode.json").exists());
+    assert_eq!(get_bool(&config, "autoupdate"), Some(false));
 }
 
 #[test]
-fn init_adds_mixmod_to_repo_local_git_exclude() {
+fn init_does_not_write_repo_local_git_exclude() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     init_git(root);
@@ -941,14 +938,7 @@ fn init_adds_mixmod_to_repo_local_git_exclude() {
     init_project(root).unwrap();
 
     let content = fs::read_to_string(exclude).unwrap();
-    assert!(content.contains("# local ignores\n"));
-    assert_eq!(
-        content
-            .lines()
-            .filter(|line| line.trim() == ".mixmod/")
-            .count(),
-        1
-    );
+    assert_eq!(content, "# local ignores\n");
 }
 
 #[test]
@@ -980,14 +970,9 @@ fn run_writes_full_artifact_bundle() {
     )
     .unwrap();
 
-    let receipt = run_mixmod_task(
-        root,
-        DelegationMode::Patch,
-        &task,
-        &root.join(".mixmod/runs/example"),
-        &FakeRunner,
-    )
-    .unwrap();
+    let run_dir = state_layout(root).runs().join("example");
+    let receipt =
+        run_mixmod_task(root, DelegationMode::Patch, &task, &run_dir, &FakeRunner).unwrap();
 
     assert_eq!(receipt.status, "success");
     for artifact in [
@@ -1002,10 +987,11 @@ fn run_writes_full_artifact_bundle() {
         "logs/opencode.stdout.txt",
         "logs/opencode.stderr.txt",
     ] {
-        assert!(root.join(".mixmod/runs/example").join(artifact).exists());
+        assert!(run_dir.join(artifact).exists());
     }
-    let patch = fs::read_to_string(root.join(".mixmod/runs/example/changes.patch")).unwrap();
+    let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
     assert!(patch.contains("src/generated.rs"));
+    assert!(!root.join(".mixmod").exists());
 }
 
 #[test]
@@ -1039,18 +1025,11 @@ fn empty_patch_followup_runs_once_when_patch_expected() {
     .unwrap();
     let runner = EmptyPatchThenPatchRunner::new();
 
-    let receipt = run_mixmod_task(
-        root,
-        DelegationMode::Patch,
-        &task,
-        &root.join(".mixmod/runs/example"),
-        &runner,
-    )
-    .unwrap();
+    let run_dir = state_layout(root).runs().join("example");
+    let receipt = run_mixmod_task(root, DelegationMode::Patch, &task, &run_dir, &runner).unwrap();
 
     assert_eq!(receipt.status, "success");
     assert_eq!(runner.calls.load(AtomicOrdering::SeqCst), 2);
-    let run_dir = root.join(".mixmod/runs/example");
     let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
     assert!(patch.contains("src/generated.rs"));
     assert!(run_dir.join("empty-patch-followup/task.json").exists());
@@ -1061,9 +1040,7 @@ fn empty_patch_followup_runs_once_when_patch_expected() {
     );
     let followup_instruction =
         fs::read_to_string(run_dir.join("empty-patch-followup/opencode-instructions.md")).unwrap();
-    assert!(
-        followup_instruction.contains("Do not read, grep, glob, edit, or rely on `.mixmod` files")
-    );
+    assert!(followup_instruction.contains("Mixmod-managed state lives outside this repository"));
     assert!(!followup_instruction.contains("Task file:"));
     assert!(!followup_instruction.contains("Artifact directory:"));
     let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();
@@ -1143,17 +1120,12 @@ fn empty_patch_is_allowed_when_patch_not_expected() {
         }
     }
 
-    let receipt = run_mixmod_task(
-        root,
-        DelegationMode::Patch,
-        &task,
-        &root.join(".mixmod/runs/example"),
-        &NoEditRunner,
-    )
-    .unwrap();
+    let run_dir = state_layout(root).runs().join("example");
+    let receipt =
+        run_mixmod_task(root, DelegationMode::Patch, &task, &run_dir, &NoEditRunner).unwrap();
 
     assert_eq!(receipt.status, "success");
-    let metrics = read_json_file(&root.join(".mixmod/runs/example/metrics.json")).unwrap();
+    let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();
     assert_eq!(get_bool(&metrics, "expect_patch"), Some(false));
     assert_eq!(
         get_bool(&metrics, "empty_patch_followup_triggered"),
@@ -1182,12 +1154,12 @@ fn opencode_instruction_includes_local_worker_self_check() {
         DelegationMode::Patch,
         &task_spec,
         &task,
-        &root.join(".mixmod/runs/example"),
+        &state_layout(root).runs().join("example"),
     )
     .unwrap();
 
     assert!(instruction.contains("## Completion Self-Check"));
-    assert!(instruction.contains("Do not read, grep, glob, edit, or rely on `.mixmod` files"));
+    assert!(instruction.contains("Mixmod-managed state lives outside this repository"));
     assert!(!instruction.contains("Task file:"));
     assert!(!instruction.contains("Artifact directory:"));
     assert!(instruction.contains("Did you complete every edit you intended to make?"));
@@ -1664,7 +1636,7 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
 
     assert!(instructions.contains("Patch checkpoint decision: revise_previous"));
     assert!(instructions.contains("Recover the previous candidate using Codex's message"));
-    assert!(instructions.contains("Do not read `.mixmod` artifacts directly."));
+    assert!(instructions.contains("Do not read Mixmod artifacts directly."));
     assert!(!instructions.contains("previous-worktree.patch"));
     assert_eq!(
         get_str(&revision["context"], "patch_decision"),
@@ -1738,5 +1710,11 @@ fn experiment_report_handles_missing_telemetry() {
     experiment_init(root, "demo", None).unwrap();
     let report = experiment_report(root, "demo").unwrap();
     assert!(report.contains("Exact token telemetry"));
-    assert!(root.join(".mixmod/experiments/demo/report.md").exists());
+    assert!(
+        state_layout(root)
+            .experiments()
+            .join("demo/report.md")
+            .exists()
+    );
+    assert!(!root.join(".mixmod").exists());
 }

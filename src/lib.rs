@@ -27,6 +27,7 @@ mod live;
 mod opencode;
 mod report;
 mod run;
+mod state;
 mod task;
 #[cfg(test)]
 mod tests;
@@ -90,6 +91,7 @@ pub(crate) use report::budgeted_report;
 #[cfg(test)]
 pub(crate) use run::{build_opencode_instruction, build_run_summary, opencode_exit_status_label};
 pub(crate) use run::{run_mixmod_task_with_session, run_task_tests, shell_command};
+pub(crate) use state::state_layout;
 
 use task::{
     TaskSpec, agent_visible_task_value, ensure_agent_visible_task_file, read_task_json,
@@ -97,9 +99,6 @@ use task::{
 };
 
 const MANAGED_MARKER: &str = "MIXMOD MANAGED";
-const MIXMOD_CONFIG: &str = ".mixmod/config.toml";
-const MIXMOD_CODEX_HOME: &str = ".mixmod/codex-home";
-const OPENCODE_CONFIG: &str = ".mixmod/opencode.json";
 #[cfg(test)]
 const LEGACY_OPENCODE_CONFIG: &str = "opencode.json";
 #[cfg(test)]
@@ -140,7 +139,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
         } => {
             ensure_project_state(&root, false)?;
             let task = resolve_exec_task(&root, task, prompt)?;
-            let out = root.join(".mixmod/runs").join(make_run_id("run"));
+            let out = state_layout(&root).runs().join(make_run_id("run"));
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
             run_default_strategy(
                 &root,

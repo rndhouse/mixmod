@@ -8,17 +8,73 @@ fn mixmod_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_mixmod"))
 }
 
+fn state_root(root: &Path) -> PathBuf {
+    let name = root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("repo");
+    root.parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{name}-mixmod-state"))
+}
+
+fn project_state(root: &Path) -> PathBuf {
+    state_root(root).join("projects").join(project_id(root))
+}
+
+fn project_id(root: &Path) -> String {
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let name = canonical
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(sanitize_project_name)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "root".to_string());
+    format!(
+        "{name}-{:016x}",
+        fnv1a64(canonical.to_string_lossy().as_bytes())
+    )
+}
+
+fn sanitize_project_name(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn run_mixmod(root: &Path, args: &[&str]) -> Output {
     Command::new(mixmod_bin())
         .args(args)
         .current_dir(root)
+        .env("MIXMOD_STATE_DIR", state_root(root))
         .output()
         .unwrap_or_else(|error| panic!("failed to run mixmod {args:?}: {error}"))
 }
 
 fn run_mixmod_with_env(root: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
     let mut command = Command::new(mixmod_bin());
-    command.args(args).current_dir(root);
+    command
+        .args(args)
+        .current_dir(root)
+        .env("MIXMOD_STATE_DIR", state_root(root));
     for (key, value) in envs {
         command.env(key, value);
     }
@@ -67,9 +123,11 @@ fn internal_commands_are_hidden_or_removed() {
         &["init"],
         &[("MIXMOD_DEBUG_COMMANDS", "1")],
     ));
-    assert!(root.join(".mixmod/config.toml").exists());
-    assert!(root.join(".mixmod/codex-home").exists());
-    assert!(root.join(".mixmod/opencode.json").exists());
+    let state = project_state(root);
+    assert!(state.join("config.toml").exists());
+    assert!(state.join("codex-home").exists());
+    assert!(state.join("opencode.json").exists());
+    assert!(!root.join(".mixmod").exists());
     assert!(!root.join("opencode.json").exists());
     assert!(!root.join(".codex/mixmod-instructions.md").exists());
 
@@ -89,17 +147,14 @@ fn internal_commands_are_hidden_or_removed() {
             "--task",
             "task.json",
             "--out",
-            ".mixmod/runs/demo",
+            "runs/demo",
         ],
     ));
     assert_failure(run_mixmod(
         root,
-        &["control", "status", "--run", ".mixmod/runs/demo"],
+        &["control", "status", "--run", "runs/demo"],
     ));
-    assert_failure(run_mixmod(
-        root,
-        &["live", "status", "--run", ".mixmod/runs/demo"],
-    ));
+    assert_failure(run_mixmod(root, &["live", "status", "--run", "runs/demo"]));
     assert_failure(run_mixmod(root, &["hook", "session-start"]));
     assert_failure(run_mixmod(root, &["run"]));
     assert_failure(run_mixmod(root, &["supervise"]));
@@ -110,6 +165,8 @@ fn internal_commands_are_hidden_or_removed() {
 fn control_send_writes_control_file() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
+    let run_dir = project_state(root).join("runs/demo");
+    let run_arg = run_dir.to_str().unwrap();
 
     assert_success(run_mixmod_with_env(
         root,
@@ -117,7 +174,7 @@ fn control_send_writes_control_file() {
             "control",
             "send",
             "--run",
-            ".mixmod/runs/demo",
+            run_arg,
             "--action",
             "interrupt_context_focus",
             "--message",
@@ -138,7 +195,7 @@ fn control_send_writes_control_file() {
             "control",
             "control",
             "--run",
-            ".mixmod/runs/demo",
+            run_arg,
             "--action",
             "interrupt_context_focus",
             "--message",
@@ -152,10 +209,11 @@ fn control_send_writes_control_file() {
         ],
     ));
 
-    let control = read_json(&root.join(".mixmod/runs/demo/control.json"));
-    assert!(root.join(".mixmod/config.toml").exists());
-    assert!(root.join(".mixmod/opencode.json").exists());
-    assert!(root.join(".mixmod/codex-home").exists());
+    let control = read_json(&run_dir.join("control.json"));
+    assert!(project_state(root).join("config.toml").exists());
+    assert!(project_state(root).join("opencode.json").exists());
+    assert!(project_state(root).join("codex-home").exists());
+    assert!(!root.join(".mixmod").exists());
     assert!(!root.join("opencode.json").exists());
     assert!(!root.join(".codex").exists());
     assert_eq!(control["action"], "interrupt_context_focus");
@@ -212,22 +270,24 @@ fn experiment_codex_only_task_copy_strips_hidden_metadata() {
     ));
 
     let empty_path = TempDir::new().unwrap();
+    let task_path = project_state(root).join("experiments/demo/task.json");
     let output = Command::new(mixmod_bin())
         .args([
             "experiment",
             "record-codex-only",
             "demo",
             "--task",
-            ".mixmod/experiments/demo/task.json",
+            task_path.to_str().unwrap(),
         ])
         .current_dir(root)
         .env("PATH", empty_path.path())
+        .env("MIXMOD_STATE_DIR", state_root(root))
         .env("MIXMOD_DEBUG_COMMANDS", "1")
         .output()
         .unwrap();
     assert!(!output.status.success());
 
-    let task = read_json(&root.join(".mixmod/experiments/demo/work/codex-only/task.json"));
+    let task = read_json(&project_state(root).join("experiments/demo/work/codex-only/task.json"));
     assert!(task.get("patch").is_none());
     assert!(task.get("test_patch").is_none());
     assert!(task.get("hints_text").is_none());

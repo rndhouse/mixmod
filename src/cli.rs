@@ -13,7 +13,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Create project-local Mixmod state and OpenCode configuration.
+    /// Create central Mixmod state and OpenCode configuration.
     #[command(hide = true)]
     Init,
     /// Show local Mixmod and tool status.

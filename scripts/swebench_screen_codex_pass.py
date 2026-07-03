@@ -2,7 +2,8 @@
 """Screen SWE-bench Lite candidates for Codex-only resolved instances.
 
 This is experiment harness glue, not model-facing logic. It writes generated
-artifacts under .mixmod/ and invokes the Mixmod CLI for Codex-only baselines.
+artifacts under Mixmod's central state dir and invokes the Mixmod CLI for
+Codex-only baselines.
 Gold patches are used only to order candidate screening; they are not written
 to task prompts or agent worktrees.
 """
@@ -15,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,49 @@ EXISTING_SELECTED = {
     "scikit-learn__scikit-learn-13439",
     "sympy__sympy-20212",
 }
+
+
+def fnv1a64(value: bytes) -> int:
+    hash_value = 0xCBF29CE484222325
+    for byte in value:
+        hash_value ^= byte
+        hash_value = (hash_value * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return hash_value
+
+
+def sanitize_project_name(value: str) -> str:
+    cleaned = "".join(ch if ch.isascii() and (ch.isalnum() or ch in "-_") else "-" for ch in value).strip("-")
+    return cleaned or "root"
+
+
+def project_id(root: Path) -> str:
+    canonical = root.resolve()
+    name = sanitize_project_name(canonical.name or "root")
+    return f"{name}-{fnv1a64(str(canonical).encode()):016x}"
+
+
+def state_root() -> Path:
+    override = os.environ.get("MIXMOD_STATE_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+    xdg_state = os.environ.get("XDG_STATE_HOME")
+    if xdg_state:
+        return Path(xdg_state).expanduser().resolve() / "mixmod"
+    home = os.environ.get("HOME")
+    if home:
+        return Path(home).expanduser().resolve() / ".local" / "state" / "mixmod"
+    return Path(tempfile.gettempdir()) / "mixmod"
+
+
+def project_state(root: Path) -> Path:
+    return state_root() / "projects" / project_id(root)
+
+
+def display_path(root: Path, path: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
 
 
 @dataclass(frozen=True)
@@ -191,7 +236,7 @@ def ensure_worktree(root: Path, candidate: Candidate, exp_dir: Path) -> None:
     work_dir = exp_dir / "work" / "codex-only"
     if work_dir.exists():
         return
-    cache = root / ".mixmod" / "swebench" / "repo-cache" / repo_key(candidate.repo)
+    cache = project_state(root) / "swebench" / "repo-cache" / repo_key(candidate.repo)
     if not cache.exists():
         raise RuntimeError(f"missing repo cache for {candidate.repo}: {cache}")
     work_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -223,7 +268,7 @@ def write_prediction_jsonl(root: Path, instance_id: str, patch_path: Path, outpu
 
 def eval_summary_path(root: Path, run_id: str) -> Path:
     name = f"mixmod-codex-only-current-default-v1-expansion.{run_id}.json"
-    return root / ".mixmod" / "swebench" / "current-default-v1-expansion" / "eval" / "official-summary" / name
+    return project_state(root) / "swebench" / "current-default-v1-expansion" / "eval" / "official-summary" / name
 
 
 def move_eval_summary(root: Path, run_id: str) -> Path:
@@ -256,7 +301,7 @@ def evaluate_patch(root: Path, candidate: Candidate, prediction: Path, run_id: s
             "--run_id",
             run_id,
             "--report_dir",
-            str(root / ".mixmod" / "swebench" / "current-default-v1-expansion" / "eval"),
+            str(project_state(root) / "swebench" / "current-default-v1-expansion" / "eval"),
         ],
         cwd=root,
         env=env,
@@ -283,7 +328,8 @@ def main() -> int:
     args = parser.parse_args()
 
     root = args.root.resolve()
-    pool = root / ".mixmod" / "swebench" / "current-default-v1-expansion"
+    state = project_state(root)
+    pool = state / "swebench" / "current-default-v1-expansion"
     pool.mkdir(parents=True, exist_ok=True)
     log_dir = pool / "logs"
 
@@ -314,7 +360,7 @@ def main() -> int:
             continue
 
         exp_name = f"swebench-current-default-v1-{safe_instance(candidate.instance_id)}"
-        exp_dir = root / ".mixmod" / "experiments" / exp_name
+        exp_dir = state / "experiments" / exp_name
         task_path = exp_dir / "task.json"
         print(f"SCREEN_START {candidate.instance_id} repo={candidate.repo} patch_lines={candidate.patch_changed_lines}", flush=True)
 
@@ -363,7 +409,7 @@ def main() -> int:
             "frontier_output_tokens": metrics.get("frontier_output_tokens"),
             "frontier_total_tokens": metrics.get("frontier_total_tokens"),
             "resolved": resolved,
-            "official_summary": str(summary_path.relative_to(root)) if summary_path else None,
+            "official_summary": display_path(root, summary_path) if summary_path else None,
         }
         state.setdefault("attempted", []).append(attempted)
         attempted_ids.add(candidate.instance_id)

@@ -922,8 +922,8 @@ Use approve when no more local worker attempts are needed.
 Prefer revise after failed, empty, distracted, or incomplete worker attempts, and put the next worker instruction in message_to_worker.
 Use worker_mode=continue to keep the same OpenCode session and let the worker continue with its existing context.
 Use worker_mode=context_focus to start a new OpenCode session on the same worktree; previous worker context is discarded unless you repeat it in message_to_worker.
-When patch-comparison.json is present, choose patch_decision explicitly. Use accept_current when the current worktree.patch should stand, revise_current when the current patch should be edited further, and revise_previous when previous-worktree.patch is the better candidate. Mixmod will not mutate the repo directly from this choice. If you choose revise_previous, summarize the concrete source/test edits to recover in message_to_worker; do not tell the worker to read previous-worktree.patch or any .mixmod artifact.
-Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files. Do not ask the worker to inspect .mixmod.
+When patch-comparison.json is present, choose patch_decision explicitly. Use accept_current when the current worktree.patch should stand, revise_current when the current patch should be edited further, and revise_previous when previous-worktree.patch is the better candidate. Mixmod will not mutate the repo directly from this choice. If you choose revise_previous, summarize the concrete source/test edits to recover in message_to_worker; do not tell the worker to read previous-worktree.patch or any Mixmod artifact.
+Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files. Do not ask the worker to inspect Mixmod state or artifact directories.
 Important artifact semantics: worktree.patch is the accumulated current repository diff and is authoritative for deciding whether the patch exists; changes.patch is only the latest worker run delta and may be empty after a verification-only revision.
 Use stop only to record a blocked or inconclusive local-worker result when no useful OpenCode path remains. Stop does not permit direct Codex editing.
 Working repo: {work_dir}
@@ -1024,7 +1024,7 @@ pub(crate) fn aggregate_frontier_usage(turns: &[FrontierUsageSample]) -> Frontie
 }
 
 pub(crate) fn codex_home_for_work_dir(work_dir: &Path) -> PathBuf {
-    work_dir.join(MIXMOD_CODEX_HOME)
+    state_layout(work_dir).codex_home()
 }
 
 pub(crate) fn copy_codex_auth_if_available(code_home: &Path) -> Result<bool> {

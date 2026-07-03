@@ -69,7 +69,7 @@ impl<'a> ExperimentReportRenderer<'a> {
         Ok(Self {
             root,
             name,
-            exp_dir: root.join(".mixmod/experiments").join(name),
+            exp_dir: state_layout(root).experiments().join(name),
             inputs: read_experiment_report_inputs(root, name)?,
         })
     }
@@ -376,7 +376,7 @@ Exact Codex token telemetry is often unavailable through local CLI workflows. Th
 
 fn read_experiment_report_inputs(root: &Path, name: &str) -> Result<ExperimentReportInputs> {
     validate_experiment_name(name)?;
-    let exp_dir = root.join(".mixmod/experiments").join(name);
+    let exp_dir = state_layout(root).experiments().join(name);
     let codex_metrics = read_json_file(&exp_dir.join("codex-only/metrics.json"))
         .unwrap_or_else(|_| placeholder_experiment_metrics("codex-only"));
     let (default_metrics, default_source, default_metrics_path) =

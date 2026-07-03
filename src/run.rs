@@ -507,7 +507,7 @@ fn build_empty_patch_followup_instruction(
 Mode: {mode}
 Expected repository patch: yes
 
-Mixmod-managed state lives under `.mixmod`. Do not read, grep, glob, edit, or rely on `.mixmod` files. The task content you need is embedded below.
+Mixmod-managed state lives outside this repository. Do not inspect Mixmod state or artifact directories. The task content you need is embedded below.
 
 The previous local-worker run exited successfully, but Mixmod captured no repository diff.
 
@@ -635,7 +635,7 @@ Codex remains the final authority. Treat your own output as a draft artifact for
 Mode: {mode}
 Expected repository patch: {expected_patch}
 
-Mixmod-managed state lives under `.mixmod`. Do not read, grep, glob, edit, or rely on `.mixmod` files. The task content you need is embedded below.
+Mixmod-managed state lives outside this repository. Do not inspect Mixmod state or artifact directories. The task content you need is embedded below.
 
 ## Task
 

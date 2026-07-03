@@ -9,6 +9,58 @@ fn mixmod_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_mixmod"))
 }
 
+fn state_root(root: &Path) -> PathBuf {
+    let name = root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("repo");
+    root.parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{name}-mixmod-state"))
+}
+
+fn project_state(root: &Path) -> PathBuf {
+    state_root(root).join("projects").join(project_id(root))
+}
+
+fn project_id(root: &Path) -> String {
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let name = canonical
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(sanitize_project_name)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "root".to_string());
+    format!(
+        "{name}-{:016x}",
+        fnv1a64(canonical.to_string_lossy().as_bytes())
+    )
+}
+
+fn sanitize_project_name(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn read_json(path: &Path) -> Value {
     let bytes =
         fs::read(path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
@@ -110,6 +162,7 @@ fn run_mixmod_exec(root: &Path, exec_args: &[&str]) -> PathBuf {
     let output = Command::new(mixmod_bin())
         .args(&args)
         .current_dir(root)
+        .env("MIXMOD_STATE_DIR", state_root(root))
         .output()
         .unwrap_or_else(|error| panic!("failed to run mixmod {args:?}: {error}"));
     assert_success(output);
@@ -118,7 +171,7 @@ fn run_mixmod_exec(root: &Path, exec_args: &[&str]) -> PathBuf {
 }
 
 fn latest_exec_run(root: &Path) -> PathBuf {
-    let runs_dir = root.join(".mixmod/runs");
+    let runs_dir = project_state(root).join("runs");
     let mut runs = fs::read_dir(&runs_dir)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", runs_dir.display()))
         .map(|entry| entry.unwrap().path())
@@ -261,7 +314,8 @@ fn exec_supervises_qwen_worker_from_prompt_end_to_end() {
     let run_task = read_json(&run_dir.join("task.json"));
     assert_eq!(value_str(&run_task, "instructions"), prompt);
     assert!(
-        root.join(".mixmod/tasks")
+        project_state(root)
+            .join("tasks")
             .read_dir()
             .unwrap()
             .next()

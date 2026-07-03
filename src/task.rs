@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::{make_run_id, write_pretty_json};
+use crate::{make_run_id, state_layout, write_pretty_json};
 
 /// Normalized task shape used by Mixmod run and experiment code.
 #[derive(Debug, Deserialize, Serialize)]
@@ -75,8 +75,8 @@ pub(crate) fn read_task_json(path: &Path) -> Result<(Value, TaskSpec)> {
 /// Write a managed task JSON file for a natural-language prompt.
 pub(crate) fn write_prompt_task_file(root: &Path, prompt: &str) -> Result<PathBuf> {
     let trimmed = prompt.trim();
-    let path = root
-        .join(".mixmod/tasks")
+    let path = state_layout(root)
+        .tasks()
         .join(format!("{}.json", make_run_id("task")));
     let task = json!({
         "title": prompt_title(trimmed),

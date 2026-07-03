@@ -5,53 +5,61 @@ pub fn init_project(root: &Path) -> Result<()> {
 }
 
 pub(crate) fn ensure_project_state(root: &Path, verbose: bool) -> Result<()> {
+    let layout = state_layout(root);
     let dirs = [
-        ".mixmod/tasks",
-        ".mixmod/runs",
-        ".mixmod/experiments",
-        MIXMOD_CODEX_HOME,
-        ".mixmod/backups",
+        layout.tasks(),
+        layout.runs(),
+        layout.experiments(),
+        layout.codex_home(),
+        layout.backups(),
     ];
 
     if verbose {
-        println!("Initializing Mixmod in {}", root.display());
+        println!("Initializing Mixmod state for {}", root.display());
+        println!("state: {}", layout.project_dir().display());
     }
     for dir in dirs {
-        let path = root.join(dir);
-        if path.exists() {
+        if dir.exists() {
             if verbose {
-                println!("unchanged {}", dir);
+                println!("unchanged {}", dir.display());
             }
         } else {
-            fs::create_dir_all(&path).with_context(|| format!("failed to create {dir}"))?;
+            fs::create_dir_all(&dir)
+                .with_context(|| format!("failed to create {}", dir.display()))?;
             if verbose {
-                println!("created {dir}");
+                println!("created {}", dir.display());
             }
         }
     }
 
-    write_managed_file(root, MIXMOD_CONFIG, &default_config_content(), verbose)?;
-    write_managed_file(root, OPENCODE_CONFIG, &opencode_config_content(), verbose)?;
-    ensure_git_exclude_ignores_mixmod(root, verbose)?;
+    write_managed_file(
+        &layout.config(),
+        "config.toml",
+        &default_config_content(),
+        verbose,
+    )?;
+    write_managed_file(
+        &layout.opencode_config(),
+        "opencode.json",
+        &opencode_config_content(),
+        verbose,
+    )?;
     Ok(())
 }
 
 pub fn status_project(root: &Path) -> Result<()> {
+    let layout = state_layout(root);
     println!("Mixmod status for {}", root.display());
-    println!(
-        "initialized: {}",
-        yes_no(is_managed_file(&root.join(MIXMOD_CONFIG)))
-    );
+    println!("state root: {}", layout.state_root().display());
+    println!("project state: {}", layout.project_dir().display());
+    println!("initialized: {}", yes_no(is_managed_file(&layout.config())));
     println!("managed files:");
-    for rel in [MIXMOD_CONFIG, OPENCODE_CONFIG] {
-        let path = root.join(rel);
-        let state = file_state(&path);
-        println!("  {rel}: {state}");
-    }
+    println!("  config.toml: {}", file_state(&layout.config()));
+    println!("  opencode.json: {}", file_state(&layout.opencode_config()));
     println!(
         "codex home: {} ({})",
-        yes_no(root.join(MIXMOD_CODEX_HOME).is_dir()),
-        MIXMOD_CODEX_HOME
+        yes_no(layout.codex_home().is_dir()),
+        layout.codex_home().display()
     );
     print_path_status("codex");
     print_path_status("opencode");
@@ -60,18 +68,29 @@ pub fn status_project(root: &Path) -> Result<()> {
 
 pub fn doctor_project(root: &Path) -> Result<()> {
     let mut issues = Vec::new();
+    let layout = state_layout(root);
     println!("Mixmod doctor for {}", root.display());
+    println!("state: {}", layout.project_dir().display());
 
-    if is_managed_file(&root.join(MIXMOD_CONFIG)) {
-        println!("ok: Mixmod config exists at {MIXMOD_CONFIG}");
+    if is_managed_file(&layout.config()) {
+        println!("ok: Mixmod config exists at {}", layout.config().display());
     } else {
-        println!("ok: Mixmod config will be created on first run at {MIXMOD_CONFIG}");
+        println!(
+            "ok: Mixmod config will be created on first run at {}",
+            layout.config().display()
+        );
     }
 
-    if is_managed_file(&root.join(OPENCODE_CONFIG)) {
-        println!("ok: Mixmod OpenCode config exists at {OPENCODE_CONFIG}");
+    if is_managed_file(&layout.opencode_config()) {
+        println!(
+            "ok: Mixmod OpenCode config exists at {}",
+            layout.opencode_config().display()
+        );
     } else {
-        println!("ok: Mixmod OpenCode config will be created on first run at {OPENCODE_CONFIG}");
+        println!(
+            "ok: Mixmod OpenCode config will be created on first run at {}",
+            layout.opencode_config().display()
+        );
     }
 
     if find_on_path("codex").is_some() {
@@ -92,7 +111,8 @@ pub fn doctor_project(root: &Path) -> Result<()> {
     } else {
         println!("error: OpenCode command `{opencode_command}` was not found");
         println!(
-            "action: install OpenCode, add it to PATH, or set MIXMOD_OPENCODE_COMMAND / .mixmod/config.toml"
+            "action: install OpenCode, add it to PATH, or set MIXMOD_OPENCODE_COMMAND / {}",
+            layout.config().display()
         );
         issues.push("opencode missing");
     }
@@ -112,7 +132,7 @@ pub fn doctor_project(root: &Path) -> Result<()> {
 fn default_config_content() -> String {
     format!(
         r#"# BEGIN MIXMOD MANAGED: config
-# Project-local Mixmod configuration. This file is intentionally repo-local.
+# Mixmod configuration for one repository. This file is stored outside the repository.
 
 [opencode]
 provider = "{opencode_provider}"
@@ -190,28 +210,6 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
         }}
       }}
     }}
-  }},
-  "permission": {{
-    "read": {{
-      "*": "allow",
-      ".mixmod/**": "deny",
-      "**/.mixmod/**": "deny"
-    }},
-    "edit": {{
-      "*": "allow",
-      ".mixmod/**": "deny",
-      "**/.mixmod/**": "deny"
-    }},
-    "glob": {{
-      "*": "allow",
-      ".mixmod/**": "deny",
-      "**/.mixmod/**": "deny"
-    }},
-    "grep": {{
-      "*": "allow",
-      ".mixmod/**": "deny",
-      "**/.mixmod/**": "deny"
-    }}
   }}
 }}
 "#,
@@ -221,100 +219,35 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
     )
 }
 
-fn ensure_git_exclude_ignores_mixmod(root: &Path, verbose: bool) -> Result<()> {
-    let Some(path) = git_info_exclude_path(root) else {
-        return Ok(());
-    };
-    let current = fs::read_to_string(&path).unwrap_or_default();
-    if current.lines().any(is_mixmod_exclude_line) {
-        if verbose {
-            println!("unchanged .git/info/exclude");
-        }
-        return Ok(());
-    }
-
-    let mut updated = current;
-    if !updated.is_empty() && !updated.ends_with('\n') {
-        updated.push('\n');
-    }
-    updated.push_str(".mixmod/\n");
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create parent directory {}", parent.display()))?;
-    }
-    atomic_write(&path, updated.as_bytes())?;
-    if verbose {
-        println!("updated .git/info/exclude");
-    }
-    Ok(())
-}
-
-fn git_info_exclude_path(root: &Path) -> Option<PathBuf> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args([
-            "rev-parse",
-            "--is-inside-work-tree",
-            "--git-path",
-            "info/exclude",
-        ])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut lines = stdout.lines();
-    if lines.next()?.trim() != "true" {
-        return None;
-    }
-    let raw_path = lines.next()?.trim();
-    if raw_path.is_empty() {
-        return None;
-    }
-    let path = PathBuf::from(raw_path);
-    Some(if path.is_absolute() {
-        path
-    } else {
-        root.join(path)
-    })
-}
-
-fn is_mixmod_exclude_line(line: &str) -> bool {
-    matches!(line.trim(), ".mixmod" | ".mixmod/" | ".mixmod/**")
-}
-
-fn write_managed_file(root: &Path, rel: &str, content: &str, verbose: bool) -> Result<()> {
-    let path = root.join(rel);
+fn write_managed_file(path: &Path, label: &str, content: &str, verbose: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create parent directory {}", parent.display()))?;
     }
     let existed = path.exists();
-    if existed && !is_managed_file(&path) {
+    if existed && !is_managed_file(path) {
         if verbose {
-            println!("left unmanaged {rel}");
+            println!("left unmanaged {}", path.display());
         }
         return Ok(());
     }
 
-    let current = fs::read_to_string(&path).unwrap_or_default();
+    let current = fs::read_to_string(path).unwrap_or_default();
     if current == content {
         if verbose {
-            println!("unchanged {rel}");
+            println!("unchanged {label}");
         }
     } else {
-        atomic_write(&path, content.as_bytes())?;
+        atomic_write(path, content.as_bytes())?;
         if verbose {
-            println!("{} {rel}", if existed { "updated" } else { "created" });
+            println!("{} {label}", if existed { "updated" } else { "created" });
         }
     }
     Ok(())
 }
 
 pub(crate) fn load_config(root: &Path) -> Result<MixmodConfig> {
-    let path = root.join(MIXMOD_CONFIG);
+    let path = state_layout(root).config();
     if !path.exists() {
         return Ok(MixmodConfig::default());
     }

@@ -15,10 +15,10 @@ use chrono::Utc;
 use serde_json::{Value, json};
 
 use crate::{
-    DEFAULT_OPENCODE_OLLAMA_MODEL, DelegationMode, LIVE_STATUS_FILE, MixmodConfig, OPENCODE_CONFIG,
-    OpenCodeConfig, SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent,
-    append_file, append_jsonl, atomic_write, env_u64, get_str, get_string_array,
-    normalize_worker_mode, shell_command, write_pretty_json,
+    DEFAULT_OPENCODE_OLLAMA_MODEL, DelegationMode, LIVE_STATUS_FILE, MixmodConfig, OpenCodeConfig,
+    SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file,
+    append_jsonl, atomic_write, env_u64, get_str, get_string_array, normalize_worker_mode,
+    shell_command, state_layout, write_pretty_json,
 };
 
 #[derive(Debug)]
@@ -278,10 +278,9 @@ fn resolve_opencode_model(
         .map(ToOwned::to_owned)
         .ok_or_else(|| {
             anyhow!(
-                "configured OpenCode model `{}` with aliases {:?} was not found in `{command} models`; Mixmod expects `{}` to expose the default local model, or update `.mixmod/config.toml` to a listed local model",
+                "configured OpenCode model `{}` with aliases {:?} was not found in `{command} models`; update the Mixmod worker model or generated OpenCode config for this project",
                 configured_model,
-                aliases,
-                OPENCODE_CONFIG
+                aliases
             )
         })?;
     let (provider, model) = selected
@@ -1368,7 +1367,7 @@ fn resolve_opencode_session_id(
 }
 
 pub(crate) fn opencode_config_path(root: &Path) -> PathBuf {
-    root.join(OPENCODE_CONFIG)
+    state_layout(root).opencode_config()
 }
 
 fn opencode_command(command: &str, root: &Path) -> Command {

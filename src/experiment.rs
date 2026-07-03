@@ -1,8 +1,12 @@
 use crate::*;
 
+fn experiment_dir(root: &Path, name: &str) -> PathBuf {
+    state_layout(root).experiments().join(name)
+}
+
 pub fn experiment_init(root: &Path, name: &str, fixture: Option<&Path>) -> Result<()> {
     validate_experiment_name(name)?;
-    let exp_dir = root.join(".mixmod/experiments").join(name);
+    let exp_dir = experiment_dir(root, name);
     let codex_only_dir = exp_dir.join("codex-only");
     let mixmod_dir = exp_dir.join("mixmod");
     let work_dir = exp_dir.join("work");
@@ -77,7 +81,7 @@ pub fn experiment_init(root: &Path, name: &str, fixture: Option<&Path>) -> Resul
 
 pub fn experiment_record_codex_only(root: &Path, name: &str, task: &Path) -> Result<()> {
     validate_experiment_name(name)?;
-    let exp_dir = root.join(".mixmod/experiments").join(name);
+    let exp_dir = experiment_dir(root, name);
     if !exp_dir.exists() {
         experiment_init(root, name, None)?;
     }
@@ -262,7 +266,7 @@ fn run_codex_only_baseline(
 
 pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<()> {
     validate_experiment_name(name)?;
-    let exp_dir = root.join(".mixmod/experiments").join(name);
+    let exp_dir = experiment_dir(root, name);
     if !exp_dir.exists() {
         experiment_init(root, name, None)?;
     }
@@ -413,7 +417,7 @@ impl DefaultExperimentRun<'_> {
             options,
         } = self;
         validate_experiment_name(name)?;
-        let exp_dir = root.join(".mixmod/experiments").join(name);
+        let exp_dir = experiment_dir(root, name);
         let default_work_dir = exp_dir.join("work/default");
         let legacy_work_dir = exp_dir.join("work/budgeted");
         let work_dir = if default_work_dir.exists() {
@@ -461,7 +465,7 @@ impl DefaultExperimentRun<'_> {
         append_jsonl(&feedback_path, &worker_brief.record)?;
 
         let worker_task = write_worker_brief_task(&task_file, &worker_brief.brief, &default_dir)?;
-        let proposal_out = work_dir.join(".mixmod/runs/default-proposal");
+        let proposal_out = state_layout(&work_dir).runs().join("default-proposal");
         let proposal_receipt = run_mixmod_task_with_options(
             &work_dir,
             DelegationMode::Patch,
@@ -549,7 +553,7 @@ impl DefaultExperimentRun<'_> {
                         format!("default-revision-{decision_index}")
                     };
                     let previous_out = final_out.clone();
-                    final_out = work_dir.join(".mixmod/runs").join(revision_out_name);
+                    final_out = state_layout(&work_dir).runs().join(revision_out_name);
                     let revision_receipt = run_mixmod_task_with_session(
                         &work_dir,
                         DelegationMode::Patch,
@@ -753,7 +757,7 @@ impl DefaultExperimentRun<'_> {
 
 pub fn experiment_recover(root: &Path, name: &str, require_local: bool) -> Result<()> {
     validate_experiment_name(name)?;
-    let exp_dir = root.join(".mixmod/experiments").join(name);
+    let exp_dir = experiment_dir(root, name);
     let default_work_dir = exp_dir.join("work/default");
     let legacy_work_dir = exp_dir.join("work/budgeted");
     let work_dir = if default_work_dir.exists() {
@@ -781,7 +785,7 @@ pub fn experiment_recover(root: &Path, name: &str, require_local: bool) -> Resul
     let config = load_config(&work_dir)?;
     let runner = ShellOpenCodeRunner::new(config);
     let recovery_id = make_run_id("recovery");
-    let out_dir = work_dir.join(".mixmod/runs").join(&recovery_id);
+    let out_dir = state_layout(&work_dir).runs().join(&recovery_id);
     let receipt = run_mixmod_task_with_options(
         &work_dir,
         DelegationMode::Patch,
@@ -1086,7 +1090,7 @@ pub(crate) fn write_revision_task(
     );
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
     let patch_decision_note = if decision.patch_decision == "revise_previous" {
-        "\nPatch checkpoint decision: revise_previous. Codex judged the previous candidate patch better than the current revision. Recover the previous candidate using Codex's message below, then make the requested focused changes. Do not read `.mixmod` artifacts directly.\n"
+        "\nPatch checkpoint decision: revise_previous. Codex judged the previous candidate patch better than the current revision. Recover the previous candidate using Codex's message below, then make the requested focused changes. Do not read Mixmod artifacts directly.\n"
     } else if decision.patch_decision == "revise_current" {
         "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues Codex identified.\n"
     } else {
@@ -1344,7 +1348,7 @@ This directory compares one small code-change task in two modes:
 Suggested workflow:
 
 ```sh
-mixmod experiment record-codex-only {name} --task .mixmod/experiments/{name}/task.md
+mixmod experiment record-codex-only {name} --task <experiment-task.md>
 mixmod experiment run-default {name} --require-local
 mixmod experiment report {name}
 ```
