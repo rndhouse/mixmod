@@ -1,8 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use crate::*;
 
@@ -211,20 +214,24 @@ impl CodexAppServer {
         let copied_auth = copy_codex_auth_if_available(&code_home)?;
         let model = normalized_frontier_model(&frontier.model)?;
         let reasoning_effort = normalized_reasoning_effort(&frontier.reasoning_effort)?;
-        let mut child = Command::new("codex")
+        let mut command = Command::new("codex");
+        command
             .args(["app-server", "--listen", "stdio://"])
             .env("CODEX_HOME", &code_home)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .with_context(|| {
-                format!(
-                    "failed to start Codex app-server in {} with CODEX_HOME={}",
-                    work_dir.display(),
-                    code_home.display()
-                )
-            })?;
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            command.process_group(0);
+        }
+        let mut child = command.spawn().with_context(|| {
+            format!(
+                "failed to start Codex app-server in {} with CODEX_HOME={}",
+                work_dir.display(),
+                code_home.display()
+            )
+        })?;
         let stdin = child
             .stdin
             .take()
@@ -560,14 +567,46 @@ impl CodexAppServer {
 
 impl Drop for CodexAppServer {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        signal_process_group(self.child.id(), SIGTERM);
         let _ = self.child.kill();
-        let _ = self.child.wait();
-        if let Some(handle) = self.stderr_thread.take() {
-            let _ = handle.join();
+        for _ in 0..20 {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
         }
+        #[cfg(unix)]
+        signal_process_group(self.child.id(), SIGKILL);
+        let _ = self.child.try_wait();
+        let _ = self.stderr_thread.take();
         if self.copied_auth {
             let _ = fs::remove_file(self.code_home.join("auth.json"));
         }
+    }
+}
+
+#[cfg(unix)]
+const SIGTERM: i32 = 15;
+
+#[cfg(unix)]
+const SIGKILL: i32 = 9;
+
+#[cfg(unix)]
+unsafe extern "C" {
+    fn kill(pid: i32, signal: i32) -> i32;
+}
+
+#[cfg(unix)]
+fn signal_process_group(pid: u32, signal: i32) {
+    let Ok(pid) = i32::try_from(pid) else {
+        return;
+    };
+    if pid <= 1 {
+        return;
+    }
+    unsafe {
+        let _ = kill(-pid, signal);
     }
 }
 
