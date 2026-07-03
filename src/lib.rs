@@ -75,8 +75,8 @@ pub(crate) use live::{
 };
 #[cfg(test)]
 pub(crate) use opencode::{
-    OpenCodeModelSelection, opencode_config_path, prepare_opencode_args,
-    prepare_opencode_control_args, run_with_local_verification,
+    OpenCodeModelSelection, OpenCodeServerAttach, opencode_config_path, prepare_opencode_args,
+    prepare_opencode_control_args, prepare_opencode_server_args, run_with_local_verification,
 };
 pub(crate) use opencode::{
     normalize_supervisor_control_action, normalize_supervisor_control_worker_mode, tail_text,
