@@ -88,11 +88,14 @@ OpenCode, captures artifacts, and asks Codex what to do next.
    }
    ```
 
-6. **Apply the decision**
+6. **Apply the decision, then loop or exit**
 
-   - `approve`: Mixmod accepts the worker result.
-   - `revise`: Mixmod writes a revision task and runs OpenCode again.
-   - `stop`: Mixmod records the result as blocked or inconclusive.
+   - `approve`: Mixmod exits the loop and accepts the worker result.
+   - `revise`: Mixmod writes a revision task from Codex's review JSON, runs
+     OpenCode again, then returns to step 4 to capture and review the new
+     artifacts.
+   - `stop`: Mixmod exits the loop and records the result as blocked or
+     inconclusive.
 
 ## Revision Modes
 
