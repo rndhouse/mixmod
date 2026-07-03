@@ -26,6 +26,8 @@ flowchart TD
     E -->|no| G --> B
 ```
 
+For the concrete supervisor/worker loop, see [Supervision](docs/supervision.md).
+
 ## Latest Benchmark Highlights
 
 Latest report: [SWE-bench current default 10-instance snapshot](docs/latest-benchmark.md).
