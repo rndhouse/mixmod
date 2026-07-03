@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use std::sync::{Arc, Mutex};
@@ -40,6 +40,8 @@ pub(crate) struct FrontierFeedbackTurn {
     pub(crate) cached_input_tokens: u64,
     pub(crate) input_bytes: u64,
     pub(crate) output_bytes: u64,
+    pub(crate) thread_id: String,
+    pub(crate) turn_id: String,
 }
 
 #[derive(Debug)]
@@ -53,9 +55,11 @@ pub(crate) struct FrontierBriefTurn {
     pub(crate) cached_input_tokens: u64,
     pub(crate) input_bytes: u64,
     pub(crate) output_bytes: u64,
+    pub(crate) thread_id: String,
+    pub(crate) turn_id: String,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct FrontierUsageSample {
     input_tokens: u64,
     output_tokens: u64,
@@ -64,6 +68,8 @@ pub(crate) struct FrontierUsageSample {
     cached_input_tokens: u64,
     input_bytes: u64,
     output_bytes: u64,
+    thread_id: String,
+    turn_id: String,
 }
 
 impl FrontierFeedbackTurn {
@@ -76,6 +82,8 @@ impl FrontierFeedbackTurn {
             cached_input_tokens: self.cached_input_tokens,
             input_bytes: self.input_bytes,
             output_bytes: self.output_bytes,
+            thread_id: self.thread_id.clone(),
+            turn_id: self.turn_id.clone(),
         }
     }
 }
@@ -90,6 +98,8 @@ impl FrontierBriefTurn {
             cached_input_tokens: self.cached_input_tokens,
             input_bytes: self.input_bytes,
             output_bytes: self.output_bytes,
+            thread_id: self.thread_id.clone(),
+            turn_id: self.turn_id.clone(),
         }
     }
 }
@@ -104,6 +114,29 @@ pub(crate) struct FrontierUsage {
     pub(crate) input_bytes: u64,
     pub(crate) output_bytes: u64,
     pub(crate) turn_count: u64,
+    pub(crate) thread_ids: Vec<String>,
+    pub(crate) turn_ids: Vec<String>,
+}
+
+impl FrontierUsage {
+    pub(crate) fn thread_count(&self) -> u64 {
+        self.thread_ids
+            .iter()
+            .filter(|id| !id.is_empty())
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+            .len() as u64
+    }
+
+    pub(crate) fn thread_reuse_count(&self) -> u64 {
+        let observed_thread_ids = self.thread_ids.iter().filter(|id| !id.is_empty()).count() as u64;
+        let thread_count = self.thread_count();
+        observed_thread_ids.saturating_sub(thread_count)
+    }
+
+    pub(crate) fn session_reused(&self) -> bool {
+        self.thread_reuse_count() > 0
+    }
 }
 
 pub(crate) struct CodexTurnResult {
@@ -166,7 +199,7 @@ pub(crate) struct CodexAppServer {
 }
 
 impl CodexAppServer {
-    /// Start a Codex app-server process and create one persistent supervisor thread.
+    /// Start a Codex app-server process and create one supervisor thread.
     pub(crate) fn start(
         work_dir: &Path,
         frontier: &FrontierConfig,
@@ -226,12 +259,7 @@ impl CodexAppServer {
         Ok(server)
     }
 
-    /// Return the persistent Codex supervisor thread id.
-    pub(crate) fn thread_id(&self) -> &str {
-        &self.thread_id
-    }
-
-    /// Run one prompt as a new turn on the persistent app-server thread.
+    /// Run one prompt as a new turn on the app-server thread.
     pub(crate) fn run_turn(
         &mut self,
         artifact_dir: &Path,
@@ -631,13 +659,20 @@ fn normalized_reasoning_effort(value: &str) -> Result<String> {
 }
 
 pub(crate) fn run_frontier_brief_turn(
-    supervisor: &mut CodexAppServer,
     work_dir: &Path,
     default_dir: &Path,
     task_path: &Path,
+    frontier: &FrontierConfig,
 ) -> Result<FrontierBriefTurn> {
     let prompt = frontier_worker_brief_prompt(work_dir, task_path)?;
-    let result = supervisor.run_turn(default_dir, "worker-brief", &prompt)?;
+    let result = run_codex_app_server_turn(
+        work_dir,
+        default_dir,
+        "worker-brief",
+        &prompt,
+        frontier,
+        CodexSandbox::ReadOnly,
+    )?;
     let parsed_brief = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
             "handoff": "blocked",
@@ -645,6 +680,8 @@ pub(crate) fn run_frontier_brief_turn(
             "risk": truncate_for_report(&result.last_message, 160)
         })
     });
+    let thread_id = result.thread_id.clone();
+    let turn_id = result.turn_id.clone();
     let record = json!({
         "label": "worker-brief",
         "timestamp": Utc::now().to_rfc3339(),
@@ -660,8 +697,8 @@ pub(crate) fn run_frontier_brief_turn(
         "input_bytes": result.input_bytes,
         "output_bytes": result.output_bytes,
         "auth_copied_then_removed": result.auth_copied_then_removed,
-        "codex_app_server_thread_id": result.thread_id,
-        "codex_app_server_turn_id": result.turn_id
+        "codex_app_server_thread_id": thread_id.clone(),
+        "codex_app_server_turn_id": turn_id.clone()
     });
     Ok(FrontierBriefTurn {
         record,
@@ -673,19 +710,28 @@ pub(crate) fn run_frontier_brief_turn(
         cached_input_tokens: result.usage.cached_input_tokens,
         input_bytes: result.input_bytes,
         output_bytes: result.output_bytes,
+        thread_id,
+        turn_id,
     })
 }
 
 pub(crate) fn run_frontier_feedback_turn(
-    supervisor: &mut CodexAppServer,
     work_dir: &Path,
     budgeted_dir: &Path,
     label: &str,
     artifact_paths: &[PathBuf],
     instruction: &str,
+    frontier: &FrontierConfig,
 ) -> Result<FrontierFeedbackTurn> {
     let prompt = frontier_feedback_prompt(work_dir, artifact_paths, instruction)?;
-    let result = supervisor.run_turn(budgeted_dir, label, &prompt)?;
+    let result = run_codex_app_server_turn(
+        work_dir,
+        budgeted_dir,
+        label,
+        &prompt,
+        frontier,
+        CodexSandbox::ReadOnly,
+    )?;
     let parsed_feedback = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
             "action": if result.exit_status == Some(0) { "approve" } else { "revise" },
@@ -702,6 +748,8 @@ pub(crate) fn run_frontier_feedback_turn(
     if let Value::Object(map) = &mut parsed_feedback {
         map.insert("worker_mode".to_string(), json!(worker_mode.clone()));
     }
+    let thread_id = result.thread_id.clone();
+    let turn_id = result.turn_id.clone();
     let turn = FrontierFeedbackTurn {
         verdict,
         worker_mode,
@@ -726,8 +774,8 @@ pub(crate) fn run_frontier_feedback_turn(
             "input_bytes": result.input_bytes,
             "output_bytes": result.output_bytes,
             "auth_copied_then_removed": result.auth_copied_then_removed,
-            "codex_app_server_thread_id": result.thread_id,
-            "codex_app_server_turn_id": result.turn_id
+            "codex_app_server_thread_id": thread_id.clone(),
+            "codex_app_server_turn_id": turn_id.clone()
         }),
         input_tokens: result.usage.input_tokens,
         output_tokens: result.usage.output_tokens,
@@ -736,6 +784,8 @@ pub(crate) fn run_frontier_feedback_turn(
         cached_input_tokens: result.usage.cached_input_tokens,
         input_bytes: result.input_bytes,
         output_bytes: result.output_bytes,
+        thread_id,
+        turn_id,
     };
     Ok(turn)
 }
@@ -907,6 +957,8 @@ pub(crate) fn aggregate_frontier_usage(turns: &[FrontierUsageSample]) -> Frontie
         usage.input_bytes += turn.input_bytes;
         usage.output_bytes += turn.output_bytes;
         usage.turn_count += 1;
+        usage.thread_ids.push(turn.thread_id.clone());
+        usage.turn_ids.push(turn.turn_id.clone());
     }
     usage
 }

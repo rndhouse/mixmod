@@ -55,14 +55,13 @@ impl DefaultStrategyRun<'_> {
         options.model_overrides.apply_to_config(&mut config)?;
         let frontier = config.frontier.clone();
         let runner = ShellOpenCodeRunner::new(config);
-        let mut supervisor = CodexAppServer::start(root, &frontier, CodexSandbox::ReadOnly)?;
 
         let task_file = out_dir.join("task.json");
         write_agent_visible_task_file(&absolutize(root, task_arg), &task_file)?;
         let (_, task_spec) = read_task_json(&task_file)?;
 
         let feedback_path = out_dir.join("frontier-feedback.jsonl");
-        let worker_brief = run_frontier_brief_turn(&mut supervisor, root, &out_dir, &task_file)?;
+        let worker_brief = run_frontier_brief_turn(root, &out_dir, &task_file, &frontier)?;
         write_pretty_json(
             &out_dir.join("worker-brief.json"),
             &worker_brief.brief,
@@ -114,12 +113,12 @@ impl DefaultStrategyRun<'_> {
                     artifact_paths.push(supervisor_control_path);
                 }
                 let decision = run_frontier_feedback_turn(
-                    &mut supervisor,
                     root,
                     &out_dir,
                     &label,
                     &artifact_paths,
                     "Decide the next Codex/OpenCode loop action. Use approve only when the local-worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive local-worker result when no useful OpenCode path remains; do not solve by directly editing files.",
+                    &frontier,
                 )?;
                 frontier_samples.push(decision.usage_sample());
                 decision
@@ -265,10 +264,12 @@ impl DefaultStrategyRun<'_> {
             "codex_visible_bytes": frontier_usage.input_bytes,
             "supervision_turn_count": frontier_usage.turn_count,
             "codex_calls": frontier_usage.turn_count,
-            "codex_backend": "app-server",
-            "codex_app_server_thread_id": supervisor.thread_id(),
-            "supervisor_session_reused": frontier_usage.turn_count > 1,
-            "supervisor_resume_count": frontier_usage.turn_count.saturating_sub(1),
+            "codex_backend": "app-server-per-turn",
+            "codex_app_server_thread_ids": frontier_usage.thread_ids.clone(),
+            "codex_app_server_turn_ids": frontier_usage.turn_ids.clone(),
+            "codex_app_server_thread_count": frontier_usage.thread_count(),
+            "supervisor_session_reused": frontier_usage.session_reused(),
+            "supervisor_resume_count": frontier_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
             "artifact_files_read_by_codex": ["receipt.json", "report.md", "changes.patch", "tests.json", "metrics.json"],
@@ -324,7 +325,7 @@ impl DefaultStrategyRun<'_> {
             "terminal_reject": false,
             "needs_worker_revision": false,
             "notes": [
-                "Default strategy used a persistent Codex app-server supervisor thread for the worker handoff and review loop.",
+                "Default strategy used a fresh Codex app-server supervisor thread for each worker handoff and review turn.",
                 "Codex controls the OpenCode loop with approve, revise, or blocked/inconclusive stop decisions; direct Codex editing is not part of this strategy.",
                 "OpenCode was configured through the Mixmod worker model settings."
             ]

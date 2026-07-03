@@ -392,6 +392,44 @@ fn codex_supervision_turns_use_read_only_app_server_policy() {
 }
 
 #[test]
+fn supervisor_reuse_metrics_are_derived_from_thread_ids() {
+    let sample = |thread_id: &str, turn_id: &str| {
+        FrontierFeedbackTurn {
+            feedback: json!({}),
+            verdict: "approve".to_string(),
+            worker_mode: "continue".to_string(),
+            hint: String::new(),
+            focus_files: vec![],
+            required_checks: vec![],
+            input_tokens: 1,
+            output_tokens: 1,
+            reasoning_tokens: 0,
+            total_tokens: 2,
+            cached_input_tokens: 0,
+            input_bytes: 10,
+            output_bytes: 20,
+            thread_id: thread_id.to_string(),
+            turn_id: turn_id.to_string(),
+        }
+        .usage_sample()
+    };
+
+    let fresh_per_turn = vec![sample("thread-a", "turn-a"), sample("thread-b", "turn-b")];
+    let fresh_usage = aggregate_frontier_usage(&fresh_per_turn);
+    assert_eq!(fresh_usage.turn_count, 2);
+    assert_eq!(fresh_usage.thread_count(), 2);
+    assert!(!fresh_usage.session_reused());
+    assert_eq!(fresh_usage.thread_reuse_count(), 0);
+
+    let reused_thread = vec![sample("thread-a", "turn-a"), sample("thread-a", "turn-b")];
+    let reused_usage = aggregate_frontier_usage(&reused_thread);
+    assert_eq!(reused_usage.turn_count, 2);
+    assert_eq!(reused_usage.thread_count(), 1);
+    assert!(reused_usage.session_reused());
+    assert_eq!(reused_usage.thread_reuse_count(), 1);
+}
+
+#[test]
 fn codex_only_baseline_can_write_workspace_files() {
     let policy = CodexSandbox::WorkspaceWrite.as_turn_policy(Path::new("/tmp/work"));
 
@@ -1342,6 +1380,8 @@ fn revision_task_preserves_codex_focus_files() {
         cached_input_tokens: 0,
         input_bytes: 0,
         output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
     };
 
     let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 1).unwrap();
@@ -1390,6 +1430,8 @@ fn context_focus_revision_task_uses_focused_prompt() {
         cached_input_tokens: 0,
         input_bytes: 0,
         output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
     };
 
     let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 2).unwrap();
@@ -1439,6 +1481,8 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
         cached_input_tokens: 0,
         input_bytes: 0,
         output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
     };
 
     let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 4).unwrap();

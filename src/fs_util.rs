@@ -104,6 +104,8 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         cached_input_tokens: 0,
         input_bytes: 0,
         output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
     }))
 }
 

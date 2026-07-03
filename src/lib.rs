@@ -55,8 +55,8 @@ pub(crate) use experiment::{placeholder_experiment_metrics, validate_experiment_
 #[cfg(test)]
 pub(crate) use experiment::{write_revision_task, write_worker_brief_task};
 pub(crate) use frontier::{
-    CodexAppServer, CodexSandbox, FrontierFeedbackTurn, aggregate_frontier_usage,
-    codex_only_prompt, normalize_worker_mode, run_codex_app_server_turn, run_frontier_brief_turn,
+    CodexSandbox, FrontierFeedbackTurn, aggregate_frontier_usage, codex_only_prompt,
+    normalize_worker_mode, run_codex_app_server_turn, run_frontier_brief_turn,
     run_frontier_feedback_turn,
 };
 #[cfg(test)]
