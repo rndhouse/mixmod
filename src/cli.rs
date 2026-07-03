@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
+use crate::config::WorkerBackend;
+
 #[derive(Debug, Parser)]
 #[command(name = "mixmod")]
 #[command(about = "Reduce frontier LLM cost with supervised worker models")]
@@ -27,15 +29,18 @@ pub enum Commands {
         /// Read task details from a structured JSON task file.
         #[arg(long, value_name = "TASK_JSON")]
         task: Option<PathBuf>,
-        /// Resume a specific OpenCode worker session.
+        /// Resume a specific worker session.
         #[arg(long)]
         resume_session: Option<String>,
         /// Codex supervisor model, optionally suffixed with reasoning effort.
         #[arg(long, value_name = "MODEL[:EFFORT]")]
         supervisor_model: Option<String>,
-        /// OpenCode worker model, optionally prefixed with a provider.
-        #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
+        /// Worker model override, interpreted by the selected backend.
+        #[arg(long, value_name = "MODEL")]
         worker_model: Option<String>,
+        /// Worker backend used for repository-editing turns.
+        #[arg(long, value_enum)]
+        worker_backend: Option<WorkerBackend>,
         /// Natural-language task request.
         #[arg(value_name = "PROMPT", num_args = 0.., trailing_var_arg = true)]
         prompt: Vec<String>,
@@ -56,8 +61,10 @@ pub enum Commands {
         resume_session: Option<String>,
         #[arg(long, value_name = "MODEL[:EFFORT]")]
         supervisor_model: Option<String>,
-        #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
+        #[arg(long, value_name = "MODEL")]
         worker_model: Option<String>,
+        #[arg(long, value_enum)]
+        worker_backend: Option<WorkerBackend>,
     },
     /// Debug-only background supervisor launcher.
     #[command(hide = true)]
@@ -75,8 +82,10 @@ pub enum Commands {
         resume_session: Option<String>,
         #[arg(long, value_name = "MODEL[:EFFORT]")]
         supervisor_model: Option<String>,
-        #[arg(long, value_name = "MODEL|PROVIDER/MODEL")]
+        #[arg(long, value_name = "MODEL")]
         worker_model: Option<String>,
+        #[arg(long, value_enum)]
+        worker_backend: Option<WorkerBackend>,
     },
     /// Debug-only run inspection and steering commands.
     #[command(hide = true)]
@@ -160,7 +169,7 @@ pub enum ExperimentCommand {
         #[arg(long)]
         task: PathBuf,
     },
-    /// Run the default Mixmod strategy over a local OpenCode worker.
+    /// Run the default Mixmod strategy over the configured worker.
     RunDefault {
         name: String,
         #[arg(long)]
@@ -173,7 +182,7 @@ pub enum ExperimentCommand {
         #[arg(long)]
         require_local: bool,
     },
-    /// Recover a default-strategy run by restarting OpenCode from the saved worker task.
+    /// Recover a default-strategy run by restarting the configured worker.
     Recover {
         name: String,
         #[arg(long)]

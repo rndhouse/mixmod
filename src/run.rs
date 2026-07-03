@@ -73,7 +73,7 @@ impl MixmodRun<'_> {
         let (task_value, task_spec) = read_task_json(&task_path)?;
         write_pretty_json(&out_dir.join("task.json"), &task_value, "run task")?;
 
-        let session_id = make_run_id("opencode-session");
+        let session_id = make_run_id("worker-session");
         let instruction = build_opencode_instruction(mode, &task_spec, &task_path, &out_dir)?;
         let instruction_path = out_dir.join("opencode-instructions.md");
         atomic_write(&instruction_path, instruction.as_bytes())?;
@@ -105,14 +105,14 @@ impl MixmodRun<'_> {
         let mut notes = vec![
         "Exact Codex token telemetry is unavailable to this prototype unless provided manually."
             .to_string(),
-        "OpenCode output is untrusted until Codex reviews the compact artifacts and patch."
+        "Worker output is untrusted until Codex reviews the compact artifacts and patch."
             .to_string(),
     ];
         if before_diff.as_deref().unwrap_or_default().trim().is_empty() {
-            notes.push("No pre-existing git diff was detected before OpenCode ran.".to_string());
+            notes.push("No pre-existing git diff was detected before the worker ran.".to_string());
         } else {
             notes.push(
-            "A pre-existing git diff was present before OpenCode ran; changes.patch may include unrelated local changes."
+            "A pre-existing git diff was present before the worker ran; changes.patch may include unrelated local changes."
                 .to_string(),
         );
         }
@@ -191,7 +191,7 @@ impl MixmodRun<'_> {
         if output.timed_out || output.idle_timed_out {
             atomic_write(&out_dir.join("partial.patch"), patch.as_bytes())?;
             notes.push(
-            "OpenCode did not finish normally; partial.patch preserves the worktree diff captured after termination."
+            "The worker did not finish normally; partial.patch preserves the worktree diff captured after termination."
                 .to_string(),
         );
         }
@@ -425,9 +425,10 @@ fn run_empty_patch_followup(
         original_request,
         output,
     } = request;
-    let resume_session_id = output.session_id.clone().ok_or_else(|| {
-        anyhow!("cannot run empty-patch follow-up without an OpenCode session id")
-    })?;
+    let resume_session_id = output
+        .session_id
+        .clone()
+        .ok_or_else(|| anyhow!("cannot run empty-patch follow-up without a worker session id"))?;
     let followup_dir = out_dir.join("empty-patch-followup");
     fs::create_dir_all(&followup_dir).with_context(|| {
         format!(
@@ -628,7 +629,7 @@ pub(crate) fn build_opencode_instruction(
     Ok(format!(
         r#"# Mixmod Local Worker Task
 
-You are OpenCode acting as a local GPU-backed worker supervised by Codex through Mixmod.
+You are the Mixmod worker supervised by Codex.
 Codex remains the final authority. Treat your own output as a draft artifact for review.
 
 Mode: {mode}
@@ -769,7 +770,7 @@ pub(crate) fn run_task_tests(
         requested: tests.to_vec(),
         observed: results.clone(),
         notes: vec![
-            "Mixmod ran these test commands after OpenCode completed and after changes.patch was captured.".to_string(),
+            "Mixmod ran these test commands after the worker completed and after changes.patch was captured.".to_string(),
             format!("Test logs live under {}.", display_path(root, logs_dir)),
         ],
     };
@@ -802,7 +803,7 @@ pub(crate) fn build_run_summary(
 ) -> String {
     match status {
         "success" => format!(
-            "OpenCode completed {mode}; {} file(s) and {} line(s) changed; tests {test_status}.",
+            "Worker completed {mode}; {} file(s) and {} line(s) changed; tests {test_status}.",
             stats.files.len(),
             stats.changed_line_count
         ),
@@ -817,28 +818,26 @@ pub(crate) fn build_run_summary(
                 "idle timeout"
             };
             format!(
-                "OpenCode stopped for {mode} after {reason}; {} file(s) and {} line(s) were captured for supervisor recovery.",
+                "Worker stopped for {mode} after {reason}; {} file(s) and {} line(s) were captured for supervisor recovery.",
                 stats.files.len(),
                 stats.changed_line_count
             )
         }
         "needs_supervisor" if !stats.files.is_empty() => format!(
-            "OpenCode completed {mode} with {} file(s) and {} line(s) changed; tests {test_status}; supervisor review needed.",
+            "Worker completed {mode} with {} file(s) and {} line(s) changed; tests {test_status}; supervisor review needed.",
             stats.files.len(),
             stats.changed_line_count
         ),
         "needs_supervisor" if !worktree_stats.files.is_empty() => format!(
-            "OpenCode completed {mode} with no new delta, but current worktree patch has {} file(s) and {} line(s) changed; tests {test_status}; supervisor review needed.",
+            "Worker completed {mode} with no new delta, but current worktree patch has {} file(s) and {} line(s) changed; tests {test_status}; supervisor review needed.",
             worktree_stats.files.len(),
             worktree_stats.changed_line_count
         ),
         "needs_supervisor" => {
-            format!(
-                "OpenCode completed {mode} but no patch was captured; supervisor review needed."
-            )
+            format!("Worker completed {mode} but no patch was captured; supervisor review needed.")
         }
         _ => format!(
-            "OpenCode failed or could not be started for {mode}; exit status {:?}, stderr {} bytes.",
+            "Worker failed or could not be started for {mode}; exit status {:?}, stderr {} bytes.",
             output.exit_status,
             output.stderr.len()
         ),
@@ -925,15 +924,16 @@ fn build_run_report(input: RunReportInput<'_>) -> String {
 - Mode: {mode}
 - Task: {task_title}
 - Result: {summary}
-- OpenCode exit status: {exit_status}
-- OpenCode session label: {session_label}
-- OpenCode session id: {session_id}
-- OpenCode resumed session id: {resume_session_id}
+- Worker backend: {worker_backend}
+- Worker exit status: {exit_status}
+- Worker session label: {session_label}
+- Worker session id: {session_id}
+- Worker resumed session id: {resume_session_id}
 - Worker session reused: {session_reused}
 - Interrupted by supervisor control: {interrupted_by_supervisor}
 - Supervisor control action: {supervisor_control_action}
-- OpenCode timed out: {timed_out}
-- OpenCode idle timed out: {idle_timed_out}
+- Worker timed out: {timed_out}
+- Worker idle timed out: {idle_timed_out}
 - Heartbeats: {heartbeat_count}
 
 ## Changed Files
@@ -960,13 +960,13 @@ Observed tests:
 
 {observed_tests}
 
-## OpenCode Stdout Excerpt
+## Worker Stdout Excerpt
 
 ```text
 {stdout_excerpt}
 ```
 
-## OpenCode Stderr Excerpt
+## Worker Stderr Excerpt
 
 ```text
 {stderr_excerpt}
@@ -992,6 +992,7 @@ Heartbeat log: `{heartbeat}`
         mode = mode,
         task_title = task.title,
         summary = summary,
+        worker_backend = output.backend.as_str(),
         exit_status = opencode_exit_status_label(output),
         session_label = output.session_label.as_deref().unwrap_or("unavailable"),
         session_id = output.session_id.as_deref().unwrap_or("unavailable"),

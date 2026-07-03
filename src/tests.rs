@@ -238,7 +238,8 @@ fn supervise_args_launch_background_run_with_resume() {
         &ModelOverrides::new(
             Some("gpt-5.5:high".to_string()),
             Some("mixmod-local-ollama/qwen3.6:27b".to_string()),
-        ),
+        )
+        .with_worker_backend(Some(WorkerBackend::OpenCode)),
     );
 
     assert_eq!(args[0], "run-worker");
@@ -254,6 +255,10 @@ fn supervise_args_launch_background_run_with_resume() {
     );
     assert!(args.windows(2).any(|pair| pair[0] == "--worker-model"
         && pair[1] == "mixmod-local-ollama/qwen3.6:27b"));
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "--worker-backend" && pair[1] == "opencode")
+    );
 }
 
 #[test]
@@ -274,12 +279,14 @@ fn exec_command_is_public_cli_surface() {
             resume_session,
             supervisor_model,
             worker_model,
+            worker_backend,
             prompt,
         } => {
             assert!(task.is_none());
             assert!(resume_session.is_none());
             assert!(supervisor_model.is_none());
             assert!(worker_model.is_none());
+            assert!(worker_backend.is_none());
             assert_eq!(prompt, vec!["Fix", "checkout", "totals"]);
         }
         _ => panic!("expected exec command"),
@@ -318,8 +325,10 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         "exec",
         "--supervisor-model",
         "gpt-5.5:high",
+        "--worker-backend",
+        "codex",
         "--worker-model",
-        "mixmod-local-ollama/qwen3.6:27b",
+        "gpt-5.4:medium",
         "Fix checkout totals.",
     ])
     .unwrap();
@@ -328,14 +337,13 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         Commands::Exec {
             supervisor_model,
             worker_model,
+            worker_backend,
             prompt,
             ..
         } => {
             assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
-            assert_eq!(
-                worker_model,
-                Some("mixmod-local-ollama/qwen3.6:27b".to_string())
-            );
+            assert_eq!(worker_backend, Some(WorkerBackend::Codex));
+            assert_eq!(worker_model, Some("gpt-5.4:medium".to_string()));
             assert_eq!(prompt, vec!["Fix checkout totals."]);
         }
         _ => panic!("expected exec command"),
@@ -400,6 +408,25 @@ fn model_overrides_apply_supervisor_and_worker_models() {
             .unwrap()
             .contains(&"ollama/qwen3.6:27b".to_string())
     );
+}
+
+#[test]
+fn model_overrides_apply_codex_worker_backend_and_model() {
+    let mut config = MixmodConfig::default();
+
+    ModelOverrides::new(
+        Some("gpt-5.5:xhigh".to_string()),
+        Some("gpt-5.4:medium".to_string()),
+    )
+    .with_worker_backend(Some(WorkerBackend::Codex))
+    .apply_to_config(&mut config)
+    .unwrap();
+
+    assert_eq!(config.worker.backend, WorkerBackend::Codex);
+    assert_eq!(config.frontier.model, "gpt-5.5");
+    assert_eq!(config.frontier.reasoning_effort, "xhigh");
+    assert_eq!(config.codex_worker.model, "gpt-5.4");
+    assert_eq!(config.codex_worker.reasoning_effort, "medium");
 }
 
 #[test]
@@ -721,8 +748,8 @@ fn frontier_feedback_prompt_explains_worker_session_modes() {
     let prompt =
         frontier_feedback_prompt(root, &[root.join("missing-report.md")], "decide").unwrap();
 
-    assert!(prompt.contains("worker_mode=continue to keep the same OpenCode session"));
-    assert!(prompt.contains("worker_mode=context_focus to start a new OpenCode session"));
+    assert!(prompt.contains("worker_mode=continue to keep the same worker session"));
+    assert!(prompt.contains("worker_mode=context_focus to start a new worker session"));
     assert!(prompt.contains("patch_decision"));
     assert!(prompt.contains("revise_previous"));
     assert!(prompt.contains("summarize the concrete source/test edits to recover"));
@@ -1205,7 +1232,7 @@ fn as_given_worker_brief_uses_original_task_defaults() {
     );
 
     let instructions = get_str(&worker_task, "instructions").unwrap();
-    assert!(instructions.contains("Codex message to OpenCode:"));
+    assert!(instructions.contains("Codex message to worker:"));
     assert!(instructions.contains("Proceed from the original task."));
     assert!(instructions.contains("Fix the checkout bug."));
     assert!(!instructions.contains("Objective:"));
@@ -1427,7 +1454,7 @@ fn focused_worker_brief_overrides_files_and_adds_supplemental_checks() {
             .contains(&"Avoid: broad refactor".to_string())
     );
     let instructions = get_str(&worker_task, "instructions").unwrap();
-    assert!(instructions.contains("Codex message to OpenCode:"));
+    assert!(instructions.contains("Codex message to worker:"));
     assert!(instructions.contains("Preserve public return shapes."));
     assert!(instructions.contains("Files:"));
 }
@@ -1468,7 +1495,7 @@ fn direct_worker_message_is_preserved() {
     );
     let instructions = get_str(&worker_task, "instructions").unwrap();
     assert!(instructions.contains(
-        "Codex message to OpenCode:\nInvestigate checkout totals and make the smallest safe fix."
+        "Codex message to worker:\nInvestigate checkout totals and make the smallest safe fix."
     ));
 }
 
@@ -1548,7 +1575,7 @@ fn revision_task_preserves_codex_focus_files() {
         vec!["python -m unittest -q"]
     );
     let instructions = get_str(&revision, "instructions").unwrap();
-    assert!(instructions.contains("Message to OpenCode: Update the discount code"));
+    assert!(instructions.contains("Message to worker: Update the discount code"));
 }
 
 #[test]

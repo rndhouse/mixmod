@@ -3,7 +3,7 @@ use crate::*;
 
 /// Options for running the public Mixmod default strategy.
 pub(crate) struct DefaultStrategyOptions {
-    /// Optional OpenCode worker session to resume for the first worker turn.
+    /// Optional worker session to resume for the first worker turn.
     pub(crate) resume_session: Option<String>,
     /// Per-run model choices supplied by CLI flags.
     pub(crate) model_overrides: ModelOverrides,
@@ -54,7 +54,7 @@ impl DefaultStrategyRun<'_> {
         let mut config = load_config(root)?;
         options.model_overrides.apply_to_config(&mut config)?;
         let frontier = config.frontier.clone();
-        let runner = ShellOpenCodeRunner::new(config);
+        let runner = worker_harness_for_config(config);
 
         let task_file = out_dir.join("task.json");
         write_agent_visible_task_file(&absolutize(root, task_arg), &task_file)?;
@@ -77,7 +77,7 @@ impl DefaultStrategyRun<'_> {
             DelegationMode::Patch,
             &worker_task,
             &proposal_out,
-            &runner,
+            runner.as_ref(),
             false,
             options.resume_session,
         )?;
@@ -119,7 +119,7 @@ impl DefaultStrategyRun<'_> {
                     &out_dir,
                     &label,
                     &artifact_paths,
-                    "Decide the next Codex/OpenCode loop action. Use approve only when the local-worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive local-worker result when no useful OpenCode path remains; do not solve by directly editing files.",
+                    "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not solve by directly editing files.",
                     &frontier,
                 )?;
                 frontier_samples.push(decision.usage_sample());
@@ -134,7 +134,7 @@ impl DefaultStrategyRun<'_> {
                     let resume_session_id = if decision.worker_mode == "continue" {
                         Some(active_opencode_session_id.clone().ok_or_else(|| {
                             anyhow!(
-                                "Codex requested worker_mode=continue, but Mixmod could not resolve the previous OpenCode session id from {}",
+                                "Codex requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
                                 final_out.join("metrics.json").display()
                             )
                         })?)
@@ -160,7 +160,7 @@ impl DefaultStrategyRun<'_> {
                         DelegationMode::Patch,
                         &revision_task,
                         &final_out,
-                        &runner,
+                        runner.as_ref(),
                         false,
                         resume_session_id,
                     )?;
@@ -278,7 +278,7 @@ impl DefaultStrategyRun<'_> {
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
             "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
-            "strategy_phases": ["codex_worker_brief", "codex_open_code_decision_loop"],
+            "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
             "worker_modes": worker_modes,
@@ -333,8 +333,8 @@ impl DefaultStrategyRun<'_> {
             "needs_worker_revision": false,
             "notes": [
                 "Default strategy used a fresh Codex app-server supervisor thread for each worker handoff and review turn.",
-                "Codex controls the OpenCode loop with approve, revise, or blocked/inconclusive stop decisions; direct Codex editing is not part of this strategy.",
-                "OpenCode was configured through the Mixmod worker model settings."
+                "Codex controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
+                "The worker backend was selected through the Mixmod worker settings."
             ]
         });
         write_pretty_json(

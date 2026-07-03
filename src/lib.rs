@@ -44,6 +44,7 @@ pub(crate) use checkpoint::{
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub use config::{
     FrontierConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
+    WorkerBackend, WorkerConfig,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
@@ -51,10 +52,11 @@ pub use experiment::{
     DefaultRunOptions, experiment_init, experiment_record_codex_only, experiment_record_mixmod,
     experiment_recover, experiment_run_default,
 };
+pub use harness::codex::ShellCodexRunner;
 pub use harness::opencode::ShellOpenCodeRunner;
 pub use harness::{
     AgentBackend, AgentHarness, AgentOutput, AgentRequest, AgentRole, AgentSessionMode,
-    OpenCodeOutput, OpenCodeRequest, OpenCodeRunner,
+    OpenCodeOutput, OpenCodeRequest, OpenCodeRunner, worker_harness_for_config,
 };
 pub use install::{doctor_project, init_project, status_project};
 pub use report::experiment_report;
@@ -140,12 +142,14 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             resume_session,
             supervisor_model,
             worker_model,
+            worker_backend,
             prompt,
         } => {
             ensure_project_state(&root, false)?;
             let task = resolve_exec_task(&root, task, prompt)?;
             let out = state_layout(&root).runs().join(make_run_id("run"));
-            let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
+            let model_overrides = ModelOverrides::new(supervisor_model, worker_model)
+                .with_worker_backend(worker_backend);
             run_default_strategy(
                 &root,
                 &task,
@@ -164,18 +168,21 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             resume_session,
             supervisor_model,
             worker_model,
+            worker_backend,
         } => {
             ensure_debug_command_enabled("mixmod run-worker")?;
             ensure_project_state(&root, false)?;
             let mut config = load_config(&root)?;
-            ModelOverrides::new(supervisor_model, worker_model).apply_to_config(&mut config)?;
-            let runner = ShellOpenCodeRunner::new(config);
+            ModelOverrides::new(supervisor_model, worker_model)
+                .with_worker_backend(worker_backend)
+                .apply_to_config(&mut config)?;
+            let runner = worker_harness_for_config(config);
             run_mixmod_task_with_session(
                 &root,
                 mode,
                 &task,
                 &out,
-                &runner,
+                runner.as_ref(),
                 require_local,
                 resume_session,
             )
@@ -189,10 +196,12 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             resume_session,
             supervisor_model,
             worker_model,
+            worker_backend,
         } => {
             ensure_debug_command_enabled("mixmod run-supervisor")?;
             ensure_project_state(&root, false)?;
-            let model_overrides = ModelOverrides::new(supervisor_model, worker_model);
+            let model_overrides = ModelOverrides::new(supervisor_model, worker_model)
+                .with_worker_backend(worker_backend);
             supervise_mixmod_task(
                 &root,
                 mode,

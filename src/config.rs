@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -11,8 +12,54 @@ const REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct MixmodConfig {
+    pub worker: WorkerConfig,
     pub opencode: OpenCodeConfig,
+    pub codex_worker: FrontierConfig,
     pub frontier: FrontierConfig,
+}
+
+/// Worker backend selected for repository-editing agent turns.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ValueEnum)]
+pub enum WorkerBackend {
+    /// Use OpenCode as the worker harness.
+    #[serde(rename = "opencode")]
+    #[value(name = "opencode")]
+    OpenCode,
+    /// Use Codex app-server as the worker harness.
+    #[serde(rename = "codex")]
+    #[value(name = "codex")]
+    Codex,
+}
+
+impl WorkerBackend {
+    /// Stable configuration and CLI label for this backend.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenCode => "opencode",
+            Self::Codex => "codex",
+        }
+    }
+}
+
+impl Default for WorkerBackend {
+    fn default() -> Self {
+        Self::OpenCode
+    }
+}
+
+/// Backend selection for worker turns.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct WorkerConfig {
+    pub backend: WorkerBackend,
+}
+
+impl Default for WorkerConfig {
+    fn default() -> Self {
+        Self {
+            backend: WorkerBackend::OpenCode,
+        }
+    }
 }
 
 /// Per-run model choices supplied by CLI flags.
@@ -21,9 +68,12 @@ pub struct ModelOverrides {
     /// Codex supervisor model, optionally suffixed with a reasoning effort.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supervisor_model: Option<String>,
-    /// OpenCode worker model, optionally prefixed with a provider.
+    /// Worker model override, interpreted by the selected worker backend.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worker_model: Option<String>,
+    /// Worker backend override for this run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_backend: Option<WorkerBackend>,
 }
 
 impl ModelOverrides {
@@ -32,11 +82,21 @@ impl ModelOverrides {
         Self {
             supervisor_model,
             worker_model,
+            worker_backend: None,
         }
+    }
+
+    /// Add a worker backend override to this set of per-run choices.
+    pub fn with_worker_backend(mut self, worker_backend: Option<WorkerBackend>) -> Self {
+        self.worker_backend = worker_backend;
+        self
     }
 
     /// Apply the model overrides to a loaded Mixmod configuration.
     pub fn apply_to_config(&self, config: &mut MixmodConfig) -> Result<()> {
+        if let Some(worker_backend) = self.worker_backend {
+            config.worker.backend = worker_backend;
+        }
         if let Some(value) = self.supervisor_model.as_deref() {
             let (model, reasoning_effort) =
                 parse_supervisor_model(value, &config.frontier.reasoning_effort)?;
@@ -44,7 +104,17 @@ impl ModelOverrides {
             config.frontier.reasoning_effort = reasoning_effort;
         }
         if let Some(value) = self.worker_model.as_deref() {
-            apply_worker_model_override(&mut config.opencode, value)?;
+            match config.worker.backend {
+                WorkerBackend::OpenCode => {
+                    apply_worker_model_override(&mut config.opencode, value)?
+                }
+                WorkerBackend::Codex => {
+                    let (model, reasoning_effort) =
+                        parse_supervisor_model(value, &config.codex_worker.reasoning_effort)?;
+                    config.codex_worker.model = model;
+                    config.codex_worker.reasoning_effort = reasoning_effort;
+                }
+            }
         }
         Ok(())
     }

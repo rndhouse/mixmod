@@ -305,13 +305,13 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
 
     let out_dir = mixmod_dir.join("runs").join(make_run_id("mixmod"));
     let config = load_config(root)?;
-    let runner = ShellOpenCodeRunner::new(config);
+    let runner = worker_harness_for_config(config);
     let receipt = run_mixmod_task(
         root,
         DelegationMode::Patch,
         &prepared_task,
         &out_dir,
-        &runner,
+        runner.as_ref(),
     )?;
 
     let final_patch = mixmod_dir.join("final.patch");
@@ -454,7 +454,7 @@ impl DefaultExperimentRun<'_> {
             ensure_agent_visible_task_file(&task_file)?;
         }
         let (_, task_spec) = read_task_json(&task_file)?;
-        let runner = ShellOpenCodeRunner::new(config);
+        let runner = worker_harness_for_config(config);
         let feedback_path = default_dir.join("frontier-feedback.jsonl");
         let worker_brief = run_frontier_brief_turn(&work_dir, &default_dir, &task_file, &frontier)?;
         write_pretty_json(
@@ -471,7 +471,7 @@ impl DefaultExperimentRun<'_> {
             DelegationMode::Patch,
             &worker_task,
             &proposal_out,
-            &runner,
+            runner.as_ref(),
             options.require_local,
         )?;
         ensure_local_run_verified(
@@ -518,7 +518,7 @@ impl DefaultExperimentRun<'_> {
                     &default_dir,
                     &label,
                     &artifact_paths,
-                    "Decide the next Codex/OpenCode loop action. Use approve only when the local-worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive local-worker result when no useful OpenCode path remains; do not solve by directly editing files.",
+                    "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not solve by directly editing files.",
                     &frontier,
                 )?;
                 frontier_samples.push(decision.usage_sample());
@@ -533,7 +533,7 @@ impl DefaultExperimentRun<'_> {
                     let resume_session_id = if decision.worker_mode == "continue" {
                         Some(active_opencode_session_id.clone().ok_or_else(|| {
                         anyhow!(
-                            "Codex requested worker_mode=continue, but Mixmod could not resolve the previous OpenCode session id from {}",
+                            "Codex requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
                             final_out.join("metrics.json").display()
                         )
                     })?)
@@ -559,7 +559,7 @@ impl DefaultExperimentRun<'_> {
                         DelegationMode::Patch,
                         &revision_task,
                         &final_out,
-                        &runner,
+                        runner.as_ref(),
                         options.require_local,
                         resume_session_id,
                     )?;
@@ -681,7 +681,7 @@ impl DefaultExperimentRun<'_> {
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
             "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
-            "strategy_phases": ["codex_worker_brief", "codex_open_code_decision_loop"],
+            "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
             "worker_modes": worker_modes,
@@ -734,8 +734,8 @@ impl DefaultExperimentRun<'_> {
             "needs_worker_revision": false,
             "notes": [
                 "Default strategy used a fresh Codex app-server supervisor thread for each worker handoff and review turn.",
-                "Codex controls the OpenCode loop with approve, revise, or blocked/inconclusive stop decisions; direct Codex editing is not part of this strategy.",
-                "OpenCode was required to use explicit local Qwen 3.6 model selection.",
+                "Codex controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
+                "The worker backend was selected through the Mixmod worker settings.",
                 "If the worker times out, run `mixmod experiment recover <name> --require-local` to restart from worker-task.json."
             ]
         });
@@ -784,7 +784,7 @@ pub fn experiment_recover(root: &Path, name: &str, require_local: bool) -> Resul
     }
 
     let config = load_config(&work_dir)?;
-    let runner = ShellOpenCodeRunner::new(config);
+    let runner = worker_harness_for_config(config);
     let recovery_id = make_run_id("recovery");
     let out_dir = state_layout(&work_dir).runs().join(&recovery_id);
     let receipt = run_mixmod_task_with_options(
@@ -792,7 +792,7 @@ pub fn experiment_recover(root: &Path, name: &str, require_local: bool) -> Resul
         DelegationMode::Patch,
         &worker_task,
         &out_dir,
-        &runner,
+        runner.as_ref(),
         require_local,
     )?;
 
@@ -827,7 +827,7 @@ pub fn experiment_recover(root: &Path, name: &str, require_local: bool) -> Resul
         "run_metrics": run_metrics,
         "final_patch": display_path(root, &recovery_dir.join("final.patch")),
         "notes": [
-            "Recovery restarts OpenCode from the saved worker-task.json.",
+            "Recovery restarts the configured worker from the saved worker-task.json.",
             "Codex review is not run automatically; inspect recovery artifacts before accepting."
         ]
     });
@@ -984,7 +984,7 @@ pub(crate) fn write_worker_brief_task(
     let worker_task = json!({
         "title": format!("Mixmod handoff: {title}"),
         "instructions": format!(
-            "Original task instructions:\n{original_instructions}\n\nCodex message to OpenCode:\n{codex_message}\n\nCodex handoff JSON:\n{brief_json}"
+            "Original task instructions:\n{original_instructions}\n\nCodex message to worker:\n{codex_message}\n\nCodex handoff JSON:\n{brief_json}"
         ),
         "expect_patch": expect_patch,
         "files": target_files,
@@ -1099,12 +1099,12 @@ pub(crate) fn write_revision_task(
     };
     let instructions = if decision.worker_mode == "context_focus" {
         format!(
-            "Original task instructions:\n{original_instructions}\n\nCodex requested worker_mode=context_focus.\nThis starts a new OpenCode session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nCodex message to OpenCode:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
+            "Original task instructions:\n{original_instructions}\n\nCodex requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nCodex message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
             decision.hint, decision.required_checks
         )
     } else {
         format!(
-            "{original_instructions}\n\nCodex decision: revise\nWorker mode: continue\nSame OpenCode session should be reused when available.{patch_decision_note}\nMessage to OpenCode: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for Codex review.",
+            "{original_instructions}\n\nCodex decision: revise\nWorker mode: continue\nSame worker session should be reused when available.{patch_decision_note}\nMessage to worker: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for Codex review.",
             decision.hint, decision.required_checks
         )
     };
@@ -1344,7 +1344,7 @@ fn experiment_readme(name: &str) -> String {
 This directory compares one small code-change task in two modes:
 
 1. Codex-only: Codex performs the change directly.
-2. Mixmod default: Codex emits a compact executable worker handoff, OpenCode implements locally from the original task plus that handoff, and Codex reviews compact artifacts.
+2. Mixmod default: Codex emits a compact executable worker handoff, the configured worker implements from the original task plus that handoff, and Codex reviews compact artifacts.
 
 Suggested workflow:
 

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::{DelegationMode, SupervisorControlEvent};
+use crate::{DelegationMode, MixmodConfig, SupervisorControlEvent, WorkerBackend};
 
 pub(crate) mod codex;
 pub(crate) mod opencode;
@@ -125,3 +125,11 @@ pub type OpenCodeOutput = AgentOutput;
 pub trait OpenCodeRunner: AgentHarness {}
 
 impl<T: AgentHarness + ?Sized> OpenCodeRunner for T {}
+
+/// Build the worker harness configured for this run.
+pub fn worker_harness_for_config(config: MixmodConfig) -> Box<dyn AgentHarness> {
+    match config.worker.backend {
+        WorkerBackend::OpenCode => Box::new(opencode::ShellOpenCodeRunner::new(config)),
+        WorkerBackend::Codex => Box::new(codex::ShellCodexRunner::new(config)),
+    }
+}

@@ -102,19 +102,24 @@ pub fn doctor_project(root: &Path) -> Result<()> {
     }
 
     let config = load_config(root).unwrap_or_default();
+    let worker_backend = config.worker.backend;
     let opencode_command = env::var("MIXMOD_OPENCODE_COMMAND")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(config.opencode.command);
-    if find_on_path(&opencode_command).is_some() || Path::new(&opencode_command).exists() {
-        println!("ok: OpenCode command `{opencode_command}` is available");
+    if worker_backend == WorkerBackend::OpenCode {
+        if find_on_path(&opencode_command).is_some() || Path::new(&opencode_command).exists() {
+            println!("ok: OpenCode command `{opencode_command}` is available");
+        } else {
+            println!("error: OpenCode command `{opencode_command}` was not found");
+            println!(
+                "action: install OpenCode, add it to PATH, or set MIXMOD_OPENCODE_COMMAND / {}",
+                layout.config().display()
+            );
+            issues.push("opencode missing");
+        }
     } else {
-        println!("error: OpenCode command `{opencode_command}` was not found");
-        println!(
-            "action: install OpenCode, add it to PATH, or set MIXMOD_OPENCODE_COMMAND / {}",
-            layout.config().display()
-        );
-        issues.push("opencode missing");
+        println!("ok: OpenCode command check skipped for worker.backend=codex");
     }
 
     if issues.is_empty() {
@@ -170,6 +175,14 @@ backend_command = "ollama ps"
 "{default_model}" = ["{default_model}", "{ollama_model}", "qwen/qwen3.6-27b", "ollama/{ollama_model}", "local-ollama/{ollama_model}", "{opencode_provider}/{ollama_model}"]
 
 [frontier]
+model = "{frontier_model}"
+# Codex config key: model_reasoning_effort. Allowed: minimal, low, medium, high, xhigh.
+reasoning_effort = "{frontier_reasoning_effort}"
+
+[worker]
+backend = "opencode"
+
+[codex_worker]
 model = "{frontier_model}"
 # Codex config key: model_reasoning_effort. Allowed: minimal, low, medium, high, xhigh.
 reasoning_effort = "{frontier_reasoning_effort}"

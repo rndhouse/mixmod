@@ -16,7 +16,8 @@ pub(crate) fn budgeted_report(name: &str, metrics: &Value) -> String {
 - Supervisor control interrupts: {supervisor_control_interrupts}
 - Supervisor control actions: {supervisor_control_actions}
 - Worker brief output tokens: {brief_tokens}
-- OpenCode provider/model: {provider}/{model}
+- Worker backend: {worker_backend}
+- Worker provider/model: {provider}/{model}
 - Local inference verified: {local_verified}
 - GPU activity observed: {gpu}
 - Test status: {tests}
@@ -24,7 +25,7 @@ pub(crate) fn budgeted_report(name: &str, metrics: &Value) -> String {
 
 ## Conclusion
 
-Default strategy result is `{status}` for this arm. This arm uses Codex to produce a compact executable worker handoff, OpenCode to implement locally from the original task plus that handoff, and Codex to review compact artifacts.
+Default strategy result is `{status}` for this arm. This arm uses Codex to produce a compact executable worker handoff, the configured worker to implement from the original task plus that handoff, and Codex to review compact artifacts.
 "#,
         output_tokens = get_u64(metrics, "frontier_output_tokens").unwrap_or(0),
         input_tokens = get_u64(metrics, "frontier_input_tokens").unwrap_or(0),
@@ -37,6 +38,7 @@ Default strategy result is `{status}` for this arm. This arm uses Codex to produ
             get_u64(metrics, "supervisor_control_interrupts").unwrap_or(0),
         supervisor_control_actions = display_string_array(metrics, "supervisor_control_actions"),
         brief_tokens = get_u64(metrics, "worker_brief_output_tokens").unwrap_or(0),
+        worker_backend = get_str(metrics, "worker_backend").unwrap_or("unknown"),
         provider = get_str(metrics, "opencode_provider").unwrap_or("unknown"),
         model = get_str(metrics, "opencode_model").unwrap_or("unknown"),
         local_verified = get_bool(metrics, "local_inference_verified")
@@ -128,6 +130,8 @@ impl<'a> ExperimentReportRenderer<'a> {
             .or_else(|| get_u64(&default_metrics, "supervision_turn_count"))
             .unwrap_or(0);
         let default_opencode_calls = get_u64(&default_metrics, "opencode_calls").unwrap_or(0);
+        let default_worker_backend =
+            get_str(&default_metrics, "worker_backend").unwrap_or("unknown");
         let default_local_verified = get_bool(&default_metrics, "local_inference_verified")
             .map(yes_no)
             .unwrap_or("not-run");
@@ -265,15 +269,16 @@ Mixmod default strategy beat Codex-only on output tokens: {default_output_win}.
 | Codex reasoning effort | {codex_reasoning_effort} | {default_reasoning_effort} |
 | Codex-visible bytes | {codex_visible} | {default_visible} |
 | Codex calls | 1 | {default_codex_calls} |
-| Mixmod/OpenCode calls | 0 | {default_opencode_calls} |
-| OpenCode provider/model | n/a | {default_provider_model} |
+| Mixmod worker calls | 0 | {default_opencode_calls} |
+| Worker backend | n/a | {default_worker_backend} |
+| Worker provider/model | n/a | {default_provider_model} |
 | Qwen 3.6 selected | n/a | {default_qwen} |
 | Local-worker text bytes | 0 | {local_worker_text} |
 | Local inference verified | n/a | {default_local_verified} |
 | GPU activity observed | n/a | {default_gpu} |
-| OpenCode timed out | n/a | {default_timed_out} |
-| OpenCode idle timed out | n/a | {default_idle_timed_out} |
-| OpenCode heartbeats | n/a | {default_heartbeats} |
+| Worker timed out | n/a | {default_timed_out} |
+| Worker idle timed out | n/a | {default_idle_timed_out} |
+| Worker heartbeats | n/a | {default_heartbeats} |
 | Supervisor control events | n/a | {default_supervisor_control_count} |
 | Supervisor control interrupts | n/a | {default_supervisor_control_interrupts} |
 | Supervisor control actions | n/a | {default_supervisor_control_actions} |
@@ -295,11 +300,11 @@ Mixmod default strategy beat Codex-only on output tokens: {default_output_win}.
 
 ## Mixmod Details
 
-- OpenCode command: `{opencode_command}`
-- OpenCode exit status: {opencode_exit_status}
+- Worker command: `{opencode_command}`
+- Worker exit status: {opencode_exit_status}
 - Compact Mixmod artifact bytes: {mixmod_compact_artifact_bytes}
-- OpenCode stdout bytes: {opencode_stdout_bytes}
-- OpenCode stderr bytes: {opencode_stderr_bytes}
+- Worker stdout bytes: {opencode_stdout_bytes}
+- Worker stderr bytes: {opencode_stderr_bytes}
 - Mixmod report bytes: {mixmod_report_bytes}
 - Mixmod session bytes: {mixmod_session_bytes}
 
@@ -335,6 +340,7 @@ Exact Codex token telemetry is often unavailable through local CLI workflows. Th
             default_tests = default_tests,
             default_codex_calls = default_codex_calls,
             default_opencode_calls = default_opencode_calls,
+            default_worker_backend = default_worker_backend,
             default_provider_model = default_provider_model,
             default_qwen = default_qwen,
             default_local_verified = default_local_verified,

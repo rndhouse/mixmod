@@ -206,7 +206,7 @@ pub(crate) fn supervise_mixmod_task(
             display_path(root, &out_dir.join("metrics.json"))
         ],
         "notes": [
-            "This command returns immediately so the same Codex session can inspect run status while OpenCode runs.",
+            "This command returns immediately so the same Codex session can inspect run status while the worker runs.",
             "stdout/stderr from the background Mixmod process are written under logs/.",
             "For manual debugging, set MIXMOD_DEBUG_COMMANDS=1 and use mixmod control send, or write control.json to steer or interrupt the worker."
         ]
@@ -217,7 +217,7 @@ pub(crate) fn supervise_mixmod_task(
         "supervisor receipt",
     )?;
 
-    println!("started background Mixmod/OpenCode worker");
+    println!("started background Mixmod worker");
     println!("pid: {pid}");
     println!("run: {run_display}");
     println!("stdout: {}", display_path(root, &stdout_log));
@@ -276,6 +276,10 @@ pub(crate) fn supervise_run_args(
     {
         args.push("--worker-model".to_string());
         args.push(model.to_string());
+    }
+    if let Some(worker_backend) = model_overrides.worker_backend {
+        args.push("--worker-backend".to_string());
+        args.push(worker_backend.as_str().to_string());
     }
     args
 }
