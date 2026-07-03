@@ -14,16 +14,12 @@ Early benchmark results show a **75.5% aggregate reduction in GPT-5.5 token usag
 
 ```mermaid
 flowchart TD
-    B[GPT-5.5
-    instructs Qwen3.6-27B]
-    C[Qwen3.6-27B
-    modifies code]
-    D[GPT-5.5
-    reviews]
+    B["GPT-5.5 instructs Qwen3.6-27B"]
+    C["Qwen3.6-27B modifies code"]
+    D["GPT-5.5 reviews"]
     E{Approve?}
-    F[Task complete]
-    G[GPT-5.5
-    prepares feedback]
+    F["Task complete"]
+    G["GPT-5.5 prepares feedback"]
 
     B --> C --> D --> E
     E -->|yes| F
