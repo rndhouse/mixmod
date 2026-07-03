@@ -1068,7 +1068,7 @@ pub(crate) fn write_revision_task(
         String::new()
     } else {
         format!(
-            "\nMixmod artifact references from Codex, not repo source files: {:?}\nDo not read these from the repo root; use the current task text and compact artifacts instead.",
+            "\nMixmod artifact references from Codex, not repo source files: {:?}\nDo not read these from the repo root; use the current task text and Codex's message instead.",
             artifact_focus_files
         )
     };
@@ -1086,7 +1086,7 @@ pub(crate) fn write_revision_task(
     );
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
     let patch_decision_note = if decision.patch_decision == "revise_previous" {
-        "\nPatch checkpoint decision: revise_previous. Codex judged the previous candidate patch better than the current revision. Reapply or recover the previous candidate from the Mixmod previous-worktree.patch artifact before making the requested focused changes.\n"
+        "\nPatch checkpoint decision: revise_previous. Codex judged the previous candidate patch better than the current revision. Recover the previous candidate using Codex's message below, then make the requested focused changes. Do not read `.mixmod` artifacts directly.\n"
     } else if decision.patch_decision == "revise_current" {
         "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues Codex identified.\n"
     } else {

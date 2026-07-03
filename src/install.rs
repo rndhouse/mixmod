@@ -32,6 +32,7 @@ pub(crate) fn ensure_project_state(root: &Path, verbose: bool) -> Result<()> {
 
     write_managed_file(root, MIXMOD_CONFIG, &default_config_content(), verbose)?;
     write_managed_file(root, OPENCODE_CONFIG, &opencode_config_content(), verbose)?;
+    ensure_git_exclude_ignores_mixmod(root, verbose)?;
     Ok(())
 }
 
@@ -189,6 +190,28 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
         }}
       }}
     }}
+  }},
+  "permission": {{
+    "read": {{
+      "*": "allow",
+      ".mixmod/**": "deny",
+      "**/.mixmod/**": "deny"
+    }},
+    "edit": {{
+      "*": "allow",
+      ".mixmod/**": "deny",
+      "**/.mixmod/**": "deny"
+    }},
+    "glob": {{
+      "*": "allow",
+      ".mixmod/**": "deny",
+      "**/.mixmod/**": "deny"
+    }},
+    "grep": {{
+      "*": "allow",
+      ".mixmod/**": "deny",
+      "**/.mixmod/**": "deny"
+    }}
   }}
 }}
 "#,
@@ -196,6 +219,70 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
         name = name,
         ollama_model = DEFAULT_OPENCODE_OLLAMA_MODEL
     )
+}
+
+fn ensure_git_exclude_ignores_mixmod(root: &Path, verbose: bool) -> Result<()> {
+    let Some(path) = git_info_exclude_path(root) else {
+        return Ok(());
+    };
+    let current = fs::read_to_string(&path).unwrap_or_default();
+    if current.lines().any(is_mixmod_exclude_line) {
+        if verbose {
+            println!("unchanged .git/info/exclude");
+        }
+        return Ok(());
+    }
+
+    let mut updated = current;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(".mixmod/\n");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create parent directory {}", parent.display()))?;
+    }
+    atomic_write(&path, updated.as_bytes())?;
+    if verbose {
+        println!("updated .git/info/exclude");
+    }
+    Ok(())
+}
+
+fn git_info_exclude_path(root: &Path) -> Option<PathBuf> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "rev-parse",
+            "--is-inside-work-tree",
+            "--git-path",
+            "info/exclude",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout.lines();
+    if lines.next()?.trim() != "true" {
+        return None;
+    }
+    let raw_path = lines.next()?.trim();
+    if raw_path.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(raw_path);
+    Some(if path.is_absolute() {
+        path
+    } else {
+        root.join(path)
+    })
+}
+
+fn is_mixmod_exclude_line(line: &str) -> bool {
+    matches!(line.trim(), ".mixmod" | ".mixmod/" | ".mixmod/**")
 }
 
 fn write_managed_file(root: &Path, rel: &str, content: &str, verbose: bool) -> Result<()> {

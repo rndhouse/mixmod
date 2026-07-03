@@ -721,6 +721,8 @@ fn frontier_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("worker_mode=context_focus to start a new OpenCode session"));
     assert!(prompt.contains("patch_decision"));
     assert!(prompt.contains("revise_previous"));
+    assert!(prompt.contains("summarize the concrete source/test edits to recover"));
+    assert!(prompt.contains("Do not ask the worker to inspect .mixmod."));
     assert!(prompt.contains("previous worker context is discarded"));
     assert!(prompt.contains("Do not implement code. Do not edit files."));
     assert!(prompt.contains("Do not ask the user for approval."));
@@ -908,6 +910,48 @@ fn opencode_uses_mixmod_scoped_config() {
 }
 
 #[test]
+fn opencode_config_denies_mixmod_artifact_access() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    init_project(root).unwrap();
+    let config = read_json_file(&root.join(OPENCODE_CONFIG)).unwrap();
+
+    for tool in ["read", "edit", "glob", "grep"] {
+        assert_eq!(
+            get_str(&config["permission"][tool], ".mixmod/**"),
+            Some("deny")
+        );
+        assert_eq!(
+            get_str(&config["permission"][tool], "**/.mixmod/**"),
+            Some("deny")
+        );
+    }
+}
+
+#[test]
+fn init_adds_mixmod_to_repo_local_git_exclude() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    init_git(root);
+    let exclude = root.join(".git/info/exclude");
+    fs::write(&exclude, "# local ignores\n").unwrap();
+
+    init_project(root).unwrap();
+    init_project(root).unwrap();
+
+    let content = fs::read_to_string(exclude).unwrap();
+    assert!(content.contains("# local ignores\n"));
+    assert_eq!(
+        content
+            .lines()
+            .filter(|line| line.trim() == ".mixmod/")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn run_writes_full_artifact_bundle() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -1015,6 +1059,13 @@ fn empty_patch_followup_runs_once_when_patch_expected() {
             .join("empty-patch-followup/opencode-instructions.md")
             .exists()
     );
+    let followup_instruction =
+        fs::read_to_string(run_dir.join("empty-patch-followup/opencode-instructions.md")).unwrap();
+    assert!(
+        followup_instruction.contains("Do not read, grep, glob, edit, or rely on `.mixmod` files")
+    );
+    assert!(!followup_instruction.contains("Task file:"));
+    assert!(!followup_instruction.contains("Artifact directory:"));
     let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();
     assert_eq!(get_bool(&metrics, "expect_patch"), Some(true));
     assert_eq!(
@@ -1136,6 +1187,9 @@ fn opencode_instruction_includes_local_worker_self_check() {
     .unwrap();
 
     assert!(instruction.contains("## Completion Self-Check"));
+    assert!(instruction.contains("Do not read, grep, glob, edit, or rely on `.mixmod` files"));
+    assert!(!instruction.contains("Task file:"));
+    assert!(!instruction.contains("Artifact directory:"));
     assert!(instruction.contains("Did you complete every edit you intended to make?"));
     assert!(instruction.contains("If you intended checks or verification"));
     assert!(instruction.contains("Do not claim success if intended edits"));
@@ -1609,7 +1663,9 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
     let instructions = get_str(&revision, "instructions").unwrap();
 
     assert!(instructions.contains("Patch checkpoint decision: revise_previous"));
-    assert!(instructions.contains("previous-worktree.patch"));
+    assert!(instructions.contains("Recover the previous candidate using Codex's message"));
+    assert!(instructions.contains("Do not read `.mixmod` artifacts directly."));
+    assert!(!instructions.contains("previous-worktree.patch"));
     assert_eq!(
         get_str(&revision["context"], "patch_decision"),
         Some("revise_previous")
@@ -1670,6 +1726,8 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
     );
     let instructions = get_str(&revision, "instructions").unwrap();
     assert!(instructions.contains("Mixmod artifact references from Codex"));
+    assert!(instructions.contains("use the current task text and Codex's message instead"));
+    assert!(!instructions.contains("compact artifacts instead"));
     assert!(!instructions.contains("Focus files: [\"revision-task-3.json\""));
 }
 

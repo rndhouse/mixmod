@@ -480,8 +480,8 @@ fn run_empty_patch_followup(
 fn build_empty_patch_followup_instruction(
     mode: DelegationMode,
     task: &TaskSpec,
-    task_path: &Path,
-    out_dir: &Path,
+    _task_path: &Path,
+    _out_dir: &Path,
 ) -> String {
     let files = if task.files.is_empty() {
         "- none specified".to_string()
@@ -506,8 +506,8 @@ fn build_empty_patch_followup_instruction(
 
 Mode: {mode}
 Expected repository patch: yes
-Task file: {task_path}
-Artifact directory: {out_dir}
+
+Mixmod-managed state lives under `.mixmod`. Do not read, grep, glob, edit, or rely on `.mixmod` files. The task content you need is embedded below.
 
 The previous local-worker run exited successfully, but Mixmod captured no repository diff.
 
@@ -527,8 +527,6 @@ Requested tests:
 Keep the final response compact.
 "#,
         mode = mode,
-        task_path = task_path.display(),
-        out_dir = out_dir.display(),
         files = files,
         tests = tests,
     )
@@ -587,8 +585,8 @@ fn merge_opencode_outputs(mut first: OpenCodeOutput, second: OpenCodeOutput) -> 
 pub(crate) fn build_opencode_instruction(
     mode: DelegationMode,
     task: &TaskSpec,
-    task_path: &Path,
-    out_dir: &Path,
+    _task_path: &Path,
+    _out_dir: &Path,
 ) -> Result<String> {
     let files = if task.files.is_empty() {
         "- none specified".to_string()
@@ -636,8 +634,8 @@ Codex remains the final authority. Treat your own output as a draft artifact for
 
 Mode: {mode}
 Expected repository patch: {expected_patch}
-Task file: {task_path}
-Artifact directory: {out_dir}
+
+Mixmod-managed state lives under `.mixmod`. Do not read, grep, glob, edit, or rely on `.mixmod` files. The task content you need is embedded below.
 
 ## Task
 
@@ -687,8 +685,6 @@ Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and sess
             Some(false) => "no",
             None => "unspecified",
         },
-        task_path = task_path.display(),
-        out_dir = out_dir.display(),
         title = task.title,
         instructions = task.instructions,
         files = files,
