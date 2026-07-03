@@ -124,6 +124,8 @@ pub struct FrontierFeedback {
     #[serde(default)]
     pub worker_mode: Option<String>,
     #[serde(default)]
+    pub patch_decision: Option<String>,
+    #[serde(default)]
     pub message_to_worker: Option<String>,
     #[serde(default)]
     pub hint: Option<String>,
@@ -223,7 +225,7 @@ pub struct ExperimentReportInputs {
     pub default_metrics_path: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct PatchStats {
     pub files: Vec<String>,
     pub changed_line_count: usize,

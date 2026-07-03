@@ -113,6 +113,7 @@ impl DefaultStrategyRun<'_> {
                 if supervisor_control_path.exists() {
                     artifact_paths.push(supervisor_control_path);
                 }
+                append_patch_checkpoint_artifacts(&final_out, &mut artifact_paths)?;
                 let decision = run_frontier_feedback_turn(
                     root,
                     &out_dir,
@@ -152,6 +153,7 @@ impl DefaultStrategyRun<'_> {
                     } else {
                         format!("revision-{decision_index}")
                     };
+                    let previous_out = final_out.clone();
                     final_out = worker_runs_dir.join(revision_out_name);
                     let revision_receipt = run_mixmod_task_with_session(
                         root,
@@ -163,6 +165,7 @@ impl DefaultStrategyRun<'_> {
                         resume_session_id,
                     )?;
                     ensure_worker_run_verified(&out_dir, &revision_receipt, &final_out)?;
+                    write_patch_checkpoint_comparison(&previous_out, &final_out, &decision)?;
                     opencode_calls += 1;
                     worker_run_dirs.push(final_out.clone());
                     active_opencode_session_id = read_opencode_session_id_from_metrics(&final_out)?;
@@ -181,6 +184,7 @@ impl DefaultStrategyRun<'_> {
             .iter()
             .map(|dir| read_json_file(&dir.join("metrics.json")))
             .collect::<Result<Vec<_>>>()?;
+        let patch_checkpoint_metrics = patch_checkpoint_metrics(&worker_run_dirs)?;
         let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
         let frontier_usage = aggregate_frontier_usage(&frontier_samples);
         let local_worker_stdout = worker_metrics
@@ -273,11 +277,12 @@ impl DefaultStrategyRun<'_> {
             "supervisor_resume_count": frontier_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
-            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json"],
+            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
             "strategy_phases": ["codex_worker_brief", "codex_open_code_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
             "worker_modes": worker_modes,
+            "patch_checkpoints": patch_checkpoint_metrics,
             "revision_attempts": opencode_calls.saturating_sub(1),
             "worker_brief": "worker-brief.json",
             "worker_task": display_path(root, &worker_task),
@@ -399,6 +404,8 @@ fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
         "session.jsonl",
         "worktree.patch",
         "changes.patch",
+        PATCH_COMPARISON,
+        PREVIOUS_WORKTREE_PATCH,
         "partial.patch",
         "tests.json",
         "metrics.json",

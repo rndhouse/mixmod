@@ -329,6 +329,8 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
         "report.md",
         "worktree.patch",
         "changes.patch",
+        PATCH_COMPARISON,
+        PREVIOUS_WORKTREE_PATCH,
         "tests.json",
         "metrics.json",
     ]
@@ -506,6 +508,7 @@ impl DefaultExperimentRun<'_> {
                 if supervisor_control_path.exists() {
                     artifact_paths.push(supervisor_control_path);
                 }
+                append_patch_checkpoint_artifacts(&final_out, &mut artifact_paths)?;
                 let decision = run_frontier_feedback_turn(
                     &work_dir,
                     &default_dir,
@@ -545,6 +548,7 @@ impl DefaultExperimentRun<'_> {
                     } else {
                         format!("default-revision-{decision_index}")
                     };
+                    let previous_out = final_out.clone();
                     final_out = work_dir.join(".mixmod/runs").join(revision_out_name);
                     let revision_receipt = run_mixmod_task_with_session(
                         &work_dir,
@@ -562,6 +566,7 @@ impl DefaultExperimentRun<'_> {
                         &final_out,
                         options.require_local,
                     )?;
+                    write_patch_checkpoint_comparison(&previous_out, &final_out, &decision)?;
                     opencode_calls += 1;
                     worker_run_dirs.push(final_out.clone());
                     active_opencode_session_id = read_opencode_session_id_from_metrics(&final_out)?;
@@ -582,6 +587,7 @@ impl DefaultExperimentRun<'_> {
             .iter()
             .map(|dir| read_json_file(&dir.join("metrics.json")))
             .collect::<Result<Vec<_>>>()?;
+        let patch_checkpoint_metrics = patch_checkpoint_metrics(&worker_run_dirs)?;
         let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
         let frontier_usage = aggregate_frontier_usage(&frontier_samples);
         let local_worker_stdout = worker_metrics
@@ -670,11 +676,12 @@ impl DefaultExperimentRun<'_> {
             "supervisor_resume_count": frontier_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
-            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json"],
+            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
             "strategy_phases": ["codex_worker_brief", "codex_open_code_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
             "worker_modes": worker_modes,
+            "patch_checkpoints": patch_checkpoint_metrics,
             "revision_attempts": opencode_calls.saturating_sub(1),
             "worker_brief": "worker-brief.json",
             "worker_task": display_path(root, &worker_task),
@@ -847,6 +854,8 @@ fn copy_budgeted_artifacts(root: &Path, budgeted_dir: &Path, final_out: &Path) -
         "session.jsonl",
         "worktree.patch",
         "changes.patch",
+        PATCH_COMPARISON,
+        PREVIOUS_WORKTREE_PATCH,
         "partial.patch",
         "tests.json",
         "metrics.json",
@@ -1076,14 +1085,21 @@ pub(crate) fn write_revision_task(
         get_string_array(&task_value, "acceptance"),
     );
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
+    let patch_decision_note = if decision.patch_decision == "revise_previous" {
+        "\nPatch checkpoint decision: revise_previous. Codex judged the previous candidate patch better than the current revision. Reapply or recover the previous candidate from the Mixmod previous-worktree.patch artifact before making the requested focused changes.\n"
+    } else if decision.patch_decision == "revise_current" {
+        "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues Codex identified.\n"
+    } else {
+        ""
+    };
     let instructions = if decision.worker_mode == "context_focus" {
         format!(
-            "Original task instructions:\n{original_instructions}\n\nCodex requested worker_mode=context_focus.\nThis starts a new OpenCode session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.\n\nCodex message to OpenCode:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
+            "Original task instructions:\n{original_instructions}\n\nCodex requested worker_mode=context_focus.\nThis starts a new OpenCode session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nCodex message to OpenCode:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
             decision.hint, decision.required_checks
         )
     } else {
         format!(
-            "{original_instructions}\n\nCodex decision: revise\nWorker mode: continue\nSame OpenCode session should be reused when available.\nMessage to OpenCode: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for Codex review.",
+            "{original_instructions}\n\nCodex decision: revise\nWorker mode: continue\nSame OpenCode session should be reused when available.{patch_decision_note}\nMessage to OpenCode: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for Codex review.",
             decision.hint, decision.required_checks
         )
     };
@@ -1100,6 +1116,7 @@ pub(crate) fn write_revision_task(
             "expect_patch": true,
             "codex_focus_files": decision.focus_files,
             "repo_focus_files": repo_focus_files,
+            "patch_decision": decision.patch_decision,
             "mixmod_artifact_refs": artifact_focus_files
         }
     });
@@ -1183,6 +1200,8 @@ fn is_artifact_focus_ref(path: &str) -> bool {
         || file_name == "metrics.json"
         || file_name == "worktree.patch"
         || file_name == "changes.patch"
+        || file_name == PATCH_COMPARISON
+        || file_name == PREVIOUS_WORKTREE_PATCH
         || file_name == "tests.json"
         || file_name == "report.md"
         || file_name == "session.jsonl"
@@ -1296,6 +1315,8 @@ fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
         "session.jsonl",
         "worktree.patch",
         "changes.patch",
+        PATCH_COMPARISON,
+        PREVIOUS_WORKTREE_PATCH,
         "partial.patch",
         "tests.json",
         "metrics.json",

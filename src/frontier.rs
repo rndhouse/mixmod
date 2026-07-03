@@ -33,6 +33,7 @@ pub(crate) struct FrontierFeedbackTurn {
     pub(crate) feedback: Value,
     pub(crate) verdict: String,
     pub(crate) worker_mode: String,
+    pub(crate) patch_decision: String,
     pub(crate) hint: String,
     pub(crate) focus_files: Vec<String>,
     pub(crate) required_checks: Vec<String>,
@@ -784,14 +785,17 @@ pub(crate) fn run_frontier_feedback_turn(
     let (mut parsed_feedback, verdict) = normalize_feedback_value(parsed_feedback);
     let typed_feedback = FrontierFeedback::from_value(&parsed_feedback);
     let worker_mode = normalize_worker_mode(typed_feedback.worker_mode.as_deref());
+    let patch_decision = normalize_patch_decision(typed_feedback.patch_decision.as_deref());
     if let Value::Object(map) = &mut parsed_feedback {
         map.insert("worker_mode".to_string(), json!(worker_mode.clone()));
+        map.insert("patch_decision".to_string(), json!(patch_decision.clone()));
     }
     let thread_id = result.thread_id.clone();
     let turn_id = result.turn_id.clone();
     let turn = FrontierFeedbackTurn {
         verdict,
         worker_mode,
+        patch_decision,
         hint: typed_feedback
             .message_to_worker
             .or(typed_feedback.hint)
@@ -913,11 +917,12 @@ pub(crate) fn frontier_feedback_prompt(
         r#"You are a terse frontier critic supervising a local worker.
 Do not implement code. Do not edit files. Do not ask the user for approval.
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","worker_mode":"continue|context_focus","message_to_worker":"max 60 words","focus_files":[],"required_checks":[],"risk":"max 25 words"}}
+{{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 60 words","focus_files":[],"required_checks":[],"risk":"max 25 words"}}
 Use approve when no more local worker attempts are needed.
 Prefer revise after failed, empty, distracted, or incomplete worker attempts, and put the next worker instruction in message_to_worker.
 Use worker_mode=continue to keep the same OpenCode session and let the worker continue with its existing context.
 Use worker_mode=context_focus to start a new OpenCode session on the same worktree; previous worker context is discarded unless you repeat it in message_to_worker.
+When patch-comparison.json is present, choose patch_decision explicitly. Use accept_current when the current worktree.patch should stand, revise_current when the current patch should be edited further, and revise_previous when previous-worktree.patch is the better candidate and the worker should recover/reapply it before continuing. Mixmod will not mutate the repo directly from this choice; put the recovery instruction in message_to_worker.
 Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files; mention them in message_to_worker if needed.
 Important artifact semantics: worktree.patch is the accumulated current repository diff and is authoritative for deciding whether the patch exists; changes.patch is only the latest worker run delta and may be empty after a verification-only revision.
 Use stop only to record a blocked or inconclusive local-worker result when no useful OpenCode path remains. Stop does not permit direct Codex editing.
@@ -970,6 +975,21 @@ fn normalize_frontier_verdict(value: &str) -> String {
         "revise" | "revision" | "needs_revision" | "needs-review" | "needs_review" | "reject"
         | "rejected" => "revise".to_string(),
         _ => "revise".to_string(),
+    }
+}
+
+fn normalize_patch_decision(value: Option<&str>) -> String {
+    match value
+        .unwrap_or("accept_current")
+        .trim()
+        .to_ascii_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "revise_previous" | "previous" | "keep_previous" | "restore_previous"
+        | "recover_previous" => "revise_previous".to_string(),
+        "revise_current" | "current_revision" | "continue_current" => "revise_current".to_string(),
+        _ => "accept_current".to_string(),
     }
 }
 

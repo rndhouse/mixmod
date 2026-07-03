@@ -429,6 +429,7 @@ fn supervisor_reuse_metrics_are_derived_from_thread_ids() {
             feedback: json!({}),
             verdict: "approve".to_string(),
             worker_mode: "continue".to_string(),
+            patch_decision: "accept_current".to_string(),
             hint: String::new(),
             focus_files: vec![],
             required_checks: vec![],
@@ -718,6 +719,8 @@ fn frontier_feedback_prompt_explains_worker_session_modes() {
 
     assert!(prompt.contains("worker_mode=continue to keep the same OpenCode session"));
     assert!(prompt.contains("worker_mode=context_focus to start a new OpenCode session"));
+    assert!(prompt.contains("patch_decision"));
+    assert!(prompt.contains("revise_previous"));
     assert!(prompt.contains("previous worker context is discarded"));
     assert!(prompt.contains("Do not implement code. Do not edit files."));
     assert!(prompt.contains("Do not ask the user for approval."));
@@ -727,6 +730,92 @@ fn frontier_feedback_prompt_explains_worker_session_modes() {
         )
     );
     assert!(prompt.contains("Stop does not permit direct Codex editing."));
+}
+
+#[test]
+fn checkpoint_detects_lost_focused_patch_files() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let previous = root.join("previous");
+    let current = root.join("current");
+    fs::create_dir_all(&previous).unwrap();
+    fs::create_dir_all(&current).unwrap();
+    atomic_write(
+        &previous.join("worktree.patch"),
+        br#"diff --git a/src/_pytest/assertion/rewrite.py b/src/_pytest/assertion/rewrite.py
+--- a/src/_pytest/assertion/rewrite.py
++++ b/src/_pytest/assertion/rewrite.py
+@@ -1,1 +1,1 @@
+-old
++new
+diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
+--- a/testing/test_assertrewrite.py
++++ b/testing/test_assertrewrite.py
+@@ -1,1 +1,1 @@
+-old
++new
+"#,
+    )
+    .unwrap();
+    atomic_write(
+        &current.join("worktree.patch"),
+        br#"diff --git a/AUTHORS b/AUTHORS
+--- a/AUTHORS
++++ b/AUTHORS
+@@ -1,1 +1,2 @@
+ Alice
++Bob
+"#,
+    )
+    .unwrap();
+    atomic_write(&current.join("changes.patch"), b"").unwrap();
+    let decision = FrontierFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "accept_current".to_string(),
+        hint: "Fix assertion rewrite.".to_string(),
+        focus_files: vec![
+            "src/_pytest/assertion/rewrite.py".to_string(),
+            "testing/test_assertrewrite.py".to_string(),
+        ],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let comparison = write_patch_checkpoint_comparison(&previous, &current, &decision).unwrap();
+
+    assert!(comparison.degradation_detected);
+    assert_eq!(
+        comparison.lost_focus_files,
+        vec![
+            "src/_pytest/assertion/rewrite.py",
+            "testing/test_assertrewrite.py"
+        ]
+    );
+    assert!(current.join(PATCH_COMPARISON).exists());
+    assert!(current.join(PREVIOUS_WORKTREE_PATCH).exists());
+
+    let mut artifacts = Vec::new();
+    append_patch_checkpoint_artifacts(&current, &mut artifacts).unwrap();
+    assert!(
+        artifacts
+            .iter()
+            .any(|path| path.ends_with(PATCH_COMPARISON))
+    );
+    assert!(
+        artifacts
+            .iter()
+            .any(|path| path.ends_with(PREVIOUS_WORKTREE_PATCH))
+    );
 }
 
 #[test]
@@ -1402,6 +1491,7 @@ fn revision_task_preserves_codex_focus_files() {
         feedback: json!({}),
         verdict: "revise".to_string(),
         worker_mode: "continue".to_string(),
+        patch_decision: "accept_current".to_string(),
         hint: "Update the discount code and its test.".to_string(),
         focus_files: vec!["checkout.py".to_string(), "test_checkout.py".to_string()],
         required_checks: vec!["python -m unittest -q".to_string()],
@@ -1452,6 +1542,7 @@ fn context_focus_revision_task_uses_focused_prompt() {
         feedback: json!({}),
         verdict: "revise".to_string(),
         worker_mode: "context_focus".to_string(),
+        patch_decision: "accept_current".to_string(),
         hint: "Ignore dependency setup and edit the focused files first.".to_string(),
         focus_files: vec!["checkout.py".to_string()],
         required_checks: vec!["python -m unittest -q".to_string()],
@@ -1478,6 +1569,54 @@ fn context_focus_revision_task_uses_focused_prompt() {
 }
 
 #[test]
+fn revision_task_mentions_revise_previous_checkpoint_decision() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": [],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+    let decision = FrontierFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "context_focus".to_string(),
+        patch_decision: "revise_previous".to_string(),
+        hint: "Recover the earlier source edit and remove unrelated files.".to_string(),
+        focus_files: vec!["checkout.py".to_string()],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 3).unwrap();
+    let revision = read_json_file(&path).unwrap();
+    let instructions = get_str(&revision, "instructions").unwrap();
+
+    assert!(instructions.contains("Patch checkpoint decision: revise_previous"));
+    assert!(instructions.contains("previous-worktree.patch"));
+    assert_eq!(
+        get_str(&revision["context"], "patch_decision"),
+        Some("revise_previous")
+    );
+}
+
+#[test]
 fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -1499,6 +1638,7 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
         feedback: json!({}),
         verdict: "revise".to_string(),
         worker_mode: "context_focus".to_string(),
+        patch_decision: "accept_current".to_string(),
         hint: "Use the latest focused task and edit the source file.".to_string(),
         focus_files: vec![
             "revision-task-3.json".to_string(),

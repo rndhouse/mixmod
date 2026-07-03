@@ -181,6 +181,8 @@ impl<'a> ExperimentReportRenderer<'a> {
             "report.md",
             "worktree.patch",
             "changes.patch",
+            "patch-comparison.json",
+            "previous-worktree.patch",
             "tests.json",
             "metrics.json",
         ]

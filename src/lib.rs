@@ -14,6 +14,7 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
 mod artifacts;
+mod checkpoint;
 mod cli;
 mod config;
 mod default_strategy;
@@ -34,6 +35,10 @@ pub use artifacts::{
     CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, FrontierFeedback, PatchStats,
     Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent, TestArtifact,
     TestCommandResult, WorkerBrief,
+};
+pub(crate) use checkpoint::{
+    PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, append_patch_checkpoint_artifacts,
+    patch_checkpoint_metrics, write_patch_checkpoint_comparison,
 };
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub use config::{
