@@ -6,8 +6,8 @@ use tempfile::TempDir;
 
 struct FakeRunner;
 
-impl OpenCodeRunner for FakeRunner {
-    fn run(&self, request: &OpenCodeRequest) -> Result<OpenCodeOutput> {
+impl AgentHarness for FakeRunner {
+    fn run(&self, request: &AgentRequest) -> Result<AgentOutput> {
         fs::create_dir_all(request.root.join("src")).with_context(|| {
             format!(
                 "failed to create fake source dir under {}",
@@ -18,9 +18,10 @@ impl OpenCodeRunner for FakeRunner {
             &request.root.join("src/generated.rs"),
             b"pub fn generated() -> &'static str {\n    \"ok\"\n}\n",
         )?;
-        Ok(OpenCodeOutput {
+        Ok(AgentOutput {
+            backend: AgentBackend::OpenCode,
             command_for_metrics: vec!["fake-opencode".to_string()],
-            opencode_segments: Vec::new(),
+            segments: Vec::new(),
             exit_status: Some(0),
             success: true,
             stdout: b"Summary: generated a file\nTests: not run\n".to_vec(),
@@ -31,7 +32,7 @@ impl OpenCodeRunner for FakeRunner {
             session_label: Some(request.session_id.clone()),
             session_id: Some(request.session_id.clone()),
             resume_session_id: request.resume_session_id.clone(),
-            worker_session_reused: request.resume_session_id.is_some(),
+            session_reused: request.resume_session_id.is_some(),
             interrupted_by_supervisor: false,
             supervisor_control_action: None,
             supervisor_control_events: Vec::new(),
@@ -59,8 +60,8 @@ impl EmptyPatchThenPatchRunner {
     }
 }
 
-impl OpenCodeRunner for EmptyPatchThenPatchRunner {
-    fn run(&self, request: &OpenCodeRequest) -> Result<OpenCodeOutput> {
+impl AgentHarness for EmptyPatchThenPatchRunner {
+    fn run(&self, request: &AgentRequest) -> Result<AgentOutput> {
         let call = self.calls.fetch_add(1, AtomicOrdering::SeqCst);
         let (stdout, resume_session_id) = if call == 0 {
             assert!(request.resume_session_id.is_none());
@@ -84,9 +85,10 @@ impl OpenCodeRunner for EmptyPatchThenPatchRunner {
                 Some("ses_empty_patch".to_string()),
             )
         };
-        Ok(OpenCodeOutput {
+        Ok(AgentOutput {
+            backend: AgentBackend::OpenCode,
             command_for_metrics: vec!["fake-opencode".to_string()],
-            opencode_segments: vec![json!({"call": call})],
+            segments: vec![json!({"call": call})],
             exit_status: Some(0),
             success: true,
             stdout,
@@ -97,7 +99,7 @@ impl OpenCodeRunner for EmptyPatchThenPatchRunner {
             session_label: Some(request.session_id.clone()),
             session_id: Some("ses_empty_patch".to_string()),
             resume_session_id,
-            worker_session_reused: request.resume_session_id.is_some(),
+            session_reused: request.resume_session_id.is_some(),
             interrupted_by_supervisor: false,
             supervisor_control_action: None,
             supervisor_control_events: Vec::new(),
@@ -131,10 +133,11 @@ fn init_git(root: &Path) {
         .unwrap();
 }
 
-fn minimal_opencode_output() -> OpenCodeOutput {
-    OpenCodeOutput {
+fn minimal_opencode_output() -> AgentOutput {
+    AgentOutput {
+        backend: AgentBackend::OpenCode,
         command_for_metrics: Vec::new(),
-        opencode_segments: Vec::new(),
+        segments: Vec::new(),
         exit_status: None,
         success: false,
         stdout: Vec::new(),
@@ -145,7 +148,7 @@ fn minimal_opencode_output() -> OpenCodeOutput {
         session_label: None,
         session_id: None,
         resume_session_id: None,
-        worker_session_reused: false,
+        session_reused: false,
         interrupted_by_supervisor: false,
         supervisor_control_action: None,
         supervisor_control_events: Vec::new(),
@@ -515,9 +518,9 @@ fn resumed_opencode_args_use_specific_session_without_title() {
     );
 }
 
-fn test_opencode_request(root: &Path) -> OpenCodeRequest {
+fn test_opencode_request(root: &Path) -> AgentRequest {
     let out_dir = state_layout(root).runs().join("test");
-    OpenCodeRequest {
+    AgentRequest {
         root: root.to_path_buf(),
         mode: DelegationMode::Patch,
         task_path: root.join("task.json"),
@@ -642,7 +645,7 @@ esac
     }
 
     let out_dir = state_layout(root).runs().join("control-send-test");
-    let request = OpenCodeRequest {
+    let request = AgentRequest {
         root: root.to_path_buf(),
         mode: DelegationMode::Patch,
         task_path: root.join("task.json"),
@@ -1089,11 +1092,12 @@ fn empty_patch_is_allowed_when_patch_not_expected() {
     )
     .unwrap();
     struct NoEditRunner;
-    impl OpenCodeRunner for NoEditRunner {
-        fn run(&self, request: &OpenCodeRequest) -> Result<OpenCodeOutput> {
-            Ok(OpenCodeOutput {
+    impl AgentHarness for NoEditRunner {
+        fn run(&self, request: &AgentRequest) -> Result<AgentOutput> {
+            Ok(AgentOutput {
+                backend: AgentBackend::OpenCode,
                 command_for_metrics: vec!["fake-opencode".to_string()],
-                opencode_segments: Vec::new(),
+                segments: Vec::new(),
                 exit_status: Some(0),
                 success: true,
                 stdout: b"Summary: no patch is needed.\n".to_vec(),
@@ -1104,7 +1108,7 @@ fn empty_patch_is_allowed_when_patch_not_expected() {
                 session_label: Some(request.session_id.clone()),
                 session_id: Some("ses_no_edit".to_string()),
                 resume_session_id: request.resume_session_id.clone(),
-                worker_session_reused: request.resume_session_id.is_some(),
+                session_reused: request.resume_session_id.is_some(),
                 interrupted_by_supervisor: false,
                 supervisor_control_action: None,
                 supervisor_control_events: Vec::new(),

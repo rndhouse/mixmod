@@ -5,7 +5,7 @@ pub fn run_mixmod_task(
     mode: DelegationMode,
     task_arg: &Path,
     out_arg: &Path,
-    runner: &dyn OpenCodeRunner,
+    runner: &dyn AgentHarness,
 ) -> Result<Receipt> {
     run_mixmod_task_with_options(root, mode, task_arg, out_arg, runner, false)
 }
@@ -15,7 +15,7 @@ pub fn run_mixmod_task_with_options(
     mode: DelegationMode,
     task_arg: &Path,
     out_arg: &Path,
-    runner: &dyn OpenCodeRunner,
+    runner: &dyn AgentHarness,
     require_local: bool,
 ) -> Result<Receipt> {
     run_mixmod_task_with_session(root, mode, task_arg, out_arg, runner, require_local, None)
@@ -26,7 +26,7 @@ pub(crate) fn run_mixmod_task_with_session(
     mode: DelegationMode,
     task_arg: &Path,
     out_arg: &Path,
-    runner: &dyn OpenCodeRunner,
+    runner: &dyn AgentHarness,
     require_local: bool,
     resume_session_id: Option<String>,
 ) -> Result<Receipt> {
@@ -47,7 +47,7 @@ struct MixmodRun<'a> {
     mode: DelegationMode,
     task_arg: &'a Path,
     out_arg: &'a Path,
-    runner: &'a dyn OpenCodeRunner,
+    runner: &'a dyn AgentHarness,
     require_local: bool,
     resume_session_id: Option<String>,
 }
@@ -78,7 +78,7 @@ impl MixmodRun<'_> {
         let instruction_path = out_dir.join("opencode-instructions.md");
         atomic_write(&instruction_path, instruction.as_bytes())?;
 
-        let request = OpenCodeRequest {
+        let request = AgentRequest {
             root: root.to_path_buf(),
             mode,
             task_path: task_path.clone(),
@@ -252,8 +252,9 @@ impl MixmodRun<'_> {
             start_timestamp: start_timestamp.to_rfc3339(),
             end_timestamp: end_timestamp.to_rfc3339(),
             wall_clock_ms,
+            worker_backend: output.backend.as_str().to_string(),
             opencode_command: output.command_for_metrics.clone(),
-            opencode_segments: output.opencode_segments.clone(),
+            opencode_segments: output.segments.clone(),
             opencode_exit_status: output.exit_status,
             opencode_provider: output.provider.clone(),
             opencode_model: output.model.clone(),
@@ -261,7 +262,7 @@ impl MixmodRun<'_> {
             opencode_session_label: output.session_label.clone(),
             opencode_session_id: output.session_id.clone(),
             opencode_resume_session_id: output.resume_session_id.clone(),
-            worker_session_reused: output.worker_session_reused,
+            worker_session_reused: output.session_reused,
             interrupted_by_supervisor: output.interrupted_by_supervisor,
             supervisor_control_action: output.supervisor_control_action.clone(),
             supervisor_control_events: output.supervisor_control_events.clone(),
@@ -386,7 +387,7 @@ fn expect_patch_for_run(mode: DelegationMode, task: &Value) -> bool {
 fn should_run_empty_patch_followup(
     mode: DelegationMode,
     expect_patch: bool,
-    output: &OpenCodeOutput,
+    output: &AgentOutput,
     patch: &str,
 ) -> bool {
     mode == DelegationMode::Patch
@@ -404,15 +405,15 @@ struct EmptyPatchFollowupRequest<'a> {
     task: &'a TaskSpec,
     task_path: &'a Path,
     out_dir: &'a Path,
-    runner: &'a dyn OpenCodeRunner,
+    runner: &'a dyn AgentHarness,
     require_local: bool,
-    original_request: &'a OpenCodeRequest,
-    output: &'a OpenCodeOutput,
+    original_request: &'a AgentRequest,
+    output: &'a AgentOutput,
 }
 
 fn run_empty_patch_followup(
     request: EmptyPatchFollowupRequest<'_>,
-) -> Result<(OpenCodeOutput, PathBuf)> {
+) -> Result<(AgentOutput, PathBuf)> {
     let EmptyPatchFollowupRequest {
         root,
         mode,
@@ -462,7 +463,7 @@ fn run_empty_patch_followup(
     let instruction = build_empty_patch_followup_instruction(mode, task, task_path, &followup_dir);
     let instruction_path = followup_dir.join("opencode-instructions.md");
     atomic_write(&instruction_path, instruction.as_bytes())?;
-    let followup_request = OpenCodeRequest {
+    let followup_request = AgentRequest {
         root: root.to_path_buf(),
         mode,
         task_path: followup_task_path,
@@ -532,16 +533,14 @@ Keep the final response compact.
     )
 }
 
-fn merge_opencode_outputs(mut first: OpenCodeOutput, second: OpenCodeOutput) -> OpenCodeOutput {
+fn merge_opencode_outputs(mut first: AgentOutput, second: AgentOutput) -> AgentOutput {
     first
         .command_for_metrics
         .push("<empty-patch-followup>".to_string());
     first
         .command_for_metrics
         .extend(second.command_for_metrics.clone());
-    first
-        .opencode_segments
-        .extend(second.opencode_segments.clone());
+    first.segments.extend(second.segments.clone());
     first.exit_status = second.exit_status;
     first.success = second.success;
     first
@@ -554,7 +553,7 @@ fn merge_opencode_outputs(mut first: OpenCodeOutput, second: OpenCodeOutput) -> 
     first.stderr.extend_from_slice(&second.stderr);
     first.session_id = second.session_id.or(first.session_id);
     first.resume_session_id = second.resume_session_id.or(first.resume_session_id);
-    first.worker_session_reused = first.worker_session_reused || second.worker_session_reused;
+    first.session_reused = first.session_reused || second.session_reused;
     first.interrupted_by_supervisor =
         first.interrupted_by_supervisor || second.interrupted_by_supervisor;
     first.supervisor_control_action = second
@@ -796,7 +795,7 @@ pub(crate) fn shell_command(command: &str) -> Command {
 pub(crate) fn build_run_summary(
     status: &str,
     mode: DelegationMode,
-    output: &OpenCodeOutput,
+    output: &AgentOutput,
     stats: &PatchStats,
     worktree_stats: &PatchStats,
     test_status: &str,
@@ -851,7 +850,7 @@ struct RunReportInput<'a> {
     mode: DelegationMode,
     summary: &'a str,
     task: &'a TaskSpec,
-    output: &'a OpenCodeOutput,
+    output: &'a AgentOutput,
     stats: &'a PatchStats,
     worktree_stats: &'a PatchStats,
     test_status: &'a str,
@@ -930,7 +929,7 @@ fn build_run_report(input: RunReportInput<'_>) -> String {
 - OpenCode session label: {session_label}
 - OpenCode session id: {session_id}
 - OpenCode resumed session id: {resume_session_id}
-- Worker session reused: {worker_session_reused}
+- Worker session reused: {session_reused}
 - Interrupted by supervisor control: {interrupted_by_supervisor}
 - Supervisor control action: {supervisor_control_action}
 - OpenCode timed out: {timed_out}
@@ -997,7 +996,7 @@ Heartbeat log: `{heartbeat}`
         session_label = output.session_label.as_deref().unwrap_or("unavailable"),
         session_id = output.session_id.as_deref().unwrap_or("unavailable"),
         resume_session_id = output.resume_session_id.as_deref().unwrap_or("none"),
-        worker_session_reused = yes_no(output.worker_session_reused),
+        session_reused = yes_no(output.session_reused),
         interrupted_by_supervisor = yes_no(output.interrupted_by_supervisor),
         supervisor_control_action = output
             .supervisor_control_action
@@ -1031,7 +1030,7 @@ Heartbeat log: `{heartbeat}`
     )
 }
 
-pub(crate) fn opencode_exit_status_label(output: &OpenCodeOutput) -> String {
+pub(crate) fn opencode_exit_status_label(output: &AgentOutput) -> String {
     if let Some(code) = output.exit_status {
         return code.to_string();
     }
@@ -1050,7 +1049,7 @@ pub(crate) fn opencode_exit_status_label(output: &OpenCodeOutput) -> String {
 fn build_session_jsonl(
     start: &DateTime<Utc>,
     end: &DateTime<Utc>,
-    output: &OpenCodeOutput,
+    output: &AgentOutput,
 ) -> Result<String> {
     let events = [
         json!({
@@ -1060,10 +1059,10 @@ fn build_session_jsonl(
             "session_label": output.session_label,
             "session_id": output.session_id,
             "resume_session_id": output.resume_session_id,
-            "worker_session_reused": output.worker_session_reused,
+            "worker_session_reused": output.session_reused,
             "interrupted_by_supervisor": output.interrupted_by_supervisor,
             "supervisor_control_action": output.supervisor_control_action,
-            "opencode_segments": output.opencode_segments.clone(),
+            "opencode_segments": output.segments.clone(),
         }),
         json!({
             "event": "opencode_stdout",

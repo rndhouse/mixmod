@@ -14,57 +14,13 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use serde_json::{Value, json};
 
+use crate::harness::{AgentBackend, AgentHarness, AgentOutput, AgentRequest};
 use crate::{
-    DEFAULT_OPENCODE_OLLAMA_MODEL, DelegationMode, LIVE_STATUS_FILE, MixmodConfig, OpenCodeConfig,
+    DEFAULT_OPENCODE_OLLAMA_MODEL, LIVE_STATUS_FILE, MixmodConfig, OpenCodeConfig,
     SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file,
     append_jsonl, atomic_write, env_u64, get_str, get_string_array, normalize_worker_mode,
     shell_command, state_layout, write_pretty_json,
 };
-
-#[derive(Debug)]
-pub struct OpenCodeRequest {
-    pub root: PathBuf,
-    pub mode: DelegationMode,
-    pub task_path: PathBuf,
-    pub out_dir: PathBuf,
-    pub instruction_path: PathBuf,
-    pub instruction: String,
-    pub session_id: String,
-    pub resume_session_id: Option<String>,
-    pub require_local: bool,
-}
-
-#[derive(Debug)]
-pub struct OpenCodeOutput {
-    pub command_for_metrics: Vec<String>,
-    pub opencode_segments: Vec<Value>,
-    pub exit_status: Option<i32>,
-    pub success: bool,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
-    pub provider: Option<String>,
-    pub model: Option<String>,
-    pub model_arg: Option<String>,
-    pub session_label: Option<String>,
-    pub session_id: Option<String>,
-    pub resume_session_id: Option<String>,
-    pub worker_session_reused: bool,
-    pub interrupted_by_supervisor: bool,
-    pub supervisor_control_action: Option<String>,
-    pub supervisor_control_events: Vec<SupervisorControlEvent>,
-    pub timed_out: bool,
-    pub idle_timed_out: bool,
-    pub heartbeat_count: u64,
-    pub require_local: bool,
-    pub local_inference_verified: bool,
-    pub gpu_activity_observed: bool,
-    pub backend_activity_observed: bool,
-    pub verification_notes: Vec<String>,
-}
-
-pub trait OpenCodeRunner {
-    fn run(&self, request: &OpenCodeRequest) -> Result<OpenCodeOutput>;
-}
 
 pub struct ShellOpenCodeRunner {
     config: MixmodConfig,
@@ -76,8 +32,8 @@ impl ShellOpenCodeRunner {
     }
 }
 
-impl OpenCodeRunner for ShellOpenCodeRunner {
-    fn run(&self, request: &OpenCodeRequest) -> Result<OpenCodeOutput> {
+impl AgentHarness for ShellOpenCodeRunner {
+    fn run(&self, request: &AgentRequest) -> Result<AgentOutput> {
         let command = env::var("MIXMOD_OPENCODE_COMMAND")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -152,9 +108,10 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
                             .push(format!("OpenCode session id resolution failed: {error}")),
                     }
                 }
-                Ok(OpenCodeOutput {
+                Ok(AgentOutput {
+                    backend: AgentBackend::OpenCode,
                     command_for_metrics,
-                    opencode_segments: verification.opencode_segments,
+                    segments: verification.opencode_segments,
                     exit_status: verification.exit_status,
                     success,
                     stdout: verification.stdout,
@@ -165,7 +122,7 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
                     session_label: Some(request.session_id.clone()),
                     session_id: actual_session_id,
                     resume_session_id: request.resume_session_id.clone(),
-                    worker_session_reused: request.resume_session_id.is_some(),
+                    session_reused: request.resume_session_id.is_some(),
                     interrupted_by_supervisor: verification.interrupted_by_supervisor,
                     supervisor_control_action: verification.supervisor_control_action,
                     supervisor_control_events: verification.supervisor_control_events,
@@ -179,9 +136,10 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
                     verification_notes: verification.verification_notes,
                 })
             }
-            Err(error) => Ok(OpenCodeOutput {
+            Err(error) => Ok(AgentOutput {
+                backend: AgentBackend::OpenCode,
                 command_for_metrics,
-                opencode_segments: Vec::new(),
+                segments: Vec::new(),
                 exit_status: None,
                 success: false,
                 stdout: Vec::new(),
@@ -193,7 +151,7 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
                 session_label: Some(request.session_id.clone()),
                 session_id: None,
                 resume_session_id: request.resume_session_id.clone(),
-                worker_session_reused: request.resume_session_id.is_some(),
+                session_reused: request.resume_session_id.is_some(),
                 interrupted_by_supervisor: false,
                 supervisor_control_action: None,
                 supervisor_control_events: Vec::new(),
@@ -366,7 +324,7 @@ fn is_allowed_local_provider(provider: &str, config: &OpenCodeConfig) -> bool {
 pub(crate) fn run_with_local_verification(
     command: &str,
     args: &[String],
-    request: &OpenCodeRequest,
+    request: &AgentRequest,
     opencode_config: &OpenCodeConfig,
     selection: &OpenCodeModelSelection,
 ) -> Result<VerifiedCommandOutput> {
@@ -383,7 +341,7 @@ pub(crate) fn run_with_local_verification(
 struct LocalVerificationRun<'a> {
     command: &'a str,
     args: &'a [String],
-    request: &'a OpenCodeRequest,
+    request: &'a AgentRequest,
     opencode_config: &'a OpenCodeConfig,
     selection: &'a OpenCodeModelSelection,
 }
@@ -924,7 +882,7 @@ impl LocalVerificationRun<'_> {
 }
 
 struct LiveStatusSnapshot<'a> {
-    request: &'a OpenCodeRequest,
+    request: &'a AgentRequest,
     out_dir: &'a Path,
     start: Instant,
     stdout_bytes: u64,
@@ -1184,7 +1142,7 @@ fn backend_activity_observed(text: Option<&str>, selection: &OpenCodeModelSelect
 }
 fn render_opencode_arg(
     arg: &str,
-    request: &OpenCodeRequest,
+    request: &AgentRequest,
     selection: &OpenCodeModelSelection,
 ) -> String {
     let resume_session_id = request.resume_session_id.as_deref().unwrap_or_default();
@@ -1205,7 +1163,7 @@ fn render_opencode_arg(
 
 fn redact_opencode_arg(
     arg: &str,
-    request: &OpenCodeRequest,
+    request: &AgentRequest,
     selection: &OpenCodeModelSelection,
 ) -> String {
     if arg.contains("{instruction}") {
@@ -1226,7 +1184,7 @@ fn redact_opencode_arg(
     }
 }
 
-fn redact_runtime_opencode_arg(arg: &str, request: &OpenCodeRequest) -> String {
+fn redact_runtime_opencode_arg(arg: &str, request: &AgentRequest) -> String {
     if arg == request.instruction {
         format!("<instruction:{} bytes>", request.instruction.len())
     } else if arg == request.instruction_path.to_string_lossy().as_ref() {
@@ -1259,7 +1217,7 @@ pub(crate) fn prepare_opencode_args(
 
 pub(crate) fn prepare_opencode_control_args(
     base_args: &[String],
-    request: &OpenCodeRequest,
+    request: &AgentRequest,
     resume_session_id: Option<&str>,
     session_label: &str,
     message: &str,

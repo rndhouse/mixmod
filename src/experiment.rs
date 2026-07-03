@@ -692,6 +692,7 @@ impl DefaultExperimentRun<'_> {
             "worker_brief_output_tokens": worker_brief.output_tokens,
             "mixmod_delegations": opencode_calls,
             "opencode_calls": opencode_calls,
+            "worker_backend": get_str(&final_metrics, "worker_backend").unwrap_or("unknown"),
             "opencode_command": get_string_array(&final_metrics, "opencode_command"),
             "opencode_exit_status": get_u64(&final_metrics, "opencode_exit_status"),
             "opencode_session_label": get_str(&final_metrics, "opencode_session_label").unwrap_or("unknown"),

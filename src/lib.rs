@@ -22,9 +22,9 @@ mod diff;
 mod experiment;
 mod frontier;
 mod fs_util;
+mod harness;
 mod install;
 mod live;
-mod opencode;
 mod report;
 mod run;
 mod state;
@@ -51,8 +51,12 @@ pub use experiment::{
     DefaultRunOptions, experiment_init, experiment_record_codex_only, experiment_record_mixmod,
     experiment_recover, experiment_run_default,
 };
+pub use harness::opencode::ShellOpenCodeRunner;
+pub use harness::{
+    AgentBackend, AgentHarness, AgentOutput, AgentRequest, AgentRole, AgentSessionMode,
+    OpenCodeOutput, OpenCodeRequest, OpenCodeRunner,
+};
 pub use install::{doctor_project, init_project, status_project};
-pub use opencode::{OpenCodeOutput, OpenCodeRequest, OpenCodeRunner, ShellOpenCodeRunner};
 pub use report::experiment_report;
 pub use run::{run_mixmod_task, run_mixmod_task_with_options};
 
@@ -61,16 +65,25 @@ pub(crate) use experiment::{placeholder_experiment_metrics, validate_experiment_
 #[cfg(test)]
 pub(crate) use experiment::{write_revision_task, write_worker_brief_task};
 pub(crate) use frontier::{
-    CodexSandbox, FrontierFeedbackTurn, aggregate_frontier_usage, codex_only_prompt,
-    normalize_worker_mode, run_codex_app_server_turn, run_frontier_brief_turn,
-    run_frontier_feedback_turn,
+    FrontierFeedbackTurn, aggregate_frontier_usage, codex_only_prompt, normalize_worker_mode,
+    run_codex_app_server_turn, run_frontier_brief_turn, run_frontier_feedback_turn,
 };
 #[cfg(test)]
 pub(crate) use frontier::{
-    codex_home_for_work_dir, frontier_feedback_prompt, frontier_worker_brief_prompt,
-    normalize_feedback_value,
+    frontier_feedback_prompt, frontier_worker_brief_prompt, normalize_feedback_value,
 };
 pub(crate) use fs_util::*;
+pub(crate) use harness::codex::CodexSandbox;
+#[cfg(test)]
+pub(crate) use harness::codex::codex_home_for_work_dir;
+#[cfg(test)]
+pub(crate) use harness::opencode::{
+    OpenCodeModelSelection, opencode_config_path, prepare_opencode_args,
+    prepare_opencode_control_args, run_with_local_verification,
+};
+pub(crate) use harness::opencode::{
+    normalize_supervisor_control_action, normalize_supervisor_control_worker_mode, tail_text,
+};
 #[cfg(test)]
 pub(crate) use install::is_managed_file;
 pub(crate) use install::{ensure_project_state, find_on_path, load_config, yes_no};
@@ -78,14 +91,6 @@ pub(crate) use install::{ensure_project_state, find_on_path, load_config, yes_no
 pub(crate) use live::supervise_run_args;
 pub(crate) use live::{
     ensure_debug_command_enabled, live_control, live_status, supervise_mixmod_task,
-};
-#[cfg(test)]
-pub(crate) use opencode::{
-    OpenCodeModelSelection, opencode_config_path, prepare_opencode_args,
-    prepare_opencode_control_args, run_with_local_verification,
-};
-pub(crate) use opencode::{
-    normalize_supervisor_control_action, normalize_supervisor_control_worker_mode, tail_text,
 };
 pub(crate) use report::budgeted_report;
 #[cfg(test)]
