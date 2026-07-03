@@ -175,7 +175,7 @@ fn exit_status_label_names_supervisor_interrupt() {
 }
 
 #[test]
-fn summary_reports_captured_patch_when_tests_fail() {
+fn summary_reports_captured_patch_when_supervisor_needed() {
     let output = minimal_opencode_output();
     let stats = PatchStats {
         files: vec!["sympy/core/power.py".to_string()],
@@ -190,7 +190,6 @@ fn summary_reports_captured_patch_when_tests_fail() {
         &output,
         &stats,
         &stats,
-        "failed",
     );
 
     assert!(summary.contains("with 1 file(s) and 2 line(s) changed"));
@@ -219,7 +218,6 @@ fn summary_reports_accumulated_patch_when_latest_delta_is_empty() {
         &output,
         &latest_delta,
         &worktree_stats,
-        "passed",
     );
 
     assert!(summary.contains("no new delta"));
@@ -1084,7 +1082,6 @@ fn run_writes_full_artifact_bundle() {
         "session.jsonl",
         "worktree.patch",
         "changes.patch",
-        "tests.json",
         "metrics.json",
         "logs/opencode.stdout.txt",
         "logs/opencode.stderr.txt",

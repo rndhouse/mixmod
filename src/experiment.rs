@@ -120,11 +120,9 @@ pub fn experiment_record_codex_only(root: &Path, name: &str, task: &Path) -> Res
         "patch_bytes": patch.len() as u64,
         "changed_file_count": stats.files.len(),
         "changed_line_count": stats.changed_line_count,
-        "tests_run": [],
-        "test_status": "unknown",
         "final_status": "manual",
         "notes": [
-            "Manual-assisted record. Fill notes.md with Codex-only turns, tests, and final outcome.",
+            "Manual-assisted record. Fill notes.md with Codex-only turns and final outcome.",
             "Exact Codex token telemetry is unavailable unless added manually."
         ]
     });
@@ -167,7 +165,6 @@ fn run_codex_only_baseline(
             kind: "codex-only".to_string(),
             recorded_at: Utc::now().to_rfc3339(),
             final_status: "blocked".to_string(),
-            test_status: "not_run".to_string(),
             blocker: Some("codex was not found on PATH".to_string()),
             extra,
         };
@@ -175,7 +172,7 @@ fn run_codex_only_baseline(
         bail!("codex was not found on PATH");
     }
 
-    let (task_value, task_spec) = read_task_json(task_path)?;
+    let (task_value, _) = read_task_json(task_path)?;
     let prompt = codex_only_prompt(work_dir, &task_value)?;
     let config = load_config(root)?;
     let start = Instant::now();
@@ -191,24 +188,15 @@ fn run_codex_only_baseline(
     let patch = git_diff_with_untracked(work_dir).unwrap_or_default();
     atomic_write(&target.join("final.patch"), patch.as_bytes())?;
     let stats = patch_stats(&patch);
-    let logs_dir = target.join("logs");
-    let (test_status, test_results, tests_json) =
-        run_task_tests(work_dir, &logs_dir, &task_spec.tests)?;
-    write_pretty_json(
-        &target.join("tests.json"),
-        &tests_json,
-        "codex-only test results",
-    )?;
     write_if_missing(
         &target.join("notes.md"),
         codex_only_notes_template(name).as_bytes(),
     )?;
-    let final_status =
-        if result.exit_status == Some(0) && test_status == "passed" && !patch.trim().is_empty() {
-            "success"
-        } else {
-            "needs_review"
-        };
+    let final_status = if result.exit_status == Some(0) && !patch.trim().is_empty() {
+        "success"
+    } else {
+        "needs_review"
+    };
     let metrics = json!({
         "kind": "codex-only",
         "recorded_at": Utc::now().to_rfc3339(),
@@ -244,16 +232,14 @@ fn run_codex_only_baseline(
         "changed_files": stats.files,
         "changed_file_count": stats.files.len(),
         "changed_line_count": stats.changed_line_count,
-        "tests_run": task_spec.tests,
-        "test_results": test_results,
-        "test_status": test_status,
         "final_status": final_status,
         "auth_copied_then_removed": result.auth_copied_then_removed,
         "stdout_bytes": result.stdout.len() as u64,
         "stderr_bytes": result.stderr.len() as u64,
         "notes": [
             "Automated Codex-only baseline ran in an isolated fixture work directory.",
-            "Codex was invoked through app-server with an experiment-local CODEX_HOME."
+            "Codex was invoked through app-server with an experiment-local CODEX_HOME.",
+            "Mixmod did not execute project tests in this arm."
         ]
     });
     write_pretty_json(&target.join("metrics.json"), &metrics, "codex-only metrics")?;
@@ -335,7 +321,6 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
         "changes.patch",
         PATCH_COMPARISON,
         PREVIOUS_WORKTREE_PATCH,
-        "tests.json",
         "metrics.json",
     ]
     .iter()
@@ -355,7 +340,7 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
         "codex_token_usage": null,
         "codex_turns": null,
         "mixmod_delegations": 1,
-        "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json"],
+        "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "metrics.json"],
         "did_codex_read_full_mixmod_session": false,
         "approximate_codex_input_bytes": compact_artifact_bytes,
         "approximate_codex_output_bytes": null,
@@ -363,8 +348,6 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
         "patch_bytes": get_u64(&run_metrics_value, "patch_bytes").unwrap_or(0),
         "changed_file_count": get_u64(&run_metrics_value, "changed_file_count").unwrap_or(0),
         "changed_line_count": get_u64(&run_metrics_value, "changed_line_count").unwrap_or(0),
-        "tests_run": [],
-        "test_status": get_str(&run_metrics_value, "test_status").unwrap_or("unknown").to_string(),
         "final_status": get_str(&json!(receipt), "status").unwrap_or("unknown").to_string(),
         "notes": [
             "This prototype assumes Codex reviews compact Mixmod artifacts first.",
@@ -454,7 +437,7 @@ impl DefaultExperimentRun<'_> {
         } else {
             ensure_agent_visible_task_file(&task_file)?;
         }
-        let (_, task_spec) = read_task_json(&task_file)?;
+        let _ = read_task_json(&task_file)?;
         let runner = worker_harness_for_config(config);
         let feedback_path = default_dir.join("frontier-feedback.jsonl");
         let worker_brief = run_frontier_brief_turn(
@@ -512,7 +495,6 @@ impl DefaultExperimentRun<'_> {
                     final_out.join("report.md"),
                     final_out.join("worktree.patch"),
                     final_out.join("changes.patch"),
-                    final_out.join("tests.json"),
                     final_out.join("metrics.json"),
                 ];
                 let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
@@ -591,8 +573,6 @@ impl DefaultExperimentRun<'_> {
         let final_patch = git_diff_with_untracked(&work_dir)?;
         atomic_write(&default_dir.join("final.patch"), final_patch.as_bytes())?;
         let stats = patch_stats(&final_patch);
-        let test_status =
-            run_tests_for_experiment(&work_dir, &default_dir, "final", &task_spec.tests)?;
         copy_budgeted_artifacts(root, &default_dir, &final_out)?;
 
         let worker_metrics = worker_run_dirs
@@ -688,7 +668,7 @@ impl DefaultExperimentRun<'_> {
             "supervisor_resume_count": frontier_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
-            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
+            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
             "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
@@ -733,8 +713,6 @@ impl DefaultExperimentRun<'_> {
             "changed_files": stats.files,
             "changed_file_count": stats.files.len(),
             "changed_line_count": stats.changed_line_count,
-            "test_commands": task_spec.tests,
-            "test_status": test_status,
             "final_status": final_status,
             "final_verdict": approval_action.clone(),
             "final_codex_action": approval_action,
@@ -870,7 +848,6 @@ fn copy_budgeted_artifacts(root: &Path, budgeted_dir: &Path, final_out: &Path) -
         PATCH_COMPARISON,
         PREVIOUS_WORKTREE_PATCH,
         "partial.patch",
-        "tests.json",
         "metrics.json",
         "local-verification.json",
         SUPERVISOR_CONTROL_LOG,
@@ -911,25 +888,6 @@ fn copy_budgeted_artifacts(root: &Path, budgeted_dir: &Path, final_out: &Path) -
         }
     }
     Ok(())
-}
-
-fn run_tests_for_experiment(
-    work_dir: &Path,
-    target_dir: &Path,
-    label: &str,
-    tests: &[String],
-) -> Result<String> {
-    let logs_dir = target_dir.join("logs");
-    fs::create_dir_all(&logs_dir)
-        .with_context(|| format!("failed to create test logs dir {}", logs_dir.display()))?;
-    let (status, _results, tests_json) = run_task_tests(work_dir, &logs_dir, tests)?;
-    write_pretty_json(
-        &target_dir.join(format!("{label}-tests.json")),
-        &tests_json,
-        "experiment test results",
-    )?;
-    write_pretty_json(&target_dir.join("tests.json"), &tests_json, "test results")?;
-    Ok(status)
 }
 
 pub(crate) fn write_worker_brief_task(
@@ -1215,7 +1173,6 @@ fn is_artifact_focus_ref(path: &str) -> bool {
         || file_name == "changes.patch"
         || file_name == PATCH_COMPARISON
         || file_name == PREVIOUS_WORKTREE_PATCH
-        || file_name == "tests.json"
         || file_name == "report.md"
         || file_name == "session.jsonl"
         || file_name == "revision-task.json"
@@ -1331,7 +1288,6 @@ fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
         PATCH_COMPARISON,
         PREVIOUS_WORKTREE_PATCH,
         "partial.patch",
-        "tests.json",
         "metrics.json",
         "frontier-feedback.jsonl",
         "local-verification.json",
@@ -1451,8 +1407,6 @@ pub(crate) fn placeholder_experiment_metrics(kind: &str) -> Value {
         "patch_bytes": 0,
         "changed_file_count": 0,
         "changed_line_count": 0,
-        "tests_run": [],
-        "test_status": "unknown",
         "final_status": "unknown",
         "notes": ["Telemetry unavailable until this slot is recorded."]
     })

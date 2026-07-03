@@ -12,7 +12,6 @@ pub struct Receipt {
     pub patch: String,
     pub worktree_patch: String,
     pub session: String,
-    pub tests: String,
     pub metrics: String,
     pub logs: String,
 }
@@ -56,35 +55,12 @@ pub struct RunMetrics {
     pub patch_bytes: u64,
     pub worktree_patch_bytes: u64,
     pub session_bytes: u64,
-    pub test_status: String,
-    pub test_commands: Vec<String>,
-    pub test_results: Vec<TestCommandResult>,
     pub changed_file_count: usize,
     pub changed_line_count: usize,
     pub codex_token_usage: Option<u64>,
     pub approximate_codex_input_bytes: Option<u64>,
     pub approximate_codex_output_bytes: Option<u64>,
     pub artifact_files_read_by_codex: Vec<String>,
-    pub notes: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TestCommandResult {
-    pub command: String,
-    pub status: String,
-    pub exit_status: Option<i32>,
-    pub wall_clock_ms: u128,
-    pub stdout_bytes: u64,
-    pub stderr_bytes: u64,
-    pub stdout_log: String,
-    pub stderr_log: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TestArtifact {
-    pub status: String,
-    pub requested: Vec<String>,
-    pub observed: Vec<TestCommandResult>,
     pub notes: Vec<String>,
 }
 
@@ -211,7 +187,6 @@ pub struct CodexOnlyMetrics {
     pub kind: String,
     pub recorded_at: String,
     pub final_status: String,
-    pub test_status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocker: Option<String>,
     #[serde(flatten)]

@@ -287,7 +287,7 @@ fn exec_supervises_qwen_worker_end_to_end() {
     let run_dir = run_mixmod_exec(root, &["--task", "task.json"]);
     let metrics = read_json(&run_dir.join("metrics.json"));
     assert_common_exec_metrics(&metrics);
-    assert_eq!(value_str(&metrics, "test_status"), "passed");
+    assert!(metrics.get("test_status").is_none());
     assert_common_exec_artifacts(&run_dir);
     assert_calculator_fixed(root);
 }
@@ -307,7 +307,7 @@ fn exec_supervises_qwen_worker_from_prompt_end_to_end() {
     let run_dir = run_mixmod_exec(root, &[prompt]);
     let metrics = read_json(&run_dir.join("metrics.json"));
     assert_common_exec_metrics(&metrics);
-    assert_ne!(value_str(&metrics, "test_status"), "failed");
+    assert!(metrics.get("test_status").is_none());
     assert_common_exec_artifacts(&run_dir);
     assert_calculator_fixed(root);
 

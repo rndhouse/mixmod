@@ -59,7 +59,7 @@ impl DefaultStrategyRun<'_> {
 
         let task_file = out_dir.join("task.json");
         write_agent_visible_task_file(&absolutize(root, task_arg), &task_file)?;
-        let (_, task_spec) = read_task_json(&task_file)?;
+        let _ = read_task_json(&task_file)?;
 
         let feedback_path = out_dir.join("frontier-feedback.jsonl");
         let worker_brief =
@@ -108,7 +108,6 @@ impl DefaultStrategyRun<'_> {
                     final_out.join("report.md"),
                     final_out.join("worktree.patch"),
                     final_out.join("changes.patch"),
-                    final_out.join("tests.json"),
                     final_out.join("metrics.json"),
                 ];
                 let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
@@ -181,7 +180,6 @@ impl DefaultStrategyRun<'_> {
         let final_patch = git_diff_with_untracked(root)?;
         atomic_write(&out_dir.join("final.patch"), final_patch.as_bytes())?;
         let stats = patch_stats(&final_patch);
-        let test_status = run_final_tests(root, &out_dir, &task_spec.tests)?;
 
         let worker_metrics = worker_run_dirs
             .iter()
@@ -280,7 +278,7 @@ impl DefaultStrategyRun<'_> {
             "supervisor_resume_count": frontier_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
-            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
+            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
             "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
@@ -327,8 +325,6 @@ impl DefaultStrategyRun<'_> {
             "changed_files": stats.files,
             "changed_file_count": stats.files.len(),
             "changed_line_count": stats.changed_line_count,
-            "test_commands": task_spec.tests,
-            "test_status": test_status,
             "final_status": final_status,
             "final_verdict": approval_action.clone(),
             "final_codex_action": approval_action,
@@ -383,20 +379,6 @@ fn ensure_worker_run_verified(out_dir: &Path, receipt: &Receipt, run_dir: &Path)
     )
 }
 
-fn run_final_tests(root: &Path, out_dir: &Path, tests: &[String]) -> Result<String> {
-    let logs_dir = out_dir.join("logs");
-    fs::create_dir_all(&logs_dir)
-        .with_context(|| format!("failed to create test logs dir {}", logs_dir.display()))?;
-    let (status, _results, tests_json) = run_task_tests(root, &logs_dir, tests)?;
-    write_pretty_json(
-        &out_dir.join("final-tests.json"),
-        &tests_json,
-        "final test results",
-    )?;
-    write_pretty_json(&out_dir.join("tests.json"), &tests_json, "test results")?;
-    Ok(status)
-}
-
 fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
     let mut map = serde_json::Map::new();
     for name in [
@@ -411,11 +393,9 @@ fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
         PATCH_COMPARISON,
         PREVIOUS_WORKTREE_PATCH,
         "partial.patch",
-        "tests.json",
         "metrics.json",
         "frontier-feedback.jsonl",
         "final.patch",
-        "final-tests.json",
         "local-verification.json",
         SUPERVISOR_CONTROL_LOG,
     ] {

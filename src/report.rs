@@ -20,7 +20,6 @@ pub(crate) fn budgeted_report(name: &str, metrics: &Value) -> String {
 - Worker provider/model: {provider}/{model}
 - Local inference verified: {local_verified}
 - GPU activity observed: {gpu}
-- Test status: {tests}
 - Final Codex action: {verdict}
 
 ## Conclusion
@@ -47,7 +46,6 @@ Default strategy result is `{status}` for this arm. This arm uses Codex to produ
         gpu = get_bool(metrics, "gpu_activity_observed")
             .map(yes_no)
             .unwrap_or("unknown"),
-        tests = get_str(metrics, "test_status").unwrap_or("unknown"),
         verdict = get_str(metrics, "final_codex_action")
             .or_else(|| get_str(metrics, "final_verdict"))
             .unwrap_or("unknown"),
@@ -87,13 +85,11 @@ impl<'a> ExperimentReportRenderer<'a> {
             codex_metrics,
             default_metrics,
             default_source,
-            default_metrics_path,
+            default_metrics_path: _,
         } = inputs;
 
         let codex_status = get_str(&codex_metrics, "final_status").unwrap_or("unknown");
         let default_status = get_str(&default_metrics, "final_status").unwrap_or("unknown");
-        let codex_tests = get_str(&codex_metrics, "test_status").unwrap_or("unknown");
-        let default_tests = get_str(&default_metrics, "test_status").unwrap_or("unknown");
         let codex_patch_bytes = get_u64(&codex_metrics, "patch_bytes").unwrap_or(0);
         let default_patch_bytes = get_u64(&default_metrics, "patch_bytes").unwrap_or(0);
         let codex_changed_files = get_u64(&codex_metrics, "changed_file_count").unwrap_or(0);
@@ -187,7 +183,6 @@ impl<'a> ExperimentReportRenderer<'a> {
             "changes.patch",
             "patch-comparison.json",
             "previous-worktree.patch",
-            "tests.json",
             "metrics.json",
         ]
         .iter()
@@ -286,13 +281,12 @@ Mixmod default strategy beat Codex-only on output tokens: {default_output_win}.
 | Patch bytes | {codex_patch_bytes} | {default_patch_bytes} |
 | Files changed | {codex_changed_files} | {default_changed_files} |
 | Lines changed | {codex_changed_lines} | {default_changed_lines} |
-| Test status | {codex_tests} | {default_tests} |
 | Worker brief output tokens | n/a | {worker_brief_output_tokens} |
 
 ## Questions
 
 - Did both approaches produce a working patch? Codex-only: {codex_status}; Mixmod default: {default_status}.
-- Which tests were run? See `codex-only/metrics.json` and `{default_metrics_path}`; current structured test statuses are `{codex_tests}` and `{default_tests}`.
+- Which evaluator scored the result? Mixmod does not execute project tests directly; use benchmark or official evaluator artifacts for scoring.
 - How much Codex-visible text was involved? Current byte proxies are Codex-only `{codex_visible}` and Mixmod default `{default_visible}`.
 - How much local-worker text was generated? `{local_worker_text}` bytes were captured for the Mixmod run.
 - Did Codex need to read the full Mixmod session? {full_session}.
@@ -336,8 +330,6 @@ Exact Codex token telemetry is often unavailable through local CLI workflows. Th
             default_visible = display_optional_u64(default_visible),
             default_status = default_status,
             default_source = default_source,
-            default_metrics_path = default_metrics_path,
-            default_tests = default_tests,
             default_codex_calls = default_codex_calls,
             default_opencode_calls = default_opencode_calls,
             default_worker_backend = default_worker_backend,

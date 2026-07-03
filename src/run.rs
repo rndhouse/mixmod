@@ -198,10 +198,6 @@ impl MixmodRun<'_> {
         let stats = patch_stats(&patch);
         let worktree_stats = patch_stats(&worktree_patch);
 
-        let (test_status, test_results, tests_json) =
-            run_task_tests(root, &logs_dir, &task_spec.tests)?;
-        write_pretty_json(&out_dir.join("tests.json"), &tests_json, "test results")?;
-
         let session = build_session_jsonl(&start_timestamp, &end_timestamp, &output)?;
         atomic_write(&out_dir.join("session.jsonl"), session.as_bytes())?;
 
@@ -209,8 +205,9 @@ impl MixmodRun<'_> {
             || output.idle_timed_out
             || output.interrupted_by_supervisor
             || (output.success
-                && ((mode == DelegationMode::Patch && expect_patch && patch.trim().is_empty())
-                    || test_status == "failed"));
+                && mode == DelegationMode::Patch
+                && expect_patch
+                && patch.trim().is_empty());
         let status = if needs_supervisor {
             "needs_supervisor"
         } else if output.success {
@@ -218,8 +215,7 @@ impl MixmodRun<'_> {
         } else {
             "failed"
         };
-        let summary =
-            build_run_summary(status, mode, &output, &stats, &worktree_stats, &test_status);
+        let summary = build_run_summary(status, mode, &output, &stats, &worktree_stats);
         let report = build_run_report(RunReportInput {
             status,
             mode,
@@ -228,8 +224,6 @@ impl MixmodRun<'_> {
             output: &output,
             stats: &stats,
             worktree_stats: &worktree_stats,
-            test_status: &test_status,
-            test_results: &test_results,
             notes: &notes,
             root,
             out_dir: &out_dir,
@@ -241,7 +235,6 @@ impl MixmodRun<'_> {
             "report.md",
             "worktree.patch",
             "changes.patch",
-            "tests.json",
             "metrics.json",
         ];
         let report_bytes = file_len(&out_dir.join("report.md"))?;
@@ -286,9 +279,6 @@ impl MixmodRun<'_> {
             patch_bytes,
             worktree_patch_bytes,
             session_bytes,
-            test_status: test_status.clone(),
-            test_commands: task_spec.tests.clone(),
-            test_results,
             changed_file_count: stats.files.len(),
             changed_line_count: stats.changed_line_count,
             codex_token_usage: None,
@@ -312,7 +302,6 @@ impl MixmodRun<'_> {
             patch: display_path(root, &out_dir.join("changes.patch")),
             worktree_patch: display_path(root, &out_dir.join("worktree.patch")),
             session: display_path(root, &out_dir.join("session.jsonl")),
-            tests: display_path(root, &out_dir.join("tests.json")),
             metrics: display_path(root, &out_dir.join("metrics.json")),
             logs: display_path(root, &logs_dir),
         };
@@ -694,89 +683,6 @@ Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and sess
     ))
 }
 
-pub(crate) fn run_task_tests(
-    root: &Path,
-    logs_dir: &Path,
-    tests: &[String],
-) -> Result<(String, Vec<TestCommandResult>, TestArtifact)> {
-    if tests.is_empty() {
-        let artifact = TestArtifact {
-            status: "not_requested".to_string(),
-            requested: Vec::new(),
-            observed: Vec::new(),
-            notes: vec!["No test commands were listed in the task.".to_string()],
-        };
-        return Ok(("not_requested".to_string(), Vec::new(), artifact));
-    }
-
-    let mut results = Vec::new();
-    for (index, test) in tests.iter().enumerate() {
-        let label = index + 1;
-        let stdout_path = logs_dir.join(format!("test-{label}.stdout.txt"));
-        let stderr_path = logs_dir.join(format!("test-{label}.stderr.txt"));
-        let start = Instant::now();
-        let output = shell_command(test)
-            .current_dir(root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output();
-        let wall_clock_ms = start.elapsed().as_millis();
-
-        match output {
-            Ok(output) => {
-                atomic_write(&stdout_path, &output.stdout)?;
-                atomic_write(&stderr_path, &output.stderr)?;
-                results.push(TestCommandResult {
-                    command: test.clone(),
-                    status: if output.status.success() {
-                        "passed".to_string()
-                    } else {
-                        "failed".to_string()
-                    },
-                    exit_status: output.status.code(),
-                    wall_clock_ms,
-                    stdout_bytes: output.stdout.len() as u64,
-                    stderr_bytes: output.stderr.len() as u64,
-                    stdout_log: display_path(root, &stdout_path),
-                    stderr_log: display_path(root, &stderr_path),
-                });
-            }
-            Err(error) => {
-                let message = format!("failed to run test command `{test}`: {error}\n");
-                atomic_write(&stdout_path, b"")?;
-                atomic_write(&stderr_path, message.as_bytes())?;
-                results.push(TestCommandResult {
-                    command: test.clone(),
-                    status: "failed".to_string(),
-                    exit_status: None,
-                    wall_clock_ms,
-                    stdout_bytes: 0,
-                    stderr_bytes: message.len() as u64,
-                    stdout_log: display_path(root, &stdout_path),
-                    stderr_log: display_path(root, &stderr_path),
-                });
-            }
-        }
-    }
-
-    let status = if results.iter().all(|result| result.status == "passed") {
-        "passed"
-    } else {
-        "failed"
-    }
-    .to_string();
-    let artifact = TestArtifact {
-        status: status.clone(),
-        requested: tests.to_vec(),
-        observed: results.clone(),
-        notes: vec![
-            "Mixmod ran these test commands after the worker completed and after changes.patch was captured.".to_string(),
-            format!("Test logs live under {}.", display_path(root, logs_dir)),
-        ],
-    };
-    Ok((status, results, artifact))
-}
-
 pub(crate) fn shell_command(command: &str) -> Command {
     #[cfg(unix)]
     {
@@ -799,11 +705,10 @@ pub(crate) fn build_run_summary(
     output: &AgentOutput,
     stats: &PatchStats,
     worktree_stats: &PatchStats,
-    test_status: &str,
 ) -> String {
     match status {
         "success" => format!(
-            "Worker completed {mode}; {} file(s) and {} line(s) changed; tests {test_status}.",
+            "Worker completed {mode}; {} file(s) and {} line(s) changed.",
             stats.files.len(),
             stats.changed_line_count
         ),
@@ -824,12 +729,12 @@ pub(crate) fn build_run_summary(
             )
         }
         "needs_supervisor" if !stats.files.is_empty() => format!(
-            "Worker completed {mode} with {} file(s) and {} line(s) changed; tests {test_status}; supervisor review needed.",
+            "Worker completed {mode} with {} file(s) and {} line(s) changed; supervisor review needed.",
             stats.files.len(),
             stats.changed_line_count
         ),
         "needs_supervisor" if !worktree_stats.files.is_empty() => format!(
-            "Worker completed {mode} with no new delta, but current worktree patch has {} file(s) and {} line(s) changed; tests {test_status}; supervisor review needed.",
+            "Worker completed {mode} with no new delta, but current worktree patch has {} file(s) and {} line(s) changed; supervisor review needed.",
             worktree_stats.files.len(),
             worktree_stats.changed_line_count
         ),
@@ -852,8 +757,6 @@ struct RunReportInput<'a> {
     output: &'a AgentOutput,
     stats: &'a PatchStats,
     worktree_stats: &'a PatchStats,
-    test_status: &'a str,
-    test_results: &'a [TestCommandResult],
     notes: &'a [String],
     root: &'a Path,
     out_dir: &'a Path,
@@ -868,8 +771,6 @@ fn build_run_report(input: RunReportInput<'_>) -> String {
         output,
         stats,
         worktree_stats,
-        test_status,
-        test_results,
         notes,
         root,
         out_dir,
@@ -886,26 +787,12 @@ fn build_run_report(input: RunReportInput<'_>) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let requested_tests = if task.tests.is_empty() {
-        "- none specified".to_string()
+    let worker_check_guidance = if task.tests.is_empty() {
+        "- none specified in task metadata".to_string()
     } else {
         task.tests
             .iter()
             .map(|test| format!("- `{test}`"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    let observed_tests = if test_results.is_empty() {
-        "- none observed".to_string()
-    } else {
-        test_results
-            .iter()
-            .map(|test| {
-                format!(
-                    "- `{}`: {} (exit {:?}, {} ms)",
-                    test.command, test.status, test.exit_status, test.wall_clock_ms
-                )
-            })
             .collect::<Vec<_>>()
             .join("\n")
     };
@@ -948,17 +835,15 @@ Changed lines: {changed_lines} ({added} added, {removed} removed)
 - Changed lines: {worktree_changed_lines} ({worktree_added} added, {worktree_removed} removed)
 - Artifact: `{worktree_patch}`
 
-## Tests
+## Checks
 
-Structured test status: {test_status}
+Mixmod does not execute project test commands directly in worker runs.
+Worker-run checks, if any, are part of the worker stdout/stderr and remain
+untrusted until supervisor review or an external evaluator confirms the patch.
 
-Requested tests:
+Worker-facing check guidance from task metadata:
 
-{requested_tests}
-
-Observed tests:
-
-{observed_tests}
+{worker_check_guidance}
 
 ## Worker Stdout Excerpt
 
@@ -978,7 +863,6 @@ Observed tests:
 - `{report}`
 - `{worktree_patch}`
 - `{patch}`
-- `{tests}`
 - `{metrics}`
 
 Raw session and logs are available under `{out_dir}` when needed.
@@ -1014,16 +898,13 @@ Heartbeat log: `{heartbeat}`
         worktree_changed_lines = worktree_stats.changed_line_count,
         worktree_added = worktree_stats.added_lines,
         worktree_removed = worktree_stats.removed_lines,
-        test_status = test_status,
-        requested_tests = requested_tests,
-        observed_tests = observed_tests,
+        worker_check_guidance = worker_check_guidance,
         stdout_excerpt = truncate_for_report(&stdout, 4000),
         stderr_excerpt = truncate_for_report(&stderr, 4000),
         receipt = display_path(root, &out_dir.join("receipt.json")),
         report = display_path(root, &out_dir.join("report.md")),
         worktree_patch = display_path(root, &out_dir.join("worktree.patch")),
         patch = display_path(root, &out_dir.join("changes.patch")),
-        tests = display_path(root, &out_dir.join("tests.json")),
         metrics = display_path(root, &out_dir.join("metrics.json")),
         heartbeat = display_path(root, &out_dir.join("logs/heartbeat.jsonl")),
         out_dir = display_path(root, out_dir),

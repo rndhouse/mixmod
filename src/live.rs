@@ -202,7 +202,6 @@ pub(crate) fn supervise_mixmod_task(
             display_path(root, &out_dir.join("report.md")),
             display_path(root, &out_dir.join("worktree.patch")),
             display_path(root, &out_dir.join("changes.patch")),
-            display_path(root, &out_dir.join("tests.json")),
             display_path(root, &out_dir.join("metrics.json"))
         ],
         "notes": [

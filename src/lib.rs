@@ -34,8 +34,7 @@ mod tests;
 
 pub use artifacts::{
     CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, FrontierFeedback, PatchStats,
-    Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent, TestArtifact,
-    TestCommandResult, WorkerBrief,
+    Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent, WorkerBrief,
 };
 pub(crate) use checkpoint::{
     PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, append_patch_checkpoint_artifacts,
@@ -98,7 +97,7 @@ pub(crate) use live::{
 pub(crate) use report::budgeted_report;
 #[cfg(test)]
 pub(crate) use run::{build_opencode_instruction, build_run_summary, opencode_exit_status_label};
-pub(crate) use run::{run_mixmod_task_with_session, run_task_tests, shell_command};
+pub(crate) use run::{run_mixmod_task_with_session, shell_command};
 pub(crate) use state::state_layout;
 
 use task::{
