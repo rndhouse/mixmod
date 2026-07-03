@@ -21,8 +21,6 @@ pub struct RunMetrics {
     pub start_timestamp: String,
     pub end_timestamp: String,
     pub wall_clock_ms: u128,
-    pub opencode_backend: String,
-    pub opencode_server_url: Option<String>,
     pub opencode_command: Vec<String>,
     pub opencode_segments: Vec<Value>,
     pub opencode_exit_status: Option<i32>,

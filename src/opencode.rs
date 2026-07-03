@@ -1,11 +1,10 @@
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicU64, Ordering},
 };
 use std::thread::JoinHandle;
@@ -37,8 +36,6 @@ pub struct OpenCodeRequest {
 
 #[derive(Debug)]
 pub struct OpenCodeOutput {
-    pub backend: String,
-    pub server_url: Option<String>,
     pub command_for_metrics: Vec<String>,
     pub opencode_segments: Vec<Value>,
     pub exit_status: Option<i32>,
@@ -71,150 +68,11 @@ pub trait OpenCodeRunner {
 
 pub struct ShellOpenCodeRunner {
     config: MixmodConfig,
-    server: Mutex<Option<OpenCodeServer>>,
 }
 
 impl ShellOpenCodeRunner {
     pub fn new(config: MixmodConfig) -> Self {
-        Self {
-            config,
-            server: Mutex::new(None),
-        }
-    }
-
-    fn ensure_server(
-        &self,
-        command: &str,
-        request: &OpenCodeRequest,
-        notes: &mut Vec<String>,
-    ) -> Result<OpenCodeServerAttach> {
-        let mut guard = self
-            .server
-            .lock()
-            .map_err(|_| anyhow!("OpenCode server mutex was poisoned"))?;
-        if let Some(server) = guard.as_mut() {
-            if server.matches(command, &request.root) && server.is_running()? {
-                return Ok(server.attach());
-            }
-            notes.push("OpenCode serve process was not reusable and was restarted.".to_string());
-            *guard = None;
-        }
-
-        let logs_dir = request.out_dir.join("logs");
-        fs::create_dir_all(&logs_dir).with_context(|| {
-            format!(
-                "failed to create OpenCode serve logs dir {}",
-                logs_dir.display()
-            )
-        })?;
-        let server = OpenCodeServer::start(command, &request.root, &logs_dir)?;
-        let attach = server.attach();
-        notes.push(format!(
-            "OpenCode worker backend attached to {}.",
-            attach.url
-        ));
-        *guard = Some(server);
-        Ok(attach)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct OpenCodeServerAttach {
-    pub(crate) url: String,
-    pub(crate) password: String,
-}
-
-struct OpenCodeServer {
-    command: String,
-    root: PathBuf,
-    url: String,
-    password: String,
-    child: std::process::Child,
-    stdout_thread: Option<JoinHandle<Result<()>>>,
-    stderr_thread: Option<JoinHandle<Result<()>>>,
-}
-
-impl OpenCodeServer {
-    fn start(command: &str, root: &Path, logs_dir: &Path) -> Result<Self> {
-        let port = reserve_local_port()?;
-        let url = format!("http://127.0.0.1:{port}");
-        let password = make_opencode_server_password();
-        let port_arg = port.to_string();
-        let stdout_path = logs_dir.join("opencode-serve.stdout.txt");
-        let stderr_path = logs_dir.join("opencode-serve.stderr.txt");
-        atomic_write(&stdout_path, b"")?;
-        atomic_write(&stderr_path, b"")?;
-
-        let mut child = opencode_command(command, root)
-            .args(["serve", "--hostname", "127.0.0.1", "--port", &port_arg])
-            .current_dir(root)
-            .env("OPENCODE_SERVER_PASSWORD", &password)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .with_context(|| format!("failed to spawn OpenCode server `{command} serve`"))?;
-
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("failed to capture OpenCode server stdout"))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow!("failed to capture OpenCode server stderr"))?;
-        let stdout_thread = spawn_pipe_logger(
-            stdout,
-            stdout_path,
-            Arc::new(AtomicU64::new(0)),
-            Arc::new(AtomicU64::new(now_millis())),
-        );
-        let stderr_thread = spawn_pipe_logger(
-            stderr,
-            stderr_path,
-            Arc::new(AtomicU64::new(0)),
-            Arc::new(AtomicU64::new(now_millis())),
-        );
-
-        wait_for_opencode_server(&mut child, port)?;
-        Ok(Self {
-            command: command.to_string(),
-            root: root.to_path_buf(),
-            url,
-            password,
-            child,
-            stdout_thread: Some(stdout_thread),
-            stderr_thread: Some(stderr_thread),
-        })
-    }
-
-    fn matches(&self, command: &str, root: &Path) -> bool {
-        self.command == command && self.root == root
-    }
-
-    fn is_running(&mut self) -> Result<bool> {
-        Ok(self.child.try_wait()?.is_none())
-    }
-
-    fn attach(&self) -> OpenCodeServerAttach {
-        OpenCodeServerAttach {
-            url: self.url.clone(),
-            password: self.password.clone(),
-        }
-    }
-}
-
-impl Drop for OpenCodeServer {
-    fn drop(&mut self) {
-        if matches!(self.child.try_wait(), Ok(None)) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-        if let Some(handle) = self.stdout_thread.take() {
-            let _ = handle.join();
-        }
-        if let Some(handle) = self.stderr_thread.take() {
-            let _ = handle.join();
-        }
+        Self { config }
     }
 }
 
@@ -224,8 +82,6 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| self.config.opencode.command.clone());
-        let mut startup_notes = Vec::new();
-        let server = self.ensure_server(&command, request, &mut startup_notes)?;
         let selection = resolve_opencode_model(
             &command,
             &request.root,
@@ -249,7 +105,6 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
             .collect::<Vec<_>>();
         let rendered_args =
             prepare_opencode_args(rendered_args, request.resume_session_id.as_deref());
-        let rendered_args = prepare_opencode_server_args(rendered_args, &server, &request.root);
 
         let mut command_for_metrics = Vec::with_capacity(rendered_args.len() + 1);
         command_for_metrics.push(command.clone());
@@ -257,12 +112,9 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
             .iter()
             .map(|arg| redact_opencode_arg(arg, request, &selection))
             .collect::<Vec<_>>();
-        let metric_args = prepare_opencode_args(metric_args, request.resume_session_id.as_deref());
-        let metric_args = prepare_opencode_server_args(metric_args, &server, &request.root);
-        command_for_metrics.extend(redact_sensitive_opencode_args(
-            &metric_args,
-            request,
-            Some(&server.password),
+        command_for_metrics.extend(prepare_opencode_args(
+            metric_args,
+            request.resume_session_id.as_deref(),
         ));
 
         tracing::info!(
@@ -277,12 +129,10 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
             request,
             &self.config.opencode,
             &selection,
-            Some(&server),
         );
 
         match verification {
             Ok(mut verification) => {
-                verification.verification_notes.splice(0..0, startup_notes);
                 let success = verification
                     .exit_status
                     .map(|code| code == 0)
@@ -303,8 +153,6 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
                     }
                 }
                 Ok(OpenCodeOutput {
-                    backend: "serve".to_string(),
-                    server_url: Some(server.url),
                     command_for_metrics,
                     opencode_segments: verification.opencode_segments,
                     exit_status: verification.exit_status,
@@ -332,8 +180,6 @@ impl OpenCodeRunner for ShellOpenCodeRunner {
                 })
             }
             Err(error) => Ok(OpenCodeOutput {
-                backend: "serve".to_string(),
-                server_url: Some(server.url),
                 command_for_metrics,
                 opencode_segments: Vec::new(),
                 exit_status: None,
@@ -524,7 +370,6 @@ pub(crate) fn run_with_local_verification(
     request: &OpenCodeRequest,
     opencode_config: &OpenCodeConfig,
     selection: &OpenCodeModelSelection,
-    server: Option<&OpenCodeServerAttach>,
 ) -> Result<VerifiedCommandOutput> {
     LocalVerificationRun {
         command,
@@ -532,7 +377,6 @@ pub(crate) fn run_with_local_verification(
         request,
         opencode_config,
         selection,
-        server,
     }
     .execute()
 }
@@ -543,7 +387,6 @@ struct LocalVerificationRun<'a> {
     request: &'a OpenCodeRequest,
     opencode_config: &'a OpenCodeConfig,
     selection: &'a OpenCodeModelSelection,
-    server: Option<&'a OpenCodeServerAttach>,
 }
 
 impl LocalVerificationRun<'_> {
@@ -554,7 +397,6 @@ impl LocalVerificationRun<'_> {
             request,
             opencode_config,
             selection,
-            server,
         } = self;
         let root = &request.root;
         let out_dir = &request.out_dir;
@@ -634,11 +476,11 @@ impl LocalVerificationRun<'_> {
             let segment_stdout_start = stdout_bytes.load(Ordering::Relaxed);
             let segment_stderr_start = stderr_bytes.load(Ordering::Relaxed);
             let mut segment_command = vec![command.to_string()];
-            segment_command.extend(redact_sensitive_opencode_args(
-                &segment_args,
-                request,
-                server.map(|server| server.password.as_str()),
-            ));
+            segment_command.extend(
+                segment_args
+                    .iter()
+                    .map(|arg| redact_runtime_opencode_arg(arg, request)),
+            );
             append_file(
             &stdout_path,
             format!(
@@ -657,7 +499,6 @@ impl LocalVerificationRun<'_> {
             let mut process = spawn_opencode_process(SpawnOpenCodeProcess {
                 command,
                 args: &segment_args,
-                server_password: server.map(|server| server.password.as_str()),
                 root,
                 stdout_path: &stdout_path,
                 stderr_path: &stderr_path,
@@ -1165,7 +1006,6 @@ struct RunningOpenCodeProcess {
 struct SpawnOpenCodeProcess<'a> {
     command: &'a str,
     args: &'a [String],
-    server_password: Option<&'a str>,
     root: &'a Path,
     stdout_path: &'a Path,
     stderr_path: &'a Path,
@@ -1175,16 +1015,11 @@ struct SpawnOpenCodeProcess<'a> {
 }
 
 fn spawn_opencode_process(config: SpawnOpenCodeProcess<'_>) -> Result<RunningOpenCodeProcess> {
-    let mut command = opencode_command(config.command, config.root);
-    command
+    let mut child = opencode_command(config.command, config.root)
         .args(config.args)
         .current_dir(config.root)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(password) = config.server_password {
-        command.env("OPENCODE_SERVER_PASSWORD", password);
-    }
-    let mut child = command
+        .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("failed to spawn OpenCode command `{}`", config.command))?;
 
@@ -1253,48 +1088,11 @@ fn join_pipe_logger(handle: JoinHandle<Result<()>>, label: &str, notes: &mut Vec
     }
 }
 
-fn reserve_local_port() -> Result<u16> {
-    let listener = TcpListener::bind(("127.0.0.1", 0))
-        .context("failed to reserve a local OpenCode server port")?;
-    Ok(listener
-        .local_addr()
-        .context("failed to inspect reserved OpenCode server port")?
-        .port())
-}
-
-fn wait_for_opencode_server(child: &mut std::process::Child, port: u16) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return Ok(());
-        }
-        if let Some(status) = child
-            .try_wait()
-            .context("failed to inspect OpenCode server status")?
-        {
-            bail!(
-                "OpenCode server exited before accepting connections: {:?}",
-                status.code()
-            );
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("OpenCode server did not accept connections within 10 seconds");
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-}
-
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-fn make_opencode_server_password() -> String {
-    format!("mixmod-{}-{}", std::process::id(), now_millis())
 }
 
 fn run_optional_logged_command(command: &str, root: &Path, log_path: &Path) -> Option<String> {
@@ -1439,38 +1237,6 @@ fn redact_runtime_opencode_arg(arg: &str, request: &OpenCodeRequest) -> String {
     }
 }
 
-fn redact_sensitive_opencode_args(
-    args: &[String],
-    request: &OpenCodeRequest,
-    password: Option<&str>,
-) -> Vec<String> {
-    let mut redacted = Vec::with_capacity(args.len());
-    let mut redact_next = false;
-    for arg in args {
-        if redact_next {
-            redacted.push("<opencode_server_password>".to_string());
-            redact_next = false;
-            continue;
-        }
-        if arg == "--password" || arg == "-p" {
-            redacted.push(arg.clone());
-            redact_next = true;
-            continue;
-        }
-        if arg.starts_with("--password=") || arg.starts_with("-p=") {
-            let flag = arg.split_once('=').map(|(flag, _)| flag).unwrap_or(arg);
-            redacted.push(format!("{flag}=<opencode_server_password>"));
-            continue;
-        }
-        if password.is_some_and(|password| arg == password) {
-            redacted.push("<opencode_server_password>".to_string());
-            continue;
-        }
-        redacted.push(redact_runtime_opencode_arg(arg, request));
-    }
-    redacted
-}
-
 pub(crate) fn prepare_opencode_args(
     mut args: Vec<String>,
     resume_session_id: Option<&str>,
@@ -1489,29 +1255,6 @@ pub(crate) fn prepare_opencode_args(
     };
     args.insert(insert_at, "--session".to_string());
     args.insert(insert_at + 1, resume_session_id.to_string());
-    args
-}
-
-pub(crate) fn prepare_opencode_server_args(
-    args: Vec<String>,
-    server: &OpenCodeServerAttach,
-    root: &Path,
-) -> Vec<String> {
-    let mut args = remove_opencode_attach_args(args);
-    let insert_at = if args.first().map(|arg| arg == "run").unwrap_or(false) {
-        1
-    } else {
-        0
-    };
-    let mut server_args = vec![
-        "--attach".to_string(),
-        server.url.clone(),
-        "--dir".to_string(),
-        root.to_string_lossy().to_string(),
-    ];
-    for (offset, arg) in server_args.drain(..).enumerate() {
-        args.insert(insert_at + offset, arg);
-    }
     args
 }
 
@@ -1574,30 +1317,6 @@ fn remove_opencode_session_args(args: Vec<String>) -> Vec<String> {
             continue;
         }
         if arg == "--continue" || arg == "-c" || arg.starts_with("--session=") {
-            continue;
-        }
-        filtered.push(arg);
-    }
-    filtered
-}
-
-fn remove_opencode_attach_args(args: Vec<String>) -> Vec<String> {
-    let mut filtered = Vec::with_capacity(args.len());
-    let mut skip_next = false;
-    for arg in args {
-        if skip_next {
-            skip_next = false;
-            continue;
-        }
-        if matches!(arg.as_str(), "--attach" | "--password" | "-p" | "--dir") {
-            skip_next = true;
-            continue;
-        }
-        if arg.starts_with("--attach=")
-            || arg.starts_with("--password=")
-            || arg.starts_with("-p=")
-            || arg.starts_with("--dir=")
-        {
             continue;
         }
         filtered.push(arg);

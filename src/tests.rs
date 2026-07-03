@@ -19,8 +19,6 @@ impl OpenCodeRunner for FakeRunner {
             b"pub fn generated() -> &'static str {\n    \"ok\"\n}\n",
         )?;
         Ok(OpenCodeOutput {
-            backend: "fake".to_string(),
-            server_url: None,
             command_for_metrics: vec!["fake-opencode".to_string()],
             opencode_segments: Vec::new(),
             exit_status: Some(0),
@@ -87,8 +85,6 @@ impl OpenCodeRunner for EmptyPatchThenPatchRunner {
             )
         };
         Ok(OpenCodeOutput {
-            backend: "fake".to_string(),
-            server_url: None,
             command_for_metrics: vec!["fake-opencode".to_string()],
             opencode_segments: vec![json!({"call": call})],
             exit_status: Some(0),
@@ -137,8 +133,6 @@ fn init_git(root: &Path) {
 
 fn minimal_opencode_output() -> OpenCodeOutput {
     OpenCodeOutput {
-        backend: "fake".to_string(),
-        server_url: None,
         command_for_metrics: Vec::new(),
         opencode_segments: Vec::new(),
         exit_status: None,
@@ -489,43 +483,6 @@ fn resumed_opencode_args_use_specific_session_without_title() {
     );
 }
 
-#[test]
-fn opencode_server_args_attach_to_local_server() {
-    let temp = TempDir::new().unwrap();
-    let server = OpenCodeServerAttach {
-        url: "http://127.0.0.1:4096".to_string(),
-        password: "secret".to_string(),
-    };
-    let args = vec![
-        "run".to_string(),
-        "--dangerously-skip-permissions".to_string(),
-        "--model".to_string(),
-        "local-ollama/qwen3.6:27b".to_string(),
-        "--title".to_string(),
-        "opencode-session-test".to_string(),
-        "Do the task".to_string(),
-    ];
-
-    let prepared = prepare_opencode_server_args(args, &server, temp.path());
-
-    assert_eq!(
-        prepared,
-        vec![
-            "run",
-            "--attach",
-            "http://127.0.0.1:4096",
-            "--dir",
-            temp.path().to_str().unwrap(),
-            "--dangerously-skip-permissions",
-            "--model",
-            "local-ollama/qwen3.6:27b",
-            "--title",
-            "opencode-session-test",
-            "Do the task",
-        ]
-    );
-}
-
 fn test_opencode_request(root: &Path) -> OpenCodeRequest {
     OpenCodeRequest {
         root: root.to_path_buf(),
@@ -700,7 +657,6 @@ esac
         &request,
         &config,
         &selection,
-        None,
     )
     .unwrap();
     writer.join().unwrap();
@@ -987,8 +943,6 @@ fn empty_patch_is_allowed_when_patch_not_expected() {
     impl OpenCodeRunner for NoEditRunner {
         fn run(&self, request: &OpenCodeRequest) -> Result<OpenCodeOutput> {
             Ok(OpenCodeOutput {
-                backend: "fake".to_string(),
-                server_url: None,
                 command_for_metrics: vec!["fake-opencode".to_string()],
                 opencode_segments: Vec::new(),
                 exit_status: Some(0),

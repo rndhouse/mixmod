@@ -240,8 +240,6 @@ impl MixmodRun<'_> {
             start_timestamp: start_timestamp.to_rfc3339(),
             end_timestamp: end_timestamp.to_rfc3339(),
             wall_clock_ms,
-            opencode_backend: output.backend.clone(),
-            opencode_server_url: output.server_url.clone(),
             opencode_command: output.command_for_metrics.clone(),
             opencode_segments: output.opencode_segments.clone(),
             opencode_exit_status: output.exit_status,
