@@ -42,9 +42,10 @@ pub(crate) use checkpoint::{
     patch_checkpoint_metrics, write_patch_checkpoint_comparison,
 };
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
+pub(crate) use config::WorkerSupervisorGuidance;
 pub use config::{
     FrontierConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
-    WorkerBackend, WorkerConfig,
+    WorkerBackend, WorkerConfig, WorkerModelProfile,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;

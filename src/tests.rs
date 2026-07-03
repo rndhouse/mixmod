@@ -411,6 +411,43 @@ fn model_overrides_apply_supervisor_and_worker_models() {
 }
 
 #[test]
+fn qwen_worker_profile_is_selected_by_default_and_alias() {
+    let mut config = MixmodConfig::default();
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, DEFAULT_OPENCODE_MODEL);
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("repository diff"))
+    );
+
+    ModelOverrides::new(None, Some("ollama/qwen3.6:27b".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, DEFAULT_OPENCODE_MODEL);
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("global environments"))
+    );
+}
+
+#[test]
+fn unknown_worker_model_has_no_default_guidance() {
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(None, Some("ollama/glm-4.7-flash:q4_K_M".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+
+    assert!(config.worker_supervisor_guidance().is_empty());
+}
+
+#[test]
 fn model_overrides_apply_codex_worker_backend_and_model() {
     let mut config = MixmodConfig::default();
 
@@ -745,8 +782,13 @@ esac
 fn frontier_feedback_prompt_explains_worker_session_modes() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
-    let prompt =
-        frontier_feedback_prompt(root, &[root.join("missing-report.md")], "decide").unwrap();
+    let prompt = frontier_feedback_prompt(
+        root,
+        &[root.join("missing-report.md")],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+    )
+    .unwrap();
 
     assert!(prompt.contains("worker_mode=continue to keep the same worker session"));
     assert!(prompt.contains("worker_mode=context_focus to start a new worker session"));
@@ -763,6 +805,36 @@ fn frontier_feedback_prompt_explains_worker_session_modes() {
         )
     );
     assert!(prompt.contains("Stop does not permit direct Codex editing."));
+}
+
+#[test]
+fn supervisor_prompts_include_selected_worker_model_guidance() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let guidance = MixmodConfig::default().worker_supervisor_guidance();
+    let feedback_prompt =
+        frontier_feedback_prompt(root, &[root.join("missing-report.md")], "decide", &guidance)
+            .unwrap();
+
+    assert!(feedback_prompt.contains("Supervisor-only worker-model guidance"));
+    assert!(feedback_prompt.contains("Do not copy every bullet to the worker"));
+    assert!(feedback_prompt.contains("global environments"));
+
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Checkout",
+  "instructions": "Fix totals.",
+  "tests": ["python -m unittest -q"]
+}"#,
+    )
+    .unwrap();
+
+    let brief_prompt = frontier_worker_brief_prompt(root, &task, &guidance).unwrap();
+    assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
+    assert!(brief_prompt.contains("repository diff"));
+    assert!(brief_prompt.contains("Select only relevant points"));
 }
 
 #[test]
@@ -1261,7 +1333,8 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     )
     .unwrap();
 
-    let prompt = frontier_worker_brief_prompt(root, &task).unwrap();
+    let prompt =
+        frontier_worker_brief_prompt(root, &task, &WorkerSupervisorGuidance::default()).unwrap();
 
     assert!(prompt.contains("minimize frontier output"));
     assert!(prompt.contains("compact executable worker handoff"));

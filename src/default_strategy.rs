@@ -54,6 +54,7 @@ impl DefaultStrategyRun<'_> {
         let mut config = load_config(root)?;
         options.model_overrides.apply_to_config(&mut config)?;
         let frontier = config.frontier.clone();
+        let worker_guidance = config.worker_supervisor_guidance();
         let runner = worker_harness_for_config(config);
 
         let task_file = out_dir.join("task.json");
@@ -61,7 +62,8 @@ impl DefaultStrategyRun<'_> {
         let (_, task_spec) = read_task_json(&task_file)?;
 
         let feedback_path = out_dir.join("frontier-feedback.jsonl");
-        let worker_brief = run_frontier_brief_turn(root, &out_dir, &task_file, &frontier)?;
+        let worker_brief =
+            run_frontier_brief_turn(root, &out_dir, &task_file, &frontier, &worker_guidance)?;
         write_pretty_json(
             &out_dir.join("worker-brief.json"),
             &worker_brief.brief,
@@ -121,6 +123,7 @@ impl DefaultStrategyRun<'_> {
                     &artifact_paths,
                     "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not solve by directly editing files.",
                     &frontier,
+                    &worker_guidance,
                 )?;
                 frontier_samples.push(decision.usage_sample());
                 decision

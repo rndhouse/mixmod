@@ -435,6 +435,7 @@ impl DefaultExperimentRun<'_> {
 
         let config = load_config(&work_dir)?;
         let frontier = config.frontier.clone();
+        let worker_guidance = config.worker_supervisor_guidance();
         let default_dir = exp_dir.join("default");
         let logs_dir = default_dir.join("logs");
         fs::create_dir_all(&logs_dir).with_context(|| {
@@ -456,7 +457,13 @@ impl DefaultExperimentRun<'_> {
         let (_, task_spec) = read_task_json(&task_file)?;
         let runner = worker_harness_for_config(config);
         let feedback_path = default_dir.join("frontier-feedback.jsonl");
-        let worker_brief = run_frontier_brief_turn(&work_dir, &default_dir, &task_file, &frontier)?;
+        let worker_brief = run_frontier_brief_turn(
+            &work_dir,
+            &default_dir,
+            &task_file,
+            &frontier,
+            &worker_guidance,
+        )?;
         write_pretty_json(
             &default_dir.join("worker-brief.json"),
             &worker_brief.brief,
@@ -520,6 +527,7 @@ impl DefaultExperimentRun<'_> {
                     &artifact_paths,
                     "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not solve by directly editing files.",
                     &frontier,
+                    &worker_guidance,
                 )?;
                 frontier_samples.push(decision.usage_sample());
                 decision

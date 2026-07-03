@@ -174,6 +174,17 @@ backend_command = "ollama ps"
 [opencode.model_aliases]
 "{default_model}" = ["{default_model}", "{ollama_model}", "qwen/qwen3.6-27b", "ollama/{ollama_model}", "local-ollama/{ollama_model}", "{opencode_provider}/{ollama_model}"]
 
+[[worker_model_profiles]]
+model = "{default_model}"
+aliases = ["{default_model}", "{ollama_model}", "qwen/qwen3.6-27b", "ollama/{ollama_model}", "local-ollama/{ollama_model}", "{opencode_provider}/{ollama_model}"]
+supervisor_guidance = [
+  "On expected-patch tasks, it may stop after exploration without producing a repository diff; if edits are needed, instruct it to make the smallest concrete source/test change before finalizing.",
+  "When tests fail to start because dependencies are missing, keep it focused on repo-level evidence and allowed commands instead of global environment repair.",
+  "It can create broad or malformed tests when fixture semantics are unclear; ask for the narrowest regression test that matches existing test style.",
+  "It may try to mutate user or global environments while installing dependencies; prefer existing project commands and avoid global installs unless the task explicitly requires them.",
+  "Before accepting a turn, check whether the intended repo diff exists and touches the expected source/test files.",
+]
+
 [frontier]
 model = "{frontier_model}"
 # Codex config key: model_reasoning_effort. Allowed: minimal, low, medium, high, xhigh.

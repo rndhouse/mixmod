@@ -142,8 +142,9 @@ pub(crate) fn run_frontier_brief_turn(
     default_dir: &Path,
     task_path: &Path,
     frontier: &FrontierConfig,
+    worker_guidance: &WorkerSupervisorGuidance,
 ) -> Result<FrontierBriefTurn> {
-    let prompt = frontier_worker_brief_prompt(work_dir, task_path)?;
+    let prompt = frontier_worker_brief_prompt(work_dir, task_path, worker_guidance)?;
     let result = run_codex_app_server_turn(
         work_dir,
         default_dir,
@@ -201,8 +202,9 @@ pub(crate) fn run_frontier_feedback_turn(
     artifact_paths: &[PathBuf],
     instruction: &str,
     frontier: &FrontierConfig,
+    worker_guidance: &WorkerSupervisorGuidance,
 ) -> Result<FrontierFeedbackTurn> {
-    let prompt = frontier_feedback_prompt(work_dir, artifact_paths, instruction)?;
+    let prompt = frontier_feedback_prompt(work_dir, artifact_paths, instruction, worker_guidance)?;
     let result = run_codex_app_server_turn(
         work_dir,
         budgeted_dir,
@@ -284,7 +286,11 @@ pub(crate) fn run_codex_app_server_turn(
     server.run_turn(artifact_dir, label, prompt)
 }
 
-pub(crate) fn frontier_worker_brief_prompt(work_dir: &Path, task_path: &Path) -> Result<String> {
+pub(crate) fn frontier_worker_brief_prompt(
+    work_dir: &Path,
+    task_path: &Path,
+    worker_guidance: &WorkerSupervisorGuidance,
+) -> Result<String> {
     let task_value = read_json_file(task_path)?;
     let visible_task = agent_visible_task_value(&task_value);
     let task = serde_json::to_string_pretty(&visible_task)
@@ -301,11 +307,13 @@ pub(crate) fn frontier_worker_brief_prompt(work_dir: &Path, task_path: &Path) ->
             truncate_for_report(&text, 2200)
         ));
     }
+    let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
         r#"You are Codex supervising a Mixmod worker.
 Use the provided file context. Do not edit files. Do not run tests. Do not implement the patch. Do not ask the user for approval.
 The worker receives the original task JSON and can inspect, edit, and test the repo.
 Use frontier intelligence freely through reading and reasoning, but minimize frontier output.
+{worker_guidance}
 Emit one compact executable worker handoff as minified JSON only; no markdown and no explanation.
 Do not restate the original task. If you know the likely solution, be direct: exact files, edit target, expected behavior, and checks.
 Required field: "handoff" = "as_given" | "focused" | "guided" | "blocked".
@@ -339,6 +347,7 @@ pub(crate) fn frontier_feedback_prompt(
     work_dir: &Path,
     artifact_paths: &[PathBuf],
     instruction: &str,
+    worker_guidance: &WorkerSupervisorGuidance,
 ) -> Result<String> {
     let mut artifacts = String::new();
     for path in artifact_paths {
@@ -352,9 +361,11 @@ pub(crate) fn frontier_feedback_prompt(
             truncate_for_report(&text, 6000)
         ));
     }
+    let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
         r#"You are a terse frontier critic supervising a local worker.
 Do not implement code. Do not edit files. Do not ask the user for approval.
+{worker_guidance}
 Return only JSON matching this schema:
 {{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 60 words","focus_files":[],"required_checks":[],"risk":"max 25 words"}}
 Use approve when no more local worker attempts are needed.
@@ -371,6 +382,22 @@ Instruction: {instruction}
 "#,
         work_dir = work_dir.display(),
     ))
+}
+
+fn render_worker_guidance(worker_guidance: &WorkerSupervisorGuidance) -> String {
+    if worker_guidance.is_empty() {
+        return String::new();
+    }
+    let mut rendered = format!(
+        "Supervisor-only worker-model guidance for {}:\nThese are historical pitfalls for the selected worker model. Treat them as priors when planning the worker handoff or critique. Do not copy every bullet to the worker. Select only relevant points and convert them into short, concrete worker instructions.\n",
+        worker_guidance.model
+    );
+    for item in &worker_guidance.guidance {
+        rendered.push_str("- ");
+        rendered.push_str(item.trim());
+        rendered.push('\n');
+    }
+    rendered
 }
 
 fn parse_feedback_json(text: &str) -> Option<Value> {
