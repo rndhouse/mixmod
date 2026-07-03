@@ -116,17 +116,22 @@ impl MixmodRun<'_> {
                 .to_string(),
         );
         }
+        notes.push(
+            "worktree.patch contains the accumulated current repository diff for supervisor review."
+                .to_string(),
+        );
 
-        let mut patch = match git_diff_with_untracked(root) {
-            Ok(after_diff) => diff_without_unchanged_blocks(
-                &after_diff,
-                before_diff.as_deref().unwrap_or_default(),
-            ),
+        let mut worktree_patch = match git_diff_with_untracked(root) {
+            Ok(after_diff) => after_diff,
             Err(error) => {
                 notes.push(format!("Unable to capture git diff: {error}"));
                 String::new()
             }
         };
+        let mut patch = diff_without_unchanged_blocks(
+            &worktree_patch,
+            before_diff.as_deref().unwrap_or_default(),
+        );
         if should_run_empty_patch_followup(mode, expect_patch, &output, &patch) {
             empty_patch_followup.triggered = true;
             empty_patch_followup.reason = Some(
@@ -154,11 +159,8 @@ impl MixmodRun<'_> {
                     output = merge_opencode_outputs(output, followup_output);
                     end_timestamp = Utc::now();
                     wall_clock_ms = start.elapsed().as_millis();
-                    patch = match git_diff_with_untracked(root) {
-                        Ok(after_diff) => diff_without_unchanged_blocks(
-                            &after_diff,
-                            before_diff.as_deref().unwrap_or_default(),
-                        ),
+                    worktree_patch = match git_diff_with_untracked(root) {
+                        Ok(after_diff) => after_diff,
                         Err(error) => {
                             notes.push(format!(
                                 "Unable to capture git diff after empty-patch follow-up: {error}"
@@ -166,6 +168,10 @@ impl MixmodRun<'_> {
                             String::new()
                         }
                     };
+                    patch = diff_without_unchanged_blocks(
+                        &worktree_patch,
+                        before_diff.as_deref().unwrap_or_default(),
+                    );
                     empty_patch_followup.patch_created = !patch.trim().is_empty();
                 }
                 Err(error) => {
@@ -181,6 +187,7 @@ impl MixmodRun<'_> {
             atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
         }
         atomic_write(&out_dir.join("changes.patch"), patch.as_bytes())?;
+        atomic_write(&out_dir.join("worktree.patch"), worktree_patch.as_bytes())?;
         if output.timed_out || output.idle_timed_out {
             atomic_write(&out_dir.join("partial.patch"), patch.as_bytes())?;
             notes.push(
@@ -189,6 +196,7 @@ impl MixmodRun<'_> {
         );
         }
         let stats = patch_stats(&patch);
+        let worktree_stats = patch_stats(&worktree_patch);
 
         let (test_status, test_results, tests_json) =
             run_task_tests(root, &logs_dir, &task_spec.tests)?;
@@ -210,7 +218,8 @@ impl MixmodRun<'_> {
         } else {
             "failed"
         };
-        let summary = build_run_summary(status, mode, &output, &stats, &test_status);
+        let summary =
+            build_run_summary(status, mode, &output, &stats, &worktree_stats, &test_status);
         let report = build_run_report(RunReportInput {
             status,
             mode,
@@ -218,6 +227,7 @@ impl MixmodRun<'_> {
             task: &task_spec,
             output: &output,
             stats: &stats,
+            worktree_stats: &worktree_stats,
             test_status: &test_status,
             test_results: &test_results,
             notes: &notes,
@@ -229,12 +239,14 @@ impl MixmodRun<'_> {
         let compact_artifacts = [
             "receipt.json",
             "report.md",
+            "worktree.patch",
             "changes.patch",
             "tests.json",
             "metrics.json",
         ];
         let report_bytes = file_len(&out_dir.join("report.md"))?;
         let patch_bytes = file_len(&out_dir.join("changes.patch"))?;
+        let worktree_patch_bytes = file_len(&out_dir.join("worktree.patch"))?;
         let session_bytes = file_len(&out_dir.join("session.jsonl"))?;
         let mut metrics = RunMetrics {
             start_timestamp: start_timestamp.to_rfc3339(),
@@ -271,6 +283,7 @@ impl MixmodRun<'_> {
             stderr_bytes: output.stderr.len() as u64,
             report_bytes,
             patch_bytes,
+            worktree_patch_bytes,
             session_bytes,
             test_status: test_status.clone(),
             test_commands: task_spec.tests.clone(),
@@ -296,6 +309,7 @@ impl MixmodRun<'_> {
             changed_files: stats.files.clone(),
             report: display_path(root, &out_dir.join("report.md")),
             patch: display_path(root, &out_dir.join("changes.patch")),
+            worktree_patch: display_path(root, &out_dir.join("worktree.patch")),
             session: display_path(root, &out_dir.join("session.jsonl")),
             tests: display_path(root, &out_dir.join("tests.json")),
             metrics: display_path(root, &out_dir.join("metrics.json")),
@@ -788,6 +802,7 @@ pub(crate) fn build_run_summary(
     mode: DelegationMode,
     output: &OpenCodeOutput,
     stats: &PatchStats,
+    worktree_stats: &PatchStats,
     test_status: &str,
 ) -> String {
     match status {
@@ -817,6 +832,11 @@ pub(crate) fn build_run_summary(
             stats.files.len(),
             stats.changed_line_count
         ),
+        "needs_supervisor" if !worktree_stats.files.is_empty() => format!(
+            "OpenCode completed {mode} with no new delta, but current worktree patch has {} file(s) and {} line(s) changed; tests {test_status}; supervisor review needed.",
+            worktree_stats.files.len(),
+            worktree_stats.changed_line_count
+        ),
         "needs_supervisor" => {
             format!(
                 "OpenCode completed {mode} but no patch was captured; supervisor review needed."
@@ -837,6 +857,7 @@ struct RunReportInput<'a> {
     task: &'a TaskSpec,
     output: &'a OpenCodeOutput,
     stats: &'a PatchStats,
+    worktree_stats: &'a PatchStats,
     test_status: &'a str,
     test_results: &'a [TestCommandResult],
     notes: &'a [String],
@@ -852,6 +873,7 @@ fn build_run_report(input: RunReportInput<'_>) -> String {
         task,
         output,
         stats,
+        worktree_stats,
         test_status,
         test_results,
         notes,
@@ -925,6 +947,12 @@ fn build_run_report(input: RunReportInput<'_>) -> String {
 
 Changed lines: {changed_lines} ({added} added, {removed} removed)
 
+## Current Worktree Patch
+
+- Files: {worktree_files}
+- Changed lines: {worktree_changed_lines} ({worktree_added} added, {worktree_removed} removed)
+- Artifact: `{worktree_patch}`
+
 ## Tests
 
 Structured test status: {test_status}
@@ -953,6 +981,7 @@ Observed tests:
 
 - `{receipt}`
 - `{report}`
+- `{worktree_patch}`
 - `{patch}`
 - `{tests}`
 - `{metrics}`
@@ -985,6 +1014,10 @@ Heartbeat log: `{heartbeat}`
         changed_lines = stats.changed_line_count,
         added = stats.added_lines,
         removed = stats.removed_lines,
+        worktree_files = worktree_stats.files.len(),
+        worktree_changed_lines = worktree_stats.changed_line_count,
+        worktree_added = worktree_stats.added_lines,
+        worktree_removed = worktree_stats.removed_lines,
         test_status = test_status,
         requested_tests = requested_tests,
         observed_tests = observed_tests,
@@ -992,6 +1025,7 @@ Heartbeat log: `{heartbeat}`
         stderr_excerpt = truncate_for_report(&stderr, 4000),
         receipt = display_path(root, &out_dir.join("receipt.json")),
         report = display_path(root, &out_dir.join("report.md")),
+        worktree_patch = display_path(root, &out_dir.join("worktree.patch")),
         patch = display_path(root, &out_dir.join("changes.patch")),
         tests = display_path(root, &out_dir.join("tests.json")),
         metrics = display_path(root, &out_dir.join("metrics.json")),

@@ -919,6 +919,7 @@ Prefer revise after failed, empty, distracted, or incomplete worker attempts, an
 Use worker_mode=continue to keep the same OpenCode session and let the worker continue with its existing context.
 Use worker_mode=context_focus to start a new OpenCode session on the same worktree; previous worker context is discarded unless you repeat it in message_to_worker.
 Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files; mention them in message_to_worker if needed.
+Important artifact semantics: worktree.patch is the accumulated current repository diff and is authoritative for deciding whether the patch exists; changes.patch is only the latest worker run delta and may be empty after a verification-only revision.
 Use stop only to record a blocked or inconclusive local-worker result when no useful OpenCode path remains. Stop does not permit direct Codex editing.
 Working repo: {work_dir}
 Instruction: {instruction}

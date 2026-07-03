@@ -179,6 +179,7 @@ impl<'a> ExperimentReportRenderer<'a> {
             "worker-brief.json",
             "receipt.json",
             "report.md",
+            "worktree.patch",
             "changes.patch",
             "tests.json",
             "metrics.json",

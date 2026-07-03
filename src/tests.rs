@@ -186,10 +186,41 @@ fn summary_reports_captured_patch_when_tests_fail() {
         DelegationMode::Patch,
         &output,
         &stats,
+        &stats,
         "failed",
     );
 
     assert!(summary.contains("with 1 file(s) and 2 line(s) changed"));
+    assert!(!summary.contains("no patch was captured"));
+}
+
+#[test]
+fn summary_reports_accumulated_patch_when_latest_delta_is_empty() {
+    let output = minimal_opencode_output();
+    let latest_delta = PatchStats {
+        files: vec![],
+        changed_line_count: 0,
+        added_lines: 0,
+        removed_lines: 0,
+    };
+    let worktree_stats = PatchStats {
+        files: vec!["django/db/models/deletion.py".to_string()],
+        changed_line_count: 1,
+        added_lines: 1,
+        removed_lines: 0,
+    };
+
+    let summary = build_run_summary(
+        "needs_supervisor",
+        DelegationMode::Patch,
+        &output,
+        &latest_delta,
+        &worktree_stats,
+        "passed",
+    );
+
+    assert!(summary.contains("no new delta"));
+    assert!(summary.contains("current worktree patch has 1 file(s)"));
     assert!(!summary.contains("no patch was captured"));
 }
 
@@ -831,6 +862,7 @@ fn run_writes_full_artifact_bundle() {
         "task.json",
         "report.md",
         "session.jsonl",
+        "worktree.patch",
         "changes.patch",
         "tests.json",
         "metrics.json",

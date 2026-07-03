@@ -311,7 +311,15 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
     )?;
 
     let final_patch = mixmod_dir.join("final.patch");
-    fs::copy(out_dir.join("changes.patch"), &final_patch)
+    let source_patch = {
+        let worktree_patch = out_dir.join("worktree.patch");
+        if worktree_patch.exists() {
+            worktree_patch
+        } else {
+            out_dir.join("changes.patch")
+        }
+    };
+    fs::copy(&source_patch, &final_patch)
         .with_context(|| format!("failed to copy {}", final_patch.display()))?;
 
     let run_metrics_path = out_dir.join("metrics.json");
@@ -319,6 +327,7 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
     let compact_artifact_bytes = [
         "receipt.json",
         "report.md",
+        "worktree.patch",
         "changes.patch",
         "tests.json",
         "metrics.json",
@@ -340,7 +349,7 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
         "codex_token_usage": null,
         "codex_turns": null,
         "mixmod_delegations": 1,
-        "artifact_files_read_by_codex": ["receipt.json", "report.md", "changes.patch", "tests.json", "metrics.json"],
+        "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json"],
         "did_codex_read_full_mixmod_session": false,
         "approximate_codex_input_bytes": compact_artifact_bytes,
         "approximate_codex_output_bytes": null,
@@ -488,6 +497,7 @@ impl DefaultExperimentRun<'_> {
                 let mut artifact_paths = vec![
                     final_out.join("receipt.json"),
                     final_out.join("report.md"),
+                    final_out.join("worktree.patch"),
                     final_out.join("changes.patch"),
                     final_out.join("tests.json"),
                     final_out.join("metrics.json"),
@@ -660,7 +670,7 @@ impl DefaultExperimentRun<'_> {
             "supervisor_resume_count": frontier_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
-            "artifact_files_read_by_codex": ["receipt.json", "report.md", "changes.patch", "tests.json", "metrics.json"],
+            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "tests.json", "metrics.json"],
             "strategy_phases": ["codex_worker_brief", "codex_open_code_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
@@ -835,6 +845,7 @@ fn copy_budgeted_artifacts(root: &Path, budgeted_dir: &Path, final_out: &Path) -
         "task.json",
         "report.md",
         "session.jsonl",
+        "worktree.patch",
         "changes.patch",
         "partial.patch",
         "tests.json",
@@ -1170,6 +1181,7 @@ fn is_artifact_focus_ref(path: &str) -> bool {
         || file_name == "frontier-feedback.jsonl"
         || file_name == "receipt.json"
         || file_name == "metrics.json"
+        || file_name == "worktree.patch"
         || file_name == "changes.patch"
         || file_name == "tests.json"
         || file_name == "report.md"
@@ -1282,6 +1294,7 @@ fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
         "task.json",
         "report.md",
         "session.jsonl",
+        "worktree.patch",
         "changes.patch",
         "partial.patch",
         "tests.json",
