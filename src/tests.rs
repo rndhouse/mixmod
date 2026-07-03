@@ -383,44 +383,28 @@ fn model_overrides_reject_invalid_supervisor_effort() {
 }
 
 #[test]
-fn codex_supervision_turns_are_read_only_and_non_interactive() {
-    let args = codex_exec_turn_args(
-        "gpt-5.5",
-        "high",
-        Path::new("/tmp/work"),
-        Path::new("/tmp/work/.mixmod/out/last-message.json"),
-        CodexSandbox::ReadOnly,
-    );
+fn codex_supervision_turns_use_read_only_app_server_policy() {
+    let policy = CodexSandbox::ReadOnly.as_turn_policy(Path::new("/tmp/work"));
 
-    assert!(
-        args.windows(2)
-            .any(|pair| pair[0] == "--sandbox" && pair[1] == "read-only")
-    );
-    assert!(
-        args.windows(2)
-            .any(|pair| pair[0] == "-c" && pair[1] == "approval_policy=\"never\"")
-    );
-    assert!(!args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+    assert_eq!(CodexSandbox::ReadOnly.as_thread_arg(), "read-only");
+    assert_eq!(get_str(&policy, "type"), Some("readOnly"));
+    assert_eq!(get_bool(&policy, "networkAccess"), Some(false));
 }
 
 #[test]
 fn codex_only_baseline_can_write_workspace_files() {
-    let args = codex_exec_turn_args(
-        "gpt-5.5",
-        "high",
-        Path::new("/tmp/work"),
-        Path::new("/tmp/work/.mixmod/out/last-message.json"),
-        CodexSandbox::WorkspaceWrite,
-    );
+    let policy = CodexSandbox::WorkspaceWrite.as_turn_policy(Path::new("/tmp/work"));
 
-    assert!(
-        args.windows(2)
-            .any(|pair| pair[0] == "--sandbox" && pair[1] == "workspace-write")
+    assert_eq!(
+        CodexSandbox::WorkspaceWrite.as_thread_arg(),
+        "workspace-write"
     );
-    assert!(
-        args.windows(2)
-            .any(|pair| pair[0] == "-c" && pair[1] == "approval_policy=\"never\"")
+    assert_eq!(get_str(&policy, "type"), Some("workspaceWrite"));
+    assert_eq!(
+        get_string_array(&policy, "writableRoots"),
+        vec!["/tmp/work"]
     );
+    assert_eq!(get_bool(&policy, "networkAccess"), Some(false));
 }
 
 #[test]
@@ -750,7 +734,7 @@ fn init_manages_only_mixmod_local_files() {
 }
 
 #[test]
-fn codex_exec_uses_mixmod_scoped_codex_home() {
+fn codex_app_server_uses_mixmod_scoped_codex_home() {
     assert_eq!(
         codex_home_for_work_dir(Path::new("/tmp/work")),
         PathBuf::from("/tmp/work").join(MIXMOD_CODEX_HOME)
@@ -1355,6 +1339,7 @@ fn revision_task_preserves_codex_focus_files() {
         output_tokens: 0,
         reasoning_tokens: 0,
         total_tokens: 0,
+        cached_input_tokens: 0,
         input_bytes: 0,
         output_bytes: 0,
     };
@@ -1402,6 +1387,7 @@ fn context_focus_revision_task_uses_focused_prompt() {
         output_tokens: 0,
         reasoning_tokens: 0,
         total_tokens: 0,
+        cached_input_tokens: 0,
         input_bytes: 0,
         output_bytes: 0,
     };
@@ -1450,6 +1436,7 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
         output_tokens: 0,
         reasoning_tokens: 0,
         total_tokens: 0,
+        cached_input_tokens: 0,
         input_bytes: 0,
         output_bytes: 0,
     };

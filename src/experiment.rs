@@ -176,7 +176,7 @@ fn run_codex_only_baseline(
     let config = load_config(root)?;
     let start = Instant::now();
     let run_start = Utc::now();
-    let result = run_codex_exec_turn(
+    let result = run_codex_app_server_turn(
         work_dir,
         target,
         "codex-only",
@@ -220,12 +220,16 @@ fn run_codex_only_baseline(
         "frontier_output_tokens": result.usage.output_tokens,
         "frontier_reasoning_tokens": result.usage.reasoning_tokens,
         "frontier_total_tokens": result.usage.total_tokens,
+        "frontier_cached_input_tokens": result.usage.cached_input_tokens,
         "frontier_input_bytes_fallback": result.input_bytes,
         "frontier_output_bytes_fallback": result.output_bytes,
         "codex_visible_bytes": result.input_bytes,
         "codex_token_usage": result.usage.total_tokens,
         "codex_turns": 1,
         "codex_calls": 1,
+        "codex_backend": "app-server",
+        "codex_app_server_thread_id": result.thread_id.clone(),
+        "codex_app_server_turn_id": result.turn_id.clone(),
         "mixmod_delegations": 0,
         "artifact_files_read_by_codex": [],
         "did_codex_read_full_mixmod_session": false,
@@ -245,7 +249,7 @@ fn run_codex_only_baseline(
         "stderr_bytes": result.stderr.len() as u64,
         "notes": [
             "Automated Codex-only baseline ran in an isolated fixture work directory.",
-            "Codex was invoked with --ignore-user-config and an experiment-local CODEX_HOME."
+            "Codex was invoked through app-server with an experiment-local CODEX_HOME."
         ]
     });
     write_pretty_json(&target.join("metrics.json"), &metrics, "codex-only metrics")?;
@@ -436,8 +440,10 @@ impl DefaultExperimentRun<'_> {
         }
         let (_, task_spec) = read_task_json(&task_file)?;
         let runner = ShellOpenCodeRunner::new(config);
+        let mut supervisor = CodexAppServer::start(&work_dir, &frontier, CodexSandbox::ReadOnly)?;
         let feedback_path = default_dir.join("frontier-feedback.jsonl");
-        let worker_brief = run_frontier_brief_turn(&work_dir, &default_dir, &task_file, &frontier)?;
+        let worker_brief =
+            run_frontier_brief_turn(&mut supervisor, &work_dir, &default_dir, &task_file)?;
         write_pretty_json(
             &default_dir.join("worker-brief.json"),
             &worker_brief.brief,
@@ -487,22 +493,18 @@ impl DefaultExperimentRun<'_> {
                     final_out.join("changes.patch"),
                     final_out.join("tests.json"),
                     final_out.join("metrics.json"),
-                    default_dir.join("worker-brief.json"),
                 ];
                 let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
                 if supervisor_control_path.exists() {
                     artifact_paths.push(supervisor_control_path);
                 }
-                if feedback_path.exists() {
-                    artifact_paths.push(feedback_path.clone());
-                }
                 let decision = run_frontier_feedback_turn(
+                    &mut supervisor,
                     &work_dir,
                     &default_dir,
                     &label,
                     &artifact_paths,
                     "Decide the next Codex/OpenCode loop action. Use approve only when the local-worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive local-worker result when no useful OpenCode path remains; do not solve by directly editing files.",
-                    &frontier,
                 )?;
                 frontier_samples.push(decision.usage_sample());
                 decision
@@ -646,14 +648,19 @@ impl DefaultExperimentRun<'_> {
             "frontier_output_tokens": frontier_usage.output_tokens,
             "frontier_reasoning_tokens": frontier_usage.reasoning_tokens,
             "frontier_total_tokens": frontier_usage.total_tokens,
+            "frontier_cached_input_tokens": frontier_usage.cached_input_tokens,
             "frontier_input_bytes_fallback": frontier_usage.input_bytes,
             "frontier_output_bytes_fallback": frontier_usage.output_bytes,
             "codex_visible_bytes": frontier_usage.input_bytes,
             "supervision_turn_count": frontier_usage.turn_count,
             "codex_calls": frontier_usage.turn_count,
+            "codex_backend": "app-server",
+            "codex_app_server_thread_id": supervisor.thread_id(),
+            "supervisor_session_reused": frontier_usage.turn_count > 1,
+            "supervisor_resume_count": frontier_usage.turn_count.saturating_sub(1),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
-            "artifact_files_read_by_codex": ["worker-brief.json", "receipt.json", "report.md", "changes.patch", "tests.json", "metrics.json"],
+            "artifact_files_read_by_codex": ["receipt.json", "report.md", "changes.patch", "tests.json", "metrics.json"],
             "strategy_phases": ["codex_worker_brief", "codex_open_code_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
@@ -704,7 +711,7 @@ impl DefaultExperimentRun<'_> {
             "terminal_reject": false,
             "needs_worker_revision": false,
             "notes": [
-                "Default strategy used a compact executable Codex worker handoff before local OpenCode implementation.",
+                "Default strategy used a persistent Codex app-server supervisor thread for the worker handoff and review loop.",
                 "Codex controls the OpenCode loop with approve, revise, or blocked/inconclusive stop decisions; direct Codex editing is not part of this strategy.",
                 "OpenCode was required to use explicit local Qwen 3.6 model selection.",
                 "If the worker times out, run `mixmod experiment recover <name> --require-local` to restart from worker-task.json."
