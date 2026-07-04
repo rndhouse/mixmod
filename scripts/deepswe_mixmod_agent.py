@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import tempfile
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 from typing import Any
@@ -363,26 +364,33 @@ async def prepare_codex_auth(environment: BaseEnvironment) -> None:
             command=(
                 'mkdir -p "$HOME/.codex" && '
                 f"cp {shlex.quote(remote_auth_path.as_posix())} "
-                '"$HOME/.codex/auth.json"'
+                '"$HOME/.codex/auth.json" && '
+                f"rm -f {shlex.quote(remote_auth_path.as_posix())}"
             )
         )
         return
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if api_key:
+        with tempfile.NamedTemporaryFile("w", delete=False) as handle:
+            json.dump({"OPENAI_API_KEY": api_key}, handle, indent=2)
+            handle.write("\n")
+            temp_auth = Path(handle.name)
+        try:
+            await environment.upload_file(temp_auth, remote_auth_path)
+        finally:
+            temp_auth.unlink(missing_ok=True)
+        if environment.default_user is not None:
+            await environment.exec(
+                command=f"chown {environment.default_user} {shlex.quote(remote_auth_path.as_posix())}",
+                user="root",
+            )
         await environment.exec(
             command=(
-                "python3 - <<'PY'\n"
-                "import json\n"
-                "import os\n"
-                "from pathlib import Path\n"
-                "\n"
-                'target = Path.home() / ".codex" / "auth.json"\n'
-                "target.parent.mkdir(parents=True, exist_ok=True)\n"
-                'target.write_text(json.dumps({"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}, indent=2) + "\\n")\n'
-                "PY\n"
-            ),
-            env={"OPENAI_API_KEY": api_key},
+                'mkdir -p "$HOME/.codex" && '
+                f"mv {shlex.quote(remote_auth_path.as_posix())} "
+                '"$HOME/.codex/auth.json"'
+            )
         )
         return
 
