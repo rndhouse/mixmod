@@ -98,6 +98,12 @@ impl MixmodRun<'_> {
         let mut wall_clock_ms = start.elapsed().as_millis();
         let expect_patch = expect_patch_for_run(mode, &task_value);
         let mut empty_patch_followup = EmptyPatchFollowup::new();
+        let revision_context = RevisionNoopContext::from_task(&task_value);
+        let mut revision_noop_followup = RevisionNoopFollowup::new(
+            revision_context
+                .as_ref()
+                .is_some_and(|ctx| ctx.delta_expected),
+        );
 
         atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
         atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
@@ -132,7 +138,75 @@ impl MixmodRun<'_> {
             &worktree_patch,
             before_diff.as_deref().unwrap_or_default(),
         );
-        if should_run_empty_patch_followup(mode, expect_patch, &output, &patch) {
+        if should_run_revision_noop_followup(
+            mode,
+            expect_patch,
+            revision_context.as_ref(),
+            &output,
+            &patch,
+        ) {
+            let revision_context = revision_context
+                .as_ref()
+                .expect("revision context is present when revision no-op follow-up is needed");
+            revision_noop_followup.triggered = true;
+            revision_noop_followup.reason = Some(
+                "revision worker run expected a new delta but no changes.patch was captured"
+                    .to_string(),
+            );
+            match run_revision_noop_followup(RevisionNoopFollowupRequest {
+                root,
+                mode,
+                task: &task_spec,
+                task_path: &task_path,
+                out_dir: &out_dir,
+                runner,
+                require_local,
+                original_request: &request,
+                output: &output,
+                revision: revision_context,
+            }) {
+                Ok((followup_output, followup_dir)) => {
+                    revision_noop_followup.performed = true;
+                    revision_noop_followup.run_dir = Some(display_path(root, &followup_dir));
+                    notes.push(format!(
+                        "Revision no-op follow-up was triggered and ran in {}.",
+                        display_path(root, &followup_dir)
+                    ));
+                    output = merge_worker_outputs(
+                        output,
+                        followup_output,
+                        "revision no-op follow-up",
+                        "Revision no-op follow-up output was merged into this run.",
+                    );
+                    end_timestamp = Utc::now();
+                    wall_clock_ms = start.elapsed().as_millis();
+                    worktree_patch = match git_diff_with_untracked(root) {
+                        Ok(after_diff) => after_diff,
+                        Err(error) => {
+                            notes.push(format!(
+                                "Unable to capture git diff after revision no-op follow-up: {error}"
+                            ));
+                            String::new()
+                        }
+                    };
+                    patch = diff_without_unchanged_blocks(
+                        &worktree_patch,
+                        before_diff.as_deref().unwrap_or_default(),
+                    );
+                    revision_noop_followup.patch_created = !patch.trim().is_empty();
+                }
+                Err(error) => {
+                    revision_noop_followup.reason = Some(format!(
+                        "revision no-op follow-up was triggered but could not run: {error}"
+                    ));
+                    notes.push(format!(
+                        "Revision no-op follow-up was triggered but could not run: {error}"
+                    ));
+                }
+            }
+            atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
+            atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
+        } else if should_run_empty_patch_followup(mode, expect_patch, &output, &patch) {
             empty_patch_followup.triggered = true;
             empty_patch_followup.reason = Some(
                 "patch-mode worker run expected a patch but no repository diff was captured"
@@ -156,7 +230,12 @@ impl MixmodRun<'_> {
                         "Empty-patch follow-up was triggered and ran in {}.",
                         display_path(root, &followup_dir)
                     ));
-                    output = merge_opencode_outputs(output, followup_output);
+                    output = merge_worker_outputs(
+                        output,
+                        followup_output,
+                        "empty-patch follow-up",
+                        "Empty-patch follow-up output was merged into this run.",
+                    );
                     end_timestamp = Utc::now();
                     wall_clock_ms = start.elapsed().as_millis();
                     worktree_patch = match git_diff_with_untracked(root) {
@@ -268,6 +347,13 @@ impl MixmodRun<'_> {
             empty_patch_followup_patch_created: empty_patch_followup.patch_created,
             empty_patch_followup_reason: empty_patch_followup.reason.clone(),
             empty_patch_followup_run_dir: empty_patch_followup.run_dir.clone(),
+            revision_delta_expected: revision_noop_followup.delta_expected,
+            revision_delta_bytes: patch.len() as u64,
+            revision_noop_followup_triggered: revision_noop_followup.triggered,
+            revision_noop_followup_performed: revision_noop_followup.performed,
+            revision_noop_followup_patch_created: revision_noop_followup.patch_created,
+            revision_noop_followup_reason: revision_noop_followup.reason.clone(),
+            revision_noop_followup_run_dir: revision_noop_followup.run_dir.clone(),
             require_local: output.require_local,
             local_inference_verified: output.local_inference_verified,
             gpu_activity_observed: output.gpu_activity_observed,
@@ -356,6 +442,69 @@ impl EmptyPatchFollowup {
     }
 }
 
+#[derive(Debug)]
+struct RevisionNoopFollowup {
+    delta_expected: bool,
+    triggered: bool,
+    performed: bool,
+    patch_created: bool,
+    reason: Option<String>,
+    run_dir: Option<String>,
+}
+
+impl RevisionNoopFollowup {
+    fn new(delta_expected: bool) -> Self {
+        Self {
+            delta_expected,
+            triggered: false,
+            performed: false,
+            patch_created: false,
+            reason: None,
+            run_dir: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RevisionNoopContext {
+    delta_expected: bool,
+    message_to_worker: String,
+    focus_files: Vec<String>,
+    required_checks: Vec<String>,
+    worker_mode: String,
+    patch_decision: String,
+}
+
+impl RevisionNoopContext {
+    fn from_task(task: &Value) -> Option<Self> {
+        let revision = task.get("context")?.get("revision")?;
+        let delta_expected = get_bool(revision, "delta_expected").unwrap_or_else(|| {
+            let patch_decision = get_str(revision, "patch_decision").unwrap_or("");
+            matches!(patch_decision, "revise_current" | "revise_previous")
+        });
+        if !delta_expected {
+            return None;
+        }
+        Some(Self {
+            delta_expected,
+            message_to_worker: get_str(revision, "message_to_worker")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            focus_files: get_string_array(revision, "focus_files"),
+            required_checks: get_string_array(revision, "required_checks"),
+            worker_mode: get_str(revision, "worker_mode")
+                .unwrap_or("continue")
+                .trim()
+                .to_string(),
+            patch_decision: get_str(revision, "patch_decision")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+        })
+    }
+}
+
 fn expect_patch_for_run(mode: DelegationMode, task: &Value) -> bool {
     if mode != DelegationMode::Patch {
         return false;
@@ -388,6 +537,23 @@ fn should_run_empty_patch_followup(
         && patch.trim().is_empty()
 }
 
+fn should_run_revision_noop_followup(
+    mode: DelegationMode,
+    expect_patch: bool,
+    revision: Option<&RevisionNoopContext>,
+    output: &AgentOutput,
+    patch: &str,
+) -> bool {
+    mode == DelegationMode::Patch
+        && expect_patch
+        && revision.is_some_and(|context| context.delta_expected)
+        && output.success
+        && !output.timed_out
+        && !output.idle_timed_out
+        && !output.interrupted_by_supervisor
+        && patch.trim().is_empty()
+}
+
 fn expected_patch_for_instruction(mode: DelegationMode, task: &TaskSpec) -> bool {
     if mode != DelegationMode::Patch {
         return false;
@@ -400,6 +566,168 @@ fn expected_patch_for_instruction(mode: DelegationMode, task: &TaskSpec) -> bool
                 .and_then(|brief| get_bool(brief, "expect_patch"))
         })
         .unwrap_or(true)
+}
+
+struct RevisionNoopFollowupRequest<'a> {
+    root: &'a Path,
+    mode: DelegationMode,
+    task: &'a TaskSpec,
+    task_path: &'a Path,
+    out_dir: &'a Path,
+    runner: &'a dyn AgentHarness,
+    require_local: bool,
+    original_request: &'a AgentRequest,
+    output: &'a AgentOutput,
+    revision: &'a RevisionNoopContext,
+}
+
+fn run_revision_noop_followup(
+    request: RevisionNoopFollowupRequest<'_>,
+) -> Result<(AgentOutput, PathBuf)> {
+    let RevisionNoopFollowupRequest {
+        root,
+        mode,
+        task,
+        task_path,
+        out_dir,
+        runner,
+        require_local,
+        original_request,
+        output,
+        revision,
+    } = request;
+    let resume_session_id = output.session_id.clone().ok_or_else(|| {
+        anyhow!("cannot run revision no-op follow-up without a worker session id")
+    })?;
+    let followup_dir = out_dir.join("revision-noop-followup");
+    fs::create_dir_all(&followup_dir).with_context(|| {
+        format!(
+            "failed to create revision no-op follow-up dir {}",
+            followup_dir.display()
+        )
+    })?;
+    let followup_task = json!({
+        "title": format!("Revision no-op follow-up: {}", task.title),
+        "expect_patch": true,
+        "instructions": "The previous revision worker turn exited successfully, but Mixmod captured no new delta against the existing candidate patch.",
+        "files": revision_focus_files(task, revision),
+        "tests": revision.required_checks,
+        "constraints": [
+            "Do not only inspect files.",
+            "Apply the exact Codex revision or report BLOCKED."
+        ],
+        "acceptance": [
+            "Make a new repository diff relative to the previous candidate patch, or return BLOCKED with a concrete reason."
+        ],
+        "context": {
+            "source_task": task_path.to_string_lossy(),
+            "revision_noop_followup": true,
+            "revision": {
+                "message_to_worker": revision.message_to_worker,
+                "worker_mode": revision.worker_mode,
+                "patch_decision": revision.patch_decision,
+                "focus_files": revision.focus_files,
+                "required_checks": revision.required_checks
+            }
+        }
+    });
+    let followup_task_path = followup_dir.join("task.json");
+    write_pretty_json(
+        &followup_task_path,
+        &followup_task,
+        "revision no-op follow-up task",
+    )?;
+
+    let instruction = build_revision_noop_followup_instruction(mode, task, revision);
+    let instruction_path = followup_dir.join("opencode-instructions.md");
+    atomic_write(&instruction_path, instruction.as_bytes())?;
+    let followup_request = AgentRequest {
+        root: root.to_path_buf(),
+        mode,
+        task_path: followup_task_path,
+        out_dir: followup_dir.clone(),
+        instruction_path,
+        instruction,
+        session_id: original_request.session_id.clone(),
+        resume_session_id: Some(resume_session_id),
+        require_local,
+    };
+    let followup_output = runner.run(&followup_request)?;
+    Ok((followup_output, followup_dir))
+}
+
+fn build_revision_noop_followup_instruction(
+    mode: DelegationMode,
+    task: &TaskSpec,
+    revision: &RevisionNoopContext,
+) -> String {
+    let files = string_list_or_none(&revision_focus_files(task, revision));
+    let checks = string_list_or_none(&revision.required_checks);
+    let message = if revision.message_to_worker.trim().is_empty() {
+        "Apply the Codex-requested revision from the current task context.".to_string()
+    } else {
+        revision.message_to_worker.trim().to_string()
+    };
+    format!(
+        r#"# Revision No-Op Follow-Up
+
+Mode: {mode}
+Expected repository patch: yes
+
+Mixmod-managed state lives outside this repository. Do not inspect Mixmod state or artifact directories. The task content you need is embedded below.
+
+Your previous revision turn made no repository changes. Codex requested a revision, so that turn is incomplete.
+
+Apply the requested revision now in the existing worktree, or return exactly `BLOCKED: <reason>` if you cannot make the edit.
+
+Do not only inspect files. Do not restate the plan. Do not finalize unless you have changed the repository or returned `BLOCKED`.
+
+Required revision:
+{message}
+
+Patch decision: {patch_decision}
+Worker mode: {worker_mode}
+
+Focus files:
+{files}
+
+Required checks:
+{checks}
+
+Before finalizing after an edit, run `git diff --stat` and make sure the current patch differs from the previous candidate.
+Keep the final response compact.
+"#,
+        mode = mode,
+        message = message,
+        patch_decision = if revision.patch_decision.is_empty() {
+            "revise_current"
+        } else {
+            &revision.patch_decision
+        },
+        worker_mode = revision.worker_mode,
+        files = files,
+        checks = checks,
+    )
+}
+
+fn revision_focus_files(task: &TaskSpec, revision: &RevisionNoopContext) -> Vec<String> {
+    if revision.focus_files.is_empty() {
+        task.files.clone()
+    } else {
+        revision.focus_files.clone()
+    }
+}
+
+fn string_list_or_none(items: &[String]) -> String {
+    if items.is_empty() {
+        "- none specified".to_string()
+    } else {
+        items
+            .iter()
+            .map(|item| format!("- `{item}`"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 struct EmptyPatchFollowupRequest<'a> {
@@ -537,23 +865,26 @@ Keep the final response compact.
     )
 }
 
-fn merge_opencode_outputs(mut first: AgentOutput, second: AgentOutput) -> AgentOutput {
-    first
-        .command_for_metrics
-        .push("<empty-patch-followup>".to_string());
+fn merge_worker_outputs(
+    mut first: AgentOutput,
+    second: AgentOutput,
+    label: &str,
+    note: &str,
+) -> AgentOutput {
+    let marker = format!("<{}>", label.replace(' ', "-"));
+    let stdout_header = format!("\n\n--- {label} stdout ---\n");
+    let stderr_header = format!("\n\n--- {label} stderr ---\n");
+
+    first.command_for_metrics.push(marker);
     first
         .command_for_metrics
         .extend(second.command_for_metrics.clone());
     first.segments.extend(second.segments.clone());
     first.exit_status = second.exit_status;
     first.success = second.success;
-    first
-        .stdout
-        .extend_from_slice(b"\n\n--- empty-patch follow-up stdout ---\n");
+    first.stdout.extend_from_slice(stdout_header.as_bytes());
     first.stdout.extend_from_slice(&second.stdout);
-    first
-        .stderr
-        .extend_from_slice(b"\n\n--- empty-patch follow-up stderr ---\n");
+    first.stderr.extend_from_slice(stderr_header.as_bytes());
     first.stderr.extend_from_slice(&second.stderr);
     first.session_id = second.session_id.or(first.session_id);
     first.resume_session_id = second.resume_session_id.or(first.resume_session_id);
@@ -578,9 +909,7 @@ fn merge_opencode_outputs(mut first: AgentOutput, second: AgentOutput) -> AgentO
     first.gpu_activity_observed = first.gpu_activity_observed || second.gpu_activity_observed;
     first.backend_activity_observed =
         first.backend_activity_observed || second.backend_activity_observed;
-    first
-        .verification_notes
-        .push("Empty-patch follow-up output was merged into this run.".to_string());
+    first.verification_notes.push(note.to_string());
     first.verification_notes.extend(second.verification_notes);
     first
 }

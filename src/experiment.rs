@@ -1088,6 +1088,15 @@ pub(crate) fn write_revision_task(
             "codex_focus_files": decision.focus_files,
             "repo_focus_files": repo_focus_files,
             "patch_decision": decision.patch_decision,
+            "revision": {
+                "delta_expected": revision_delta_expected(decision),
+                "message_to_worker": decision.hint,
+                "worker_mode": decision.worker_mode,
+                "patch_decision": decision.patch_decision,
+                "focus_files": decision.focus_files,
+                "repo_focus_files": repo_focus_files,
+                "required_checks": decision.required_checks
+            },
             "mixmod_artifact_refs": artifact_focus_files
         }
     });
@@ -1105,6 +1114,12 @@ pub(crate) fn write_revision_task(
         )?;
     }
     Ok(path)
+}
+
+fn revision_delta_expected(decision: &FrontierFeedbackTurn) -> bool {
+    decision.verdict == "revise"
+        || decision.patch_decision == "revise_current"
+        || decision.patch_decision == "revise_previous"
 }
 
 fn split_worker_focus_files(
