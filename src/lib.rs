@@ -24,6 +24,7 @@ mod frontier;
 mod fs_util;
 mod harness;
 mod install;
+mod interventions;
 mod live;
 mod report;
 mod run;
@@ -59,6 +60,10 @@ pub use harness::{
     OpenCodeOutput, OpenCodeRequest, OpenCodeRunner, worker_harness_for_config,
 };
 pub use install::{doctor_project, init_project, status_project};
+pub use interventions::{
+    INTERVENTIONS_JSONL, InterventionEvent, InterventionKind, InterventionLog, InterventionPhase,
+    InterventionSessionPolicy, InterventionTarget,
+};
 pub use report::experiment_report;
 pub use run::{run_mixmod_task, run_mixmod_task_with_options};
 

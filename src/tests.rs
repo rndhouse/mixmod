@@ -1188,14 +1188,21 @@ fn run_writes_full_artifact_bundle() {
         "session.jsonl",
         "worktree.patch",
         "changes.patch",
+        "interventions.jsonl",
         "metrics.json",
         "logs/opencode.stdout.txt",
         "logs/opencode.stderr.txt",
     ] {
         assert!(run_dir.join(artifact).exists());
     }
+    assert!(receipt.interventions.ends_with("interventions.jsonl"));
     let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
     assert!(patch.contains("src/generated.rs"));
+    let interventions = fs::read_to_string(run_dir.join("interventions.jsonl")).unwrap();
+    assert_eq!(interventions.lines().count(), 1);
+    let handoff: Value = serde_json::from_str(interventions.lines().next().unwrap()).unwrap();
+    assert_eq!(get_str(&handoff, "kind"), Some("worker_handoff"));
+    assert_eq!(get_str(&handoff, "outcome"), Some("instruction_written"));
     assert!(!root.join(".mixmod").exists());
 }
 
@@ -1262,6 +1269,14 @@ fn empty_patch_followup_runs_once_when_patch_expected() {
         get_bool(&metrics, "empty_patch_followup_patch_created"),
         Some(true)
     );
+    assert_eq!(get_u64(&metrics, "intervention_count"), Some(2));
+    assert_eq!(
+        get_string_array(&metrics, "intervention_kinds"),
+        vec!["worker_handoff", "empty_patch_followup"]
+    );
+    let interventions = fs::read_to_string(run_dir.join("interventions.jsonl")).unwrap();
+    assert!(interventions.contains("\"kind\":\"empty_patch_followup\""));
+    assert!(interventions.contains("\"outcome\":\"patch_created\""));
 }
 
 #[test]
@@ -1360,6 +1375,14 @@ fn revision_noop_followup_reuses_worker_session_and_requires_delta() {
         Some(false)
     );
     assert!(get_u64(&metrics, "revision_delta_bytes").unwrap() > 0);
+    assert_eq!(get_u64(&metrics, "intervention_count"), Some(2));
+    assert_eq!(
+        get_string_array(&metrics, "intervention_kinds"),
+        vec!["worker_handoff", "revision_noop_followup"]
+    );
+    let interventions = fs::read_to_string(run_dir.join("interventions.jsonl")).unwrap();
+    assert!(interventions.contains("\"kind\":\"revision_noop_followup\""));
+    assert!(interventions.contains("\"session_policy\":\"same_session\""));
 }
 
 #[test]

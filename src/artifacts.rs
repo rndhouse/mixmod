@@ -12,6 +12,7 @@ pub struct Receipt {
     pub patch: String,
     pub worktree_patch: String,
     pub session: String,
+    pub interventions: String,
     pub metrics: String,
     pub logs: String,
 }
@@ -39,6 +40,9 @@ pub struct RunMetrics {
     pub opencode_idle_timed_out: bool,
     pub heartbeat_count: u64,
     pub expect_patch: bool,
+    pub intervention_count: usize,
+    pub intervention_kinds: Vec<String>,
+    pub intervention_artifact: String,
     pub empty_patch_followup_triggered: bool,
     pub empty_patch_followup_performed: bool,
     pub empty_patch_followup_patch_created: bool,

@@ -183,6 +183,7 @@ impl<'a> ExperimentReportRenderer<'a> {
             "changes.patch",
             "patch-comparison.json",
             "previous-worktree.patch",
+            "interventions.jsonl",
             "metrics.json",
         ]
         .iter()

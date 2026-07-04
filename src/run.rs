@@ -73,10 +73,37 @@ impl MixmodRun<'_> {
         let (task_value, task_spec) = read_task_json(&task_path)?;
         write_pretty_json(&out_dir.join("task.json"), &task_value, "run task")?;
 
+        let expect_patch = expect_patch_for_run(mode, &task_value);
+        let interventions_path = out_dir.join(INTERVENTIONS_JSONL);
+        let mut intervention_log = InterventionLog::new();
         let session_id = make_run_id("worker-session");
         let instruction = build_opencode_instruction(mode, &task_spec, &task_path, &out_dir)?;
         let instruction_path = out_dir.join("opencode-instructions.md");
         atomic_write(&instruction_path, instruction.as_bytes())?;
+        let initial_session_policy = if resume_session_id.is_some() {
+            InterventionSessionPolicy::SameSession
+        } else {
+            InterventionSessionPolicy::FreshSession
+        };
+        intervention_log.record(
+            InterventionEvent::new(
+                InterventionKind::WorkerHandoff,
+                InterventionPhase::PreWorker,
+                InterventionTarget::Worker,
+                "initial_worker_instruction",
+                "instruction_written",
+            )
+            .with_session_policy(initial_session_policy)
+            .with_artifacts(vec![
+                "task.json".to_string(),
+                "opencode-instructions.md".to_string(),
+            ])
+            .with_details(intervention_details([
+                ("mode", json!(mode.to_string())),
+                ("expect_patch", json!(expect_patch)),
+                ("task", json!(display_path(root, &task_path))),
+            ])),
+        );
 
         let request = AgentRequest {
             root: root.to_path_buf(),
@@ -96,7 +123,6 @@ impl MixmodRun<'_> {
         let mut output = runner.run(&request)?;
         let mut end_timestamp = Utc::now();
         let mut wall_clock_ms = start.elapsed().as_millis();
-        let expect_patch = expect_patch_for_run(mode, &task_value);
         let mut empty_patch_followup = EmptyPatchFollowup::new();
         let revision_context = RevisionNoopContext::from_task(&task_value);
         let mut revision_noop_followup = RevisionNoopFollowup::new(
@@ -194,6 +220,33 @@ impl MixmodRun<'_> {
                         before_diff.as_deref().unwrap_or_default(),
                     );
                     revision_noop_followup.patch_created = !patch.trim().is_empty();
+                    intervention_log.record(
+                        InterventionEvent::new(
+                            InterventionKind::RevisionNoopFollowup,
+                            InterventionPhase::PostWorker,
+                            InterventionTarget::Worker,
+                            revision_noop_followup
+                                .reason
+                                .as_deref()
+                                .unwrap_or("revision worker run expected a new delta"),
+                            if revision_noop_followup.patch_created {
+                                "patch_created"
+                            } else {
+                                "no_patch_created"
+                            },
+                        )
+                        .with_session_policy(InterventionSessionPolicy::SameSession)
+                        .with_artifacts(vec![
+                            "revision-noop-followup/task.json".to_string(),
+                            "revision-noop-followup/opencode-instructions.md".to_string(),
+                        ])
+                        .with_details(intervention_details([
+                            ("patch_created", json!(revision_noop_followup.patch_created)),
+                            ("patch_bytes", json!(patch.len() as u64)),
+                            ("worker_mode", json!(revision_context.worker_mode)),
+                            ("patch_decision", json!(revision_context.patch_decision)),
+                        ])),
+                    );
                 }
                 Err(error) => {
                     revision_noop_followup.reason = Some(format!(
@@ -202,6 +255,25 @@ impl MixmodRun<'_> {
                     notes.push(format!(
                         "Revision no-op follow-up was triggered but could not run: {error}"
                     ));
+                    intervention_log.record(
+                        InterventionEvent::new(
+                            InterventionKind::RevisionNoopFollowup,
+                            InterventionPhase::PostWorker,
+                            InterventionTarget::Worker,
+                            revision_noop_followup
+                                .reason
+                                .as_deref()
+                                .unwrap_or("revision no-op follow-up failed before it could run"),
+                            "failed",
+                        )
+                        .with_session_policy(InterventionSessionPolicy::SameSession)
+                        .with_performed(false)
+                        .with_artifacts(vec![
+                            "revision-noop-followup/task.json".to_string(),
+                            "revision-noop-followup/opencode-instructions.md".to_string(),
+                        ])
+                        .with_details(intervention_details([("error", json!(error.to_string()))])),
+                    );
                 }
             }
             atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
@@ -252,6 +324,31 @@ impl MixmodRun<'_> {
                         before_diff.as_deref().unwrap_or_default(),
                     );
                     empty_patch_followup.patch_created = !patch.trim().is_empty();
+                    intervention_log.record(
+                        InterventionEvent::new(
+                            InterventionKind::EmptyPatchFollowup,
+                            InterventionPhase::PostWorker,
+                            InterventionTarget::Worker,
+                            empty_patch_followup
+                                .reason
+                                .as_deref()
+                                .unwrap_or("patch-mode worker run expected a patch"),
+                            if empty_patch_followup.patch_created {
+                                "patch_created"
+                            } else {
+                                "no_patch_created"
+                            },
+                        )
+                        .with_session_policy(InterventionSessionPolicy::SameSession)
+                        .with_artifacts(vec![
+                            "empty-patch-followup/task.json".to_string(),
+                            "empty-patch-followup/opencode-instructions.md".to_string(),
+                        ])
+                        .with_details(intervention_details([
+                            ("patch_created", json!(empty_patch_followup.patch_created)),
+                            ("patch_bytes", json!(patch.len() as u64)),
+                        ])),
+                    );
                 }
                 Err(error) => {
                     empty_patch_followup.reason = Some(format!(
@@ -260,6 +357,25 @@ impl MixmodRun<'_> {
                     notes.push(format!(
                         "Empty-patch follow-up was triggered but could not run: {error}"
                     ));
+                    intervention_log.record(
+                        InterventionEvent::new(
+                            InterventionKind::EmptyPatchFollowup,
+                            InterventionPhase::PostWorker,
+                            InterventionTarget::Worker,
+                            empty_patch_followup
+                                .reason
+                                .as_deref()
+                                .unwrap_or("empty-patch follow-up failed before it could run"),
+                            "failed",
+                        )
+                        .with_session_policy(InterventionSessionPolicy::SameSession)
+                        .with_performed(false)
+                        .with_artifacts(vec![
+                            "empty-patch-followup/task.json".to_string(),
+                            "empty-patch-followup/opencode-instructions.md".to_string(),
+                        ])
+                        .with_details(intervention_details([("error", json!(error.to_string()))])),
+                    );
                 }
             }
             atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
@@ -308,12 +424,14 @@ impl MixmodRun<'_> {
             out_dir: &out_dir,
         });
         atomic_write(&out_dir.join("report.md"), report.as_bytes())?;
+        intervention_log.write_jsonl(&interventions_path)?;
 
         let compact_artifacts = [
             "receipt.json",
             "report.md",
             "worktree.patch",
             "changes.patch",
+            INTERVENTIONS_JSONL,
             "metrics.json",
         ];
         let report_bytes = file_len(&out_dir.join("report.md"))?;
@@ -342,6 +460,9 @@ impl MixmodRun<'_> {
             opencode_idle_timed_out: output.idle_timed_out,
             heartbeat_count: output.heartbeat_count,
             expect_patch,
+            intervention_count: intervention_log.events().len(),
+            intervention_kinds: intervention_log.kind_names(),
+            intervention_artifact: display_path(root, &interventions_path),
             empty_patch_followup_triggered: empty_patch_followup.triggered,
             empty_patch_followup_performed: empty_patch_followup.performed,
             empty_patch_followup_patch_created: empty_patch_followup.patch_created,
@@ -388,6 +509,7 @@ impl MixmodRun<'_> {
             patch: display_path(root, &out_dir.join("changes.patch")),
             worktree_patch: display_path(root, &out_dir.join("worktree.patch")),
             session: display_path(root, &out_dir.join("session.jsonl")),
+            interventions: display_path(root, &interventions_path),
             metrics: display_path(root, &out_dir.join("metrics.json")),
             logs: display_path(root, &logs_dir),
         };
@@ -728,6 +850,15 @@ fn string_list_or_none(items: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+fn intervention_details(
+    items: impl IntoIterator<Item = (&'static str, Value)>,
+) -> serde_json::Map<String, Value> {
+    items
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect()
 }
 
 struct EmptyPatchFollowupRequest<'a> {
@@ -1206,6 +1337,7 @@ Worker-facing check guidance from task metadata:
 - `{report}`
 - `{worktree_patch}`
 - `{patch}`
+- `{interventions}`
 - `{metrics}`
 
 Raw session and logs are available under `{out_dir}` when needed.
@@ -1248,6 +1380,7 @@ Heartbeat log: `{heartbeat}`
         report = display_path(root, &out_dir.join("report.md")),
         worktree_patch = display_path(root, &out_dir.join("worktree.patch")),
         patch = display_path(root, &out_dir.join("changes.patch")),
+        interventions = display_path(root, &out_dir.join(INTERVENTIONS_JSONL)),
         metrics = display_path(root, &out_dir.join("metrics.json")),
         heartbeat = display_path(root, &out_dir.join("logs/heartbeat.jsonl")),
         out_dir = display_path(root, out_dir),

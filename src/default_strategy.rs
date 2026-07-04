@@ -108,6 +108,7 @@ impl DefaultStrategyRun<'_> {
                     final_out.join("report.md"),
                     final_out.join("worktree.patch"),
                     final_out.join("changes.patch"),
+                    final_out.join(INTERVENTIONS_JSONL),
                     final_out.join("metrics.json"),
                 ];
                 let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
@@ -278,7 +279,7 @@ impl DefaultStrategyRun<'_> {
             "supervisor_resume_count": frontier_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
-            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
+            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "interventions.jsonl", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
             "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
@@ -390,6 +391,7 @@ fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
         "session.jsonl",
         "worktree.patch",
         "changes.patch",
+        INTERVENTIONS_JSONL,
         PATCH_COMPARISON,
         PREVIOUS_WORKTREE_PATCH,
         "partial.patch",
