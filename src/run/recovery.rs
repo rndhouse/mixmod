@@ -1,0 +1,339 @@
+use crate::*;
+
+use super::prompts::{
+    build_empty_patch_followup_instruction, build_revision_noop_followup_instruction,
+    revision_focus_files,
+};
+
+#[derive(Debug)]
+pub(super) struct EmptyPatchFollowup {
+    pub(super) triggered: bool,
+    pub(super) performed: bool,
+    pub(super) patch_created: bool,
+    pub(super) reason: Option<String>,
+    pub(super) run_dir: Option<String>,
+}
+
+impl EmptyPatchFollowup {
+    pub(super) fn new() -> Self {
+        Self {
+            triggered: false,
+            performed: false,
+            patch_created: false,
+            reason: None,
+            run_dir: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct RevisionNoopFollowup {
+    pub(super) delta_expected: bool,
+    pub(super) triggered: bool,
+    pub(super) performed: bool,
+    pub(super) patch_created: bool,
+    pub(super) reason: Option<String>,
+    pub(super) run_dir: Option<String>,
+}
+
+impl RevisionNoopFollowup {
+    pub(super) fn new(delta_expected: bool) -> Self {
+        Self {
+            delta_expected,
+            triggered: false,
+            performed: false,
+            patch_created: false,
+            reason: None,
+            run_dir: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct RevisionNoopContext {
+    pub(super) delta_expected: bool,
+    pub(super) message_to_worker: String,
+    pub(super) focus_files: Vec<String>,
+    pub(super) required_checks: Vec<String>,
+    pub(super) worker_mode: String,
+    pub(super) patch_decision: String,
+}
+
+impl RevisionNoopContext {
+    pub(super) fn from_task(task: &Value) -> Option<Self> {
+        let revision = task.get("context")?.get("revision")?;
+        let delta_expected = get_bool(revision, "delta_expected").unwrap_or_else(|| {
+            let patch_decision = get_str(revision, "patch_decision").unwrap_or("");
+            matches!(patch_decision, "revise_current" | "revise_previous")
+        });
+        if !delta_expected {
+            return None;
+        }
+        Some(Self {
+            delta_expected,
+            message_to_worker: get_str(revision, "message_to_worker")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            focus_files: get_string_array(revision, "focus_files"),
+            required_checks: get_string_array(revision, "required_checks"),
+            worker_mode: get_str(revision, "worker_mode")
+                .unwrap_or("continue")
+                .trim()
+                .to_string(),
+            patch_decision: get_str(revision, "patch_decision")
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+        })
+    }
+}
+
+pub(super) struct RevisionNoopFollowupRequest<'a> {
+    pub(super) root: &'a Path,
+    pub(super) mode: DelegationMode,
+    pub(super) task: &'a TaskSpec,
+    pub(super) task_path: &'a Path,
+    pub(super) out_dir: &'a Path,
+    pub(super) runner: &'a dyn AgentHarness,
+    pub(super) require_local: bool,
+    pub(super) original_request: &'a AgentRequest,
+    pub(super) output: &'a AgentOutput,
+    pub(super) revision: &'a RevisionNoopContext,
+}
+
+pub(super) fn run_revision_noop_followup(
+    request: RevisionNoopFollowupRequest<'_>,
+) -> Result<(AgentOutput, PathBuf)> {
+    let RevisionNoopFollowupRequest {
+        root,
+        mode,
+        task,
+        task_path,
+        out_dir,
+        runner,
+        require_local,
+        original_request,
+        output,
+        revision,
+    } = request;
+    let resume_session_id = output.session_id.clone().ok_or_else(|| {
+        anyhow!("cannot run revision no-op follow-up without a worker session id")
+    })?;
+    let followup_dir = out_dir.join("revision-noop-followup");
+    fs::create_dir_all(&followup_dir).with_context(|| {
+        format!(
+            "failed to create revision no-op follow-up dir {}",
+            followup_dir.display()
+        )
+    })?;
+    let followup_task = json!({
+        "title": format!("Revision no-op follow-up: {}", task.title),
+        "expect_patch": true,
+        "instructions": "The previous revision worker turn exited successfully, but Mixmod captured no new delta against the existing candidate patch.",
+        "files": revision_focus_files(task, revision),
+        "tests": revision.required_checks,
+        "constraints": [
+            "Do not only inspect files.",
+            "Apply the exact supervisor revision or report BLOCKED."
+        ],
+        "acceptance": [
+            "Make a new repository diff relative to the previous candidate patch, or return BLOCKED with a concrete reason."
+        ],
+        "context": {
+            "source_task": task_path.to_string_lossy(),
+            "revision_noop_followup": true,
+            "revision": {
+                "message_to_worker": revision.message_to_worker,
+                "worker_mode": revision.worker_mode,
+                "patch_decision": revision.patch_decision,
+                "focus_files": revision.focus_files,
+                "required_checks": revision.required_checks
+            }
+        }
+    });
+    let followup_task_path = followup_dir.join(TASK_JSON);
+    write_pretty_json(
+        &followup_task_path,
+        &followup_task,
+        "revision no-op follow-up task",
+    )?;
+
+    let instruction = build_revision_noop_followup_instruction(mode, task, revision);
+    let instruction_path = followup_dir.join(OPENCODE_INSTRUCTIONS_MD);
+    atomic_write(&instruction_path, instruction.as_bytes())?;
+    let followup_request = AgentRequest {
+        root: root.to_path_buf(),
+        mode,
+        task_path: followup_task_path,
+        out_dir: followup_dir.clone(),
+        instruction_path,
+        instruction,
+        session_id: original_request.session_id.clone(),
+        resume_session_id: Some(resume_session_id),
+        require_local,
+    };
+    let followup_output = runner.run(&followup_request)?;
+    Ok((followup_output, followup_dir))
+}
+
+pub(super) struct EmptyPatchFollowupRequest<'a> {
+    pub(super) root: &'a Path,
+    pub(super) mode: DelegationMode,
+    pub(super) task: &'a TaskSpec,
+    pub(super) task_path: &'a Path,
+    pub(super) out_dir: &'a Path,
+    pub(super) runner: &'a dyn AgentHarness,
+    pub(super) require_local: bool,
+    pub(super) original_request: &'a AgentRequest,
+    pub(super) output: &'a AgentOutput,
+}
+
+pub(super) fn run_empty_patch_followup(
+    request: EmptyPatchFollowupRequest<'_>,
+) -> Result<(AgentOutput, PathBuf)> {
+    let EmptyPatchFollowupRequest {
+        root,
+        mode,
+        task,
+        task_path,
+        out_dir,
+        runner,
+        require_local,
+        original_request,
+        output,
+    } = request;
+    let resume_session_id = output
+        .session_id
+        .clone()
+        .ok_or_else(|| anyhow!("cannot run empty-patch follow-up without a worker session id"))?;
+    let followup_dir = out_dir.join("empty-patch-followup");
+    fs::create_dir_all(&followup_dir).with_context(|| {
+        format!(
+            "failed to create empty-patch follow-up dir {}",
+            followup_dir.display()
+        )
+    })?;
+    let followup_task = json!({
+        "title": format!("Empty-patch follow-up: {}", task.title),
+        "expect_patch": true,
+        "instructions": "The previous local-worker run exited successfully, but Mixmod captured no repository diff.",
+        "files": &task.files,
+        "tests": &task.tests,
+        "constraints": [
+            "Do not restart broad exploration.",
+            "Resolve the empty-patch mismatch compactly."
+        ],
+        "acceptance": [
+            "Either make the intended edits, explain why no patch is needed, or explain the blocker."
+        ],
+        "context": {
+            "source_task": task_path.to_string_lossy(),
+            "empty_patch_followup": true
+        }
+    });
+    let followup_task_path = followup_dir.join(TASK_JSON);
+    write_pretty_json(
+        &followup_task_path,
+        &followup_task,
+        "empty-patch follow-up task",
+    )?;
+
+    let instruction = build_empty_patch_followup_instruction(mode, task, task_path, &followup_dir);
+    let instruction_path = followup_dir.join(OPENCODE_INSTRUCTIONS_MD);
+    atomic_write(&instruction_path, instruction.as_bytes())?;
+    let followup_request = AgentRequest {
+        root: root.to_path_buf(),
+        mode,
+        task_path: followup_task_path,
+        out_dir: followup_dir.clone(),
+        instruction_path,
+        instruction,
+        session_id: original_request.session_id.clone(),
+        resume_session_id: Some(resume_session_id),
+        require_local,
+    };
+    let followup_output = runner.run(&followup_request)?;
+    Ok((followup_output, followup_dir))
+}
+
+pub(super) fn should_run_empty_patch_followup(
+    mode: DelegationMode,
+    expect_patch: bool,
+    output: &AgentOutput,
+    patch: &str,
+) -> bool {
+    mode == DelegationMode::Patch
+        && expect_patch
+        && output.success
+        && !output.timed_out
+        && !output.idle_timed_out
+        && !output.interrupted_by_supervisor
+        && patch.trim().is_empty()
+}
+
+pub(super) fn should_run_revision_noop_followup(
+    mode: DelegationMode,
+    expect_patch: bool,
+    revision: Option<&RevisionNoopContext>,
+    output: &AgentOutput,
+    patch: &str,
+) -> bool {
+    mode == DelegationMode::Patch
+        && expect_patch
+        && revision.is_some_and(|context| context.delta_expected)
+        && output.success
+        && !output.timed_out
+        && !output.idle_timed_out
+        && !output.interrupted_by_supervisor
+        && patch.trim().is_empty()
+}
+
+pub(super) fn merge_worker_outputs(
+    mut first: AgentOutput,
+    second: AgentOutput,
+    label: &str,
+    note: &str,
+) -> AgentOutput {
+    let marker = format!("<{}>", label.replace(' ', "-"));
+    let stdout_header = format!("\n\n--- {label} stdout ---\n");
+    let stderr_header = format!("\n\n--- {label} stderr ---\n");
+
+    first.command_for_metrics.push(marker);
+    first
+        .command_for_metrics
+        .extend(second.command_for_metrics.clone());
+    first.segments.extend(second.segments.clone());
+    first.exit_status = second.exit_status;
+    first.success = second.success;
+    first.stdout.extend_from_slice(stdout_header.as_bytes());
+    first.stdout.extend_from_slice(&second.stdout);
+    first.stderr.extend_from_slice(stderr_header.as_bytes());
+    first.stderr.extend_from_slice(&second.stderr);
+    first.session_id = second.session_id.or(first.session_id);
+    first.resume_session_id = second.resume_session_id.or(first.resume_session_id);
+    first.session_reused = first.session_reused || second.session_reused;
+    first.interrupted_by_supervisor =
+        first.interrupted_by_supervisor || second.interrupted_by_supervisor;
+    first.supervisor_control_action = second
+        .supervisor_control_action
+        .or(first.supervisor_control_action);
+    first
+        .supervisor_control_events
+        .extend(second.supervisor_control_events);
+    first.timed_out = first.timed_out || second.timed_out;
+    first.idle_timed_out = first.idle_timed_out || second.idle_timed_out;
+    first.heartbeat_count += second.heartbeat_count;
+    first.require_local = first.require_local || second.require_local;
+    first.local_inference_verified = if first.require_local {
+        first.local_inference_verified && second.local_inference_verified
+    } else {
+        first.local_inference_verified || second.local_inference_verified
+    };
+    first.gpu_activity_observed = first.gpu_activity_observed || second.gpu_activity_observed;
+    first.backend_activity_observed =
+        first.backend_activity_observed || second.backend_activity_observed;
+    first.verification_notes.push(note.to_string());
+    first.verification_notes.extend(second.verification_notes);
+    first
+}

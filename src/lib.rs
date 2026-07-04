@@ -32,6 +32,7 @@ mod supervisor;
 mod task;
 #[cfg(test)]
 mod tests;
+mod worker;
 
 pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
@@ -50,10 +51,9 @@ pub(crate) use checkpoint::{
     append_patch_checkpoint_artifacts, patch_checkpoint_metrics, write_patch_checkpoint_comparison,
 };
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
-pub(crate) use config::WorkerSupervisorGuidance;
 pub use config::{
     LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig, SupervisorConfig,
-    WorkerBackend, WorkerConfig, WorkerModelProfile,
+    WorkerBackend, WorkerConfig,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
@@ -112,6 +112,8 @@ pub(crate) use supervisor::{
 pub(crate) use supervisor::{
     normalize_feedback_value, supervisor_feedback_prompt, supervisor_worker_brief_prompt,
 };
+pub use worker::WorkerModelProfile;
+pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
 
 use task::{
     TaskSpec, agent_visible_task_value, ensure_agent_visible_task_file, read_task_json,
