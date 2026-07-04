@@ -103,13 +103,14 @@ fn run_codex_only_baseline(
     let config = load_config(root)?;
     let start = Instant::now();
     let run_start = Utc::now();
+    let sandbox = codex_only_sandbox_from_env()?;
     let result = run_codex_app_server_turn(
         work_dir,
         target,
         "codex-only",
         &prompt,
         &config.supervisor,
-        CodexSandbox::WorkspaceWrite,
+        sandbox,
     )?;
     let patch = git_diff_with_untracked(work_dir).unwrap_or_default();
     atomic_write(&target.join(FINAL_PATCH), patch.as_bytes())?;
@@ -146,6 +147,7 @@ fn run_codex_only_baseline(
         "codex_turns": 1,
         "codex_calls": 1,
         "codex_backend": "app-server",
+        "codex_sandbox": sandbox.as_thread_arg(),
         "codex_app_server_thread_id": result.thread_id.clone(),
         "codex_app_server_turn_id": result.turn_id.clone(),
         "mixmod_delegations": 0,
@@ -174,6 +176,18 @@ fn run_codex_only_baseline(
         display_path(root, target)
     );
     Ok(())
+}
+
+fn codex_only_sandbox_from_env() -> Result<CodexSandbox> {
+    match env::var("MIXMOD_CODEX_ONLY_SANDBOX") {
+        Ok(value) if value == "danger-full-access" => Ok(CodexSandbox::DangerFullAccess),
+        Ok(value) if value == "workspace-write" => Ok(CodexSandbox::WorkspaceWrite),
+        Ok(value) => bail!(
+            "unsupported MIXMOD_CODEX_ONLY_SANDBOX value `{value}`; expected workspace-write or danger-full-access"
+        ),
+        Err(env::VarError::NotPresent) => Ok(CodexSandbox::WorkspaceWrite),
+        Err(error) => Err(error).context("failed to read MIXMOD_CODEX_ONLY_SANDBOX"),
+    }
 }
 
 pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<()> {

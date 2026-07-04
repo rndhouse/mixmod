@@ -39,6 +39,7 @@ pub(crate) struct CodexTurnResult {
 pub(crate) enum CodexSandbox {
     ReadOnly,
     WorkspaceWrite,
+    DangerFullAccess,
 }
 
 impl CodexSandbox {
@@ -46,11 +47,13 @@ impl CodexSandbox {
         match self {
             Self::ReadOnly => "read-only",
             Self::WorkspaceWrite => "workspace-write",
+            Self::DangerFullAccess => "danger-full-access",
         }
     }
 
     pub(crate) fn as_turn_policy(self, work_dir: &Path) -> Value {
         match self {
+            Self::DangerFullAccess => json!({"type": "dangerFullAccess"}),
             Self::ReadOnly => json!({"type": "readOnly", "networkAccess": false}),
             Self::WorkspaceWrite => json!({
                 "type": "workspaceWrite",

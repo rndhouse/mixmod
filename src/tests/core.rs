@@ -380,6 +380,17 @@ fn codex_only_baseline_can_write_workspace_files() {
 }
 
 #[test]
+fn codex_app_server_can_run_without_inner_sandbox() {
+    let policy = CodexSandbox::DangerFullAccess.as_turn_policy(Path::new("/tmp/work"));
+
+    assert_eq!(
+        CodexSandbox::DangerFullAccess.as_thread_arg(),
+        "danger-full-access"
+    );
+    assert_eq!(get_str(&policy, "type"), Some("dangerFullAccess"));
+}
+
+#[test]
 fn patch_stats_counts_files_and_lines() {
     let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1,2 @@\n-old\n+new\n+line\n";
     let stats = patch_stats(patch);

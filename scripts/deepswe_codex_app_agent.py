@@ -110,6 +110,7 @@ class CodexAppAgent(BaseInstalledAgent):
         env = self.build_process_env(
             {
                 "MIXMOD_DEBUG_COMMANDS": "1",
+                "MIXMOD_CODEX_ONLY_SANDBOX": "danger-full-access",
                 "MIXMOD_STATE_DIR": state_dir.as_posix(),
             }
         )
