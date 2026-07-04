@@ -176,6 +176,7 @@ from pathlib import Path
 
 supervisor_model = {self.supervisor_model!r}
 worker_model = {self.worker_model!r}
+require_local = {self.require_local!r}
 base_url = os.environ.get("MIXMOD_OPENCODE_BASE_URL")
 
 def split_supervisor(value):
@@ -201,6 +202,10 @@ def rewrite_toml(path):
             line = f'provider = "{{provider}}"'
         elif section == "opencode" and stripped.startswith("model = "):
             line = f'model = "{{model}}"'
+        elif section == "opencode" and stripped.startswith("require_local = "):
+            line = f'require_local = {{str(require_local).lower()}}'
+        elif section == "opencode.local_verification" and stripped.startswith("enabled = "):
+            line = f'enabled = {{str(require_local).lower()}}'
         lines.append(line)
     path.write_text("\\n".join(lines) + "\\n")
 
