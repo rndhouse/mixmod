@@ -25,6 +25,11 @@ OPENAI_DOMAINS = {
     "cdn.oaistatic.com",
 }
 
+OPENROUTER_DOMAINS = {
+    "api.openrouter.ai",
+    "openrouter.ai",
+}
+
 INSTALL_DOMAINS = {
     "github.com",
     "raw.githubusercontent.com",
@@ -263,6 +268,7 @@ def _truthy(value: bool | str) -> bool:
 
 def mixmod_network_allowlist(extra_url: str | None = None) -> NetworkAllowlist:
     domains = set(OPENAI_DOMAINS)
+    domains.update(OPENROUTER_DOMAINS)
     domains.update(INSTALL_DOMAINS)
     if extra_url:
         parsed = urlparse(extra_url)
