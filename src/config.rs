@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DEFAULT_FRONTIER_MODEL, DEFAULT_FRONTIER_REASONING_EFFORT, DEFAULT_OPENCODE_MODEL,
-    DEFAULT_OPENCODE_OLLAMA_MODEL, DEFAULT_OPENCODE_PROVIDER, MIXMOD_OPENCODE_AGENT,
+    DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_OLLAMA_MODEL, DEFAULT_OPENCODE_PROVIDER,
+    DEFAULT_SUPERVISOR_MODEL, DEFAULT_SUPERVISOR_REASONING_EFFORT, MIXMOD_OPENCODE_AGENT,
 };
 
 const REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
@@ -19,9 +19,9 @@ pub struct MixmodConfig {
     /// OpenCode worker configuration.
     pub opencode: OpenCodeConfig,
     /// Codex worker configuration.
-    pub codex_worker: FrontierConfig,
-    /// Codex supervisor configuration.
-    pub frontier: FrontierConfig,
+    pub codex_worker: SupervisorConfig,
+    /// Supervisor model configuration.
+    pub supervisor: SupervisorConfig,
     /// Historical guidance profiles keyed by worker model.
     #[serde(default = "default_worker_model_profiles")]
     pub worker_model_profiles: Vec<WorkerModelProfile>,
@@ -32,8 +32,8 @@ impl Default for MixmodConfig {
         Self {
             worker: WorkerConfig::default(),
             opencode: OpenCodeConfig::default(),
-            codex_worker: FrontierConfig::default(),
-            frontier: FrontierConfig::default(),
+            codex_worker: SupervisorConfig::default(),
+            supervisor: SupervisorConfig::default(),
             worker_model_profiles: default_worker_model_profiles(),
         }
     }
@@ -144,7 +144,7 @@ impl Default for WorkerConfig {
 /// Per-run model choices supplied by CLI flags.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModelOverrides {
-    /// Codex supervisor model, optionally suffixed with a reasoning effort.
+    /// Supervisor model, optionally suffixed with a reasoning effort.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supervisor_model: Option<String>,
     /// Worker model override, interpreted by the selected worker backend.
@@ -178,9 +178,9 @@ impl ModelOverrides {
         }
         if let Some(value) = self.supervisor_model.as_deref() {
             let (model, reasoning_effort) =
-                parse_supervisor_model(value, &config.frontier.reasoning_effort)?;
-            config.frontier.model = model;
-            config.frontier.reasoning_effort = reasoning_effort;
+                parse_supervisor_model(value, &config.supervisor.reasoning_effort)?;
+            config.supervisor.model = model;
+            config.supervisor.reasoning_effort = reasoning_effort;
         }
         if let Some(value) = self.worker_model.as_deref() {
             match config.worker.backend {
@@ -380,16 +380,16 @@ impl Default for LocalVerificationConfig {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
-pub struct FrontierConfig {
+pub struct SupervisorConfig {
     pub model: String,
     pub reasoning_effort: String,
 }
 
-impl Default for FrontierConfig {
+impl Default for SupervisorConfig {
     fn default() -> Self {
         Self {
-            model: DEFAULT_FRONTIER_MODEL.to_string(),
-            reasoning_effort: DEFAULT_FRONTIER_REASONING_EFFORT.to_string(),
+            model: DEFAULT_SUPERVISOR_MODEL.to_string(),
+            reasoning_effort: DEFAULT_SUPERVISOR_REASONING_EFFORT.to_string(),
         }
     }
 }

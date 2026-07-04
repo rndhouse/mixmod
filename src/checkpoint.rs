@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    CHANGES_PATCH, FrontierFeedbackTurn, PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, PatchStats,
+    CHANGES_PATCH, PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, PatchStats, SupervisorFeedbackTurn,
     WORKTREE_PATCH, file_len, get_bool, patch_stats, read_json_file, write_pretty_json,
 };
 
@@ -52,7 +52,7 @@ pub(crate) struct PatchCheckpointComparison {
 pub(crate) fn write_patch_checkpoint_comparison(
     previous_run_dir: &Path,
     current_run_dir: &Path,
-    decision: &FrontierFeedbackTurn,
+    decision: &SupervisorFeedbackTurn,
 ) -> Result<PatchCheckpointComparison> {
     let previous_patch_path = previous_run_dir.join(WORKTREE_PATCH);
     let previous_copy_path = current_run_dir.join(PREVIOUS_WORKTREE_PATCH);

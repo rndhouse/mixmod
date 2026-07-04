@@ -20,7 +20,6 @@ mod config;
 mod default_strategy;
 mod diff;
 mod experiment;
-mod frontier;
 mod fs_util;
 mod harness;
 mod install;
@@ -29,22 +28,23 @@ mod live;
 mod report;
 mod run;
 mod state;
+mod supervisor;
 mod task;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
-    FRONTIER_FEEDBACK_JSONL, LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD,
-    PARTIAL_PATCH, PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, RECEIPT_JSON, REPORT_MD,
-    RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISOR_CONTROL_LOG, TASK_JSON, TASK_MD,
+    LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD, PARTIAL_PATCH,
+    PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, RECEIPT_JSON, REPORT_MD, RUN_COMPACT_ARTIFACTS,
+    SESSION_JSONL, SUPERVISOR_CONTROL_LOG, SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD,
     WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH,
     is_static_mixmod_artifact_name,
 };
 pub use artifacts::{
-    CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, FrontierFeedback,
-    INTERVENTIONS_JSONL, PatchStats, Receipt, RunMetrics, SupervisorControlCommand,
-    SupervisorControlEvent, WorkerBrief,
+    CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL,
+    PatchStats, Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent,
+    SupervisorFeedback, WorkerBrief,
 };
 pub(crate) use checkpoint::{
     append_patch_checkpoint_artifacts, patch_checkpoint_metrics, write_patch_checkpoint_comparison,
@@ -52,7 +52,7 @@ pub(crate) use checkpoint::{
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub(crate) use config::WorkerSupervisorGuidance;
 pub use config::{
-    FrontierConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
+    LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig, SupervisorConfig,
     WorkerBackend, WorkerConfig, WorkerModelProfile,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
@@ -79,14 +79,6 @@ use diff::{diff_without_unchanged_blocks, git_diff_with_untracked};
 pub(crate) use experiment::{placeholder_experiment_metrics, validate_experiment_name};
 #[cfg(test)]
 pub(crate) use experiment::{write_revision_task, write_worker_brief_task};
-pub(crate) use frontier::{
-    FrontierFeedbackTurn, aggregate_frontier_usage, codex_only_prompt, normalize_worker_mode,
-    run_codex_app_server_turn, run_frontier_brief_turn, run_frontier_feedback_turn,
-};
-#[cfg(test)]
-pub(crate) use frontier::{
-    frontier_feedback_prompt, frontier_worker_brief_prompt, normalize_feedback_value,
-};
 pub(crate) use fs_util::*;
 pub(crate) use harness::codex::CodexSandbox;
 #[cfg(test)]
@@ -112,6 +104,14 @@ pub(crate) use report::budgeted_report;
 pub(crate) use run::{build_opencode_instruction, build_run_summary, opencode_exit_status_label};
 pub(crate) use run::{run_mixmod_task_with_session, shell_command};
 pub(crate) use state::state_layout;
+pub(crate) use supervisor::{
+    SupervisorFeedbackTurn, aggregate_supervisor_usage, codex_only_prompt, normalize_worker_mode,
+    run_codex_app_server_turn, run_supervisor_brief_turn, run_supervisor_feedback_turn,
+};
+#[cfg(test)]
+pub(crate) use supervisor::{
+    normalize_feedback_value, supervisor_feedback_prompt, supervisor_worker_brief_prompt,
+};
 
 use task::{
     TaskSpec, agent_visible_task_value, ensure_agent_visible_task_file, read_task_json,
@@ -129,8 +129,8 @@ const DEFAULT_OPENCODE_PROVIDER: &str = "mixmod-local-ollama";
 const MIXMOD_OPENCODE_AGENT: &str = "mixmod-worker";
 const DEFAULT_OPENCODE_MODEL: &str = "qwen-3.6-27b";
 const DEFAULT_OPENCODE_OLLAMA_MODEL: &str = "qwen3.6:27b";
-const DEFAULT_FRONTIER_MODEL: &str = "gpt-5.5";
-const DEFAULT_FRONTIER_REASONING_EFFORT: &str = "high";
+const DEFAULT_SUPERVISOR_MODEL: &str = "gpt-5.5";
+const DEFAULT_SUPERVISOR_REASONING_EFFORT: &str = "high";
 const DEBUG_COMMANDS_ENV: &str = "MIXMOD_DEBUG_COMMANDS";
 
 pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {

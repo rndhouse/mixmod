@@ -2,7 +2,7 @@
 name = "mixmod"
 version = "0.1.0"
 edition = "2024"
-description = "Reduce frontier LLM cost with supervised worker models"
+description = "Reduce supervisor-model cost with worker models"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/rndhouse/mixmod"

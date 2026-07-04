@@ -23,7 +23,7 @@ Task JSON:
     ))
 }
 
-pub(crate) struct FrontierFeedbackTurn {
+pub(crate) struct SupervisorFeedbackTurn {
     pub(crate) feedback: Value,
     pub(crate) verdict: String,
     pub(crate) worker_mode: String,
@@ -43,7 +43,7 @@ pub(crate) struct FrontierFeedbackTurn {
 }
 
 #[derive(Debug)]
-pub(crate) struct FrontierBriefTurn {
+pub(crate) struct SupervisorBriefTurn {
     pub(crate) record: Value,
     pub(crate) brief: Value,
     pub(crate) input_tokens: u64,
@@ -58,7 +58,7 @@ pub(crate) struct FrontierBriefTurn {
 }
 
 #[derive(Clone)]
-pub(crate) struct FrontierUsageSample {
+pub(crate) struct SupervisorUsageSample {
     input_tokens: u64,
     output_tokens: u64,
     reasoning_tokens: u64,
@@ -70,9 +70,9 @@ pub(crate) struct FrontierUsageSample {
     turn_id: String,
 }
 
-impl FrontierFeedbackTurn {
-    pub(crate) fn usage_sample(&self) -> FrontierUsageSample {
-        FrontierUsageSample {
+impl SupervisorFeedbackTurn {
+    pub(crate) fn usage_sample(&self) -> SupervisorUsageSample {
+        SupervisorUsageSample {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             reasoning_tokens: self.reasoning_tokens,
@@ -86,9 +86,9 @@ impl FrontierFeedbackTurn {
     }
 }
 
-impl FrontierBriefTurn {
-    pub(crate) fn usage_sample(&self) -> FrontierUsageSample {
-        FrontierUsageSample {
+impl SupervisorBriefTurn {
+    pub(crate) fn usage_sample(&self) -> SupervisorUsageSample {
+        SupervisorUsageSample {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             reasoning_tokens: self.reasoning_tokens,
@@ -103,7 +103,7 @@ impl FrontierBriefTurn {
 }
 
 #[derive(Default)]
-pub(crate) struct FrontierUsage {
+pub(crate) struct SupervisorUsage {
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
     pub(crate) reasoning_tokens: u64,
@@ -116,7 +116,7 @@ pub(crate) struct FrontierUsage {
     pub(crate) turn_ids: Vec<String>,
 }
 
-impl FrontierUsage {
+impl SupervisorUsage {
     pub(crate) fn thread_count(&self) -> u64 {
         self.thread_ids
             .iter()
@@ -137,26 +137,26 @@ impl FrontierUsage {
     }
 }
 
-pub(crate) fn run_frontier_brief_turn(
+pub(crate) fn run_supervisor_brief_turn(
     work_dir: &Path,
     default_dir: &Path,
     task_path: &Path,
-    frontier: &FrontierConfig,
+    supervisor: &SupervisorConfig,
     worker_guidance: &WorkerSupervisorGuidance,
-) -> Result<FrontierBriefTurn> {
-    let prompt = frontier_worker_brief_prompt(work_dir, task_path, worker_guidance)?;
+) -> Result<SupervisorBriefTurn> {
+    let prompt = supervisor_worker_brief_prompt(work_dir, task_path, worker_guidance)?;
     let result = run_codex_app_server_turn(
         work_dir,
         default_dir,
         "worker-brief",
         &prompt,
-        frontier,
+        supervisor,
         CodexSandbox::ReadOnly,
     )?;
     let parsed_brief = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
             "handoff": "blocked",
-            "message_to_worker": "Codex did not return parseable handoff JSON.",
+            "message_to_worker": "The supervisor did not return parseable handoff JSON.",
             "risk": truncate_for_report(&result.last_message, 160)
         })
     });
@@ -167,20 +167,20 @@ pub(crate) fn run_frontier_brief_turn(
         "timestamp": Utc::now().to_rfc3339(),
         "brief": parsed_brief,
         "codex_exit_status": result.exit_status,
-        "frontier_model": result.model.clone(),
-        "frontier_reasoning_effort": result.reasoning_effort.clone(),
-        "frontier_input_tokens": result.usage.input_tokens,
-        "frontier_output_tokens": result.usage.output_tokens,
-        "frontier_reasoning_tokens": result.usage.reasoning_tokens,
-        "frontier_total_tokens": result.usage.total_tokens,
-        "frontier_cached_input_tokens": result.usage.cached_input_tokens,
+        "supervisor_model": result.model.clone(),
+        "supervisor_reasoning_effort": result.reasoning_effort.clone(),
+        "supervisor_input_tokens": result.usage.input_tokens,
+        "supervisor_output_tokens": result.usage.output_tokens,
+        "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
+        "supervisor_total_tokens": result.usage.total_tokens,
+        "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
         "input_bytes": result.input_bytes,
         "output_bytes": result.output_bytes,
         "auth_copied_then_removed": result.auth_copied_then_removed,
         "codex_app_server_thread_id": thread_id.clone(),
         "codex_app_server_turn_id": turn_id.clone()
     });
-    Ok(FrontierBriefTurn {
+    Ok(SupervisorBriefTurn {
         record,
         brief: parsed_brief,
         input_tokens: result.usage.input_tokens,
@@ -195,22 +195,23 @@ pub(crate) fn run_frontier_brief_turn(
     })
 }
 
-pub(crate) fn run_frontier_feedback_turn(
+pub(crate) fn run_supervisor_feedback_turn(
     work_dir: &Path,
     budgeted_dir: &Path,
     label: &str,
     artifact_paths: &[PathBuf],
     instruction: &str,
-    frontier: &FrontierConfig,
+    supervisor: &SupervisorConfig,
     worker_guidance: &WorkerSupervisorGuidance,
-) -> Result<FrontierFeedbackTurn> {
-    let prompt = frontier_feedback_prompt(work_dir, artifact_paths, instruction, worker_guidance)?;
+) -> Result<SupervisorFeedbackTurn> {
+    let prompt =
+        supervisor_feedback_prompt(work_dir, artifact_paths, instruction, worker_guidance)?;
     let result = run_codex_app_server_turn(
         work_dir,
         budgeted_dir,
         label,
         &prompt,
-        frontier,
+        supervisor,
         CodexSandbox::ReadOnly,
     )?;
     let parsed_feedback = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
@@ -224,7 +225,7 @@ pub(crate) fn run_frontier_feedback_turn(
         })
     });
     let (mut parsed_feedback, verdict) = normalize_feedback_value(parsed_feedback);
-    let typed_feedback = FrontierFeedback::from_value(&parsed_feedback);
+    let typed_feedback = SupervisorFeedback::from_value(&parsed_feedback);
     let worker_mode = normalize_worker_mode(typed_feedback.worker_mode.as_deref());
     let patch_decision = normalize_patch_decision(typed_feedback.patch_decision.as_deref());
     if let Value::Object(map) = &mut parsed_feedback {
@@ -233,7 +234,7 @@ pub(crate) fn run_frontier_feedback_turn(
     }
     let thread_id = result.thread_id.clone();
     let turn_id = result.turn_id.clone();
-    let turn = FrontierFeedbackTurn {
+    let turn = SupervisorFeedbackTurn {
         verdict,
         worker_mode,
         patch_decision,
@@ -248,13 +249,13 @@ pub(crate) fn run_frontier_feedback_turn(
             "timestamp": Utc::now().to_rfc3339(),
             "feedback": parsed_feedback,
             "codex_exit_status": result.exit_status,
-            "frontier_model": result.model.clone(),
-            "frontier_reasoning_effort": result.reasoning_effort.clone(),
-            "frontier_input_tokens": result.usage.input_tokens,
-            "frontier_output_tokens": result.usage.output_tokens,
-            "frontier_reasoning_tokens": result.usage.reasoning_tokens,
-            "frontier_total_tokens": result.usage.total_tokens,
-            "frontier_cached_input_tokens": result.usage.cached_input_tokens,
+            "supervisor_model": result.model.clone(),
+            "supervisor_reasoning_effort": result.reasoning_effort.clone(),
+            "supervisor_input_tokens": result.usage.input_tokens,
+            "supervisor_output_tokens": result.usage.output_tokens,
+            "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
+            "supervisor_total_tokens": result.usage.total_tokens,
+            "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
             "input_bytes": result.input_bytes,
             "output_bytes": result.output_bytes,
             "auth_copied_then_removed": result.auth_copied_then_removed,
@@ -279,14 +280,14 @@ pub(crate) fn run_codex_app_server_turn(
     artifact_dir: &Path,
     label: &str,
     prompt: &str,
-    frontier: &FrontierConfig,
+    supervisor: &SupervisorConfig,
     sandbox: CodexSandbox,
 ) -> Result<CodexTurnResult> {
-    let mut server = CodexAppServer::start(work_dir, frontier, sandbox)?;
+    let mut server = CodexAppServer::start(work_dir, supervisor, sandbox)?;
     server.run_turn(artifact_dir, label, prompt)
 }
 
-pub(crate) fn frontier_worker_brief_prompt(
+pub(crate) fn supervisor_worker_brief_prompt(
     work_dir: &Path,
     task_path: &Path,
     worker_guidance: &WorkerSupervisorGuidance,
@@ -309,10 +310,10 @@ pub(crate) fn frontier_worker_brief_prompt(
     }
     let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
-        r#"You are Codex supervising a Mixmod worker.
+        r#"You are the supervisor model for a Mixmod worker.
 Use the provided file context. Do not edit files. Do not run tests. Do not implement the patch. Do not ask the user for approval.
 The worker receives the original task JSON and can inspect, edit, and test the repo.
-Use frontier intelligence freely through reading and reasoning, but minimize frontier output.
+Use supervisor reasoning freely, but minimize supervisor output.
 {worker_guidance}
 Emit one compact executable worker handoff as minified JSON only; no markdown and no explanation.
 Do not restate the original task. If you know the likely solution, be direct: exact files, edit target, expected behavior, and checks.
@@ -343,7 +344,7 @@ File context:
     ))
 }
 
-pub(crate) fn frontier_feedback_prompt(
+pub(crate) fn supervisor_feedback_prompt(
     work_dir: &Path,
     artifact_paths: &[PathBuf],
     instruction: &str,
@@ -363,7 +364,7 @@ pub(crate) fn frontier_feedback_prompt(
     }
     let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
-        r#"You are a terse frontier critic supervising a local worker.
+        r#"You are a terse supervisor reviewing a local worker.
 Do not implement code. Do not edit files. Do not ask the user for approval.
 {worker_guidance}
 Return only JSON matching this schema:
@@ -375,7 +376,7 @@ Use worker_mode=context_focus to start a new worker session on the same worktree
 When patch-comparison.json is present, choose patch_decision explicitly. Use accept_current when the current worktree.patch should stand, revise_current when the current patch should be edited further, and revise_previous when previous-worktree.patch is the better candidate. Mixmod will not mutate the repo directly from this choice. If you choose revise_previous, summarize the concrete source/test edits to recover in message_to_worker; do not tell the worker to read previous-worktree.patch or any Mixmod artifact.
 Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files. Do not ask the worker to inspect Mixmod state or artifact directories.
 Important artifact semantics: worktree.patch is the accumulated current repository diff and is authoritative for deciding whether the patch exists; changes.patch is only the latest worker run delta and may be empty after a verification-only revision.
-Use stop only to record a blocked or inconclusive worker result when no useful worker path remains. Stop does not permit direct Codex editing.
+Use stop only to record a blocked or inconclusive worker result when no useful worker path remains. Stop does not permit direct supervisor editing.
 Working repo: {work_dir}
 Instruction: {instruction}
 {artifacts}
@@ -414,7 +415,7 @@ pub(crate) fn normalize_feedback_value(mut value: Value) -> (Value, String) {
         .or_else(|| get_str(&value, "action"))
         .unwrap_or("revise")
         .to_string();
-    let verdict = normalize_frontier_verdict(&raw);
+    let verdict = normalize_supervisor_verdict(&raw);
     if let Value::Object(map) = &mut value {
         if raw != verdict {
             map.insert("raw_verdict".to_string(), json!(raw));
@@ -425,7 +426,7 @@ pub(crate) fn normalize_feedback_value(mut value: Value) -> (Value, String) {
     (value, verdict)
 }
 
-fn normalize_frontier_verdict(value: &str) -> String {
+fn normalize_supervisor_verdict(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "approve" | "approved" => "approve".to_string(),
         "stop" | "stopped" | "halt" | "done" | "needs_user" | "needs-user" => "stop".to_string(),
@@ -463,8 +464,8 @@ pub(crate) fn normalize_worker_mode(value: Option<&str>) -> String {
     }
 }
 
-pub(crate) fn aggregate_frontier_usage(turns: &[FrontierUsageSample]) -> FrontierUsage {
-    let mut usage = FrontierUsage::default();
+pub(crate) fn aggregate_supervisor_usage(turns: &[SupervisorUsageSample]) -> SupervisorUsage {
+    let mut usage = SupervisorUsage::default();
     for turn in turns {
         usage.input_tokens += turn.input_tokens;
         usage.output_tokens += turn.output_tokens;

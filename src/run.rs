@@ -135,9 +135,9 @@ impl MixmodRun<'_> {
         atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
 
         let mut notes = vec![
-        "Exact Codex token telemetry is unavailable to this prototype unless provided manually."
+        "Exact supervisor token telemetry is unavailable to this prototype unless provided manually."
             .to_string(),
-        "Worker output is untrusted until Codex reviews the compact artifacts and patch."
+        "Worker output is untrusted until the supervisor reviews the compact artifacts and patch."
             .to_string(),
     ];
         if before_diff.as_deref().unwrap_or_default().trim().is_empty() {
@@ -729,7 +729,7 @@ fn run_revision_noop_followup(
         "tests": revision.required_checks,
         "constraints": [
             "Do not only inspect files.",
-            "Apply the exact Codex revision or report BLOCKED."
+            "Apply the exact supervisor revision or report BLOCKED."
         ],
         "acceptance": [
             "Make a new repository diff relative to the previous candidate patch, or return BLOCKED with a concrete reason."
@@ -779,7 +779,7 @@ fn build_revision_noop_followup_instruction(
     let files = string_list_or_none(&revision_focus_files(task, revision));
     let checks = string_list_or_none(&revision.required_checks);
     let message = if revision.message_to_worker.trim().is_empty() {
-        "Apply the Codex-requested revision from the current task context.".to_string()
+        "Apply the supervisor-requested revision from the current task context.".to_string()
     } else {
         revision.message_to_worker.trim().to_string()
     };
@@ -791,7 +791,7 @@ Expected repository patch: yes
 
 Mixmod-managed state lives outside this repository. Do not inspect Mixmod state or artifact directories. The task content you need is embedded below.
 
-Your previous revision turn made no repository changes. Codex requested a revision, so that turn is incomplete.
+Your previous revision turn made no repository changes. The supervisor requested a revision, so that turn is incomplete.
 
 Apply the requested revision now in the existing worktree, or return exactly `BLOCKED: <reason>` if you cannot make the edit.
 
@@ -1085,8 +1085,8 @@ pub(crate) fn build_opencode_instruction(
     Ok(format!(
         r#"# Mixmod Local Worker Task
 
-You are the Mixmod worker supervised by Codex.
-Codex remains the final authority. Treat your own output as a draft artifact for review.
+You are the Mixmod worker supervised by the supervisor model.
+The supervisor remains the final authority. Treat your own output as a draft artifact for review.
 
 Mode: {mode}
 Expected repository patch: {expected_patch}

@@ -186,26 +186,26 @@ supervisor_guidance = [
   "Before accepting a turn, check whether the intended repo diff exists and touches the expected source/test files.",
 ]
 
-[frontier]
-model = "{frontier_model}"
+[supervisor]
+model = "{supervisor_model}"
 # Codex config key: model_reasoning_effort. Allowed: minimal, low, medium, high, xhigh.
-reasoning_effort = "{frontier_reasoning_effort}"
+reasoning_effort = "{supervisor_reasoning_effort}"
 
 [worker]
 backend = "opencode"
 
 [codex_worker]
-model = "{frontier_model}"
+model = "{supervisor_model}"
 # Codex config key: model_reasoning_effort. Allowed: minimal, low, medium, high, xhigh.
-reasoning_effort = "{frontier_reasoning_effort}"
+reasoning_effort = "{supervisor_reasoning_effort}"
 # END MIXMOD MANAGED: config
 "#,
         opencode_provider = DEFAULT_OPENCODE_PROVIDER,
         mixmod_agent = MIXMOD_OPENCODE_AGENT,
         default_model = DEFAULT_OPENCODE_MODEL,
         ollama_model = DEFAULT_OPENCODE_OLLAMA_MODEL,
-        frontier_model = DEFAULT_FRONTIER_MODEL,
-        frontier_reasoning_effort = DEFAULT_FRONTIER_REASONING_EFFORT
+        supervisor_model = DEFAULT_SUPERVISOR_MODEL,
+        supervisor_reasoning_effort = DEFAULT_SUPERVISOR_REASONING_EFFORT
     )
 }
 
@@ -316,7 +316,7 @@ fn previous_opencode_config_content_for_provider(provider: &str, name: &str) -> 
 }
 
 fn mixmod_opencode_agent_prompt() -> &'static str {
-    "You are the Mixmod worker. Codex supervises your output and remains the final authority.\n\
+    "You are the Mixmod worker. The supervisor model reviews your output and remains the final authority.\n\
 Use the Mixmod worker task as the source of truth.\n\
 When the task says `Expected repository patch: yes`, a plan, todo list, or explanation is not complete by itself. Read the relevant files, make the smallest necessary repository edits, and confirm the repository diff is non-empty before finalizing. If no patch is actually needed, say that explicitly and explain the blocker or reason compactly.\n\
 When the task says `Expected repository patch: no`, do not invent edits; answer or investigate compactly as requested.\n\

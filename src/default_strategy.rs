@@ -9,7 +9,7 @@ pub(crate) struct DefaultStrategyOptions {
     pub(crate) model_overrides: ModelOverrides,
 }
 
-/// Run the Codex-supervised default strategy used by Mixmod benchmarks.
+/// Run the supervisor-directed default strategy used by Mixmod benchmarks.
 pub(crate) fn run_default_strategy(
     root: &Path,
     task_arg: &Path,
@@ -53,7 +53,7 @@ impl DefaultStrategyRun<'_> {
 
         let mut config = load_config(root)?;
         options.model_overrides.apply_to_config(&mut config)?;
-        let frontier = config.frontier.clone();
+        let supervisor = config.supervisor.clone();
         let worker_guidance = config.worker_supervisor_guidance();
         let runner = worker_harness_for_config(config);
 
@@ -61,9 +61,9 @@ impl DefaultStrategyRun<'_> {
         write_agent_visible_task_file(&absolutize(root, task_arg), &task_file)?;
         let _ = read_task_json(&task_file)?;
 
-        let feedback_path = out_dir.join(FRONTIER_FEEDBACK_JSONL);
+        let feedback_path = out_dir.join(SUPERVISOR_FEEDBACK_JSONL);
         let worker_brief =
-            run_frontier_brief_turn(root, &out_dir, &task_file, &frontier, &worker_guidance)?;
+            run_supervisor_brief_turn(root, &out_dir, &task_file, &supervisor, &worker_guidance)?;
         write_pretty_json(
             &out_dir.join(WORKER_BRIEF_JSON),
             &worker_brief.brief,
@@ -92,7 +92,7 @@ impl DefaultStrategyRun<'_> {
         let mut pending_supervisor_control =
             supervisor_control_decision_from_metrics(&proposal_out)?;
         let mut final_out = proposal_out;
-        let mut frontier_samples = vec![worker_brief.usage_sample()];
+        let mut supervisor_samples = vec![worker_brief.usage_sample()];
         let final_decision = loop {
             let decision_index = opencode_calls;
             let decision = if let Some(decision) = pending_supervisor_control.take() {
@@ -112,16 +112,16 @@ impl DefaultStrategyRun<'_> {
                     artifact_paths.push(supervisor_control_path);
                 }
                 append_patch_checkpoint_artifacts(&final_out, &mut artifact_paths)?;
-                let decision = run_frontier_feedback_turn(
+                let decision = run_supervisor_feedback_turn(
                     root,
                     &out_dir,
                     &label,
                     &artifact_paths,
                     "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not solve by directly editing files.",
-                    &frontier,
+                    &supervisor,
                     &worker_guidance,
                 )?;
-                frontier_samples.push(decision.usage_sample());
+                supervisor_samples.push(decision.usage_sample());
                 decision
             };
             append_jsonl(&feedback_path, &decision.feedback)?;
@@ -133,7 +133,7 @@ impl DefaultStrategyRun<'_> {
                     let resume_session_id = if decision.worker_mode == "continue" {
                         Some(active_opencode_session_id.clone().ok_or_else(|| {
                             anyhow!(
-                                "Codex requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
+                                "The supervisor requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
                                 final_out.join(METRICS_JSON).display()
                             )
                         })?)
@@ -184,7 +184,7 @@ impl DefaultStrategyRun<'_> {
             .collect::<Result<Vec<_>>>()?;
         let patch_checkpoint_metrics = patch_checkpoint_metrics(&worker_run_dirs)?;
         let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
-        let frontier_usage = aggregate_frontier_usage(&frontier_samples);
+        let supervisor_usage = aggregate_supervisor_usage(&supervisor_samples);
         let local_worker_stdout = worker_metrics
             .iter()
             .map(|metrics| get_u64(metrics, "stdout_bytes").unwrap_or(0))
@@ -255,24 +255,24 @@ impl DefaultStrategyRun<'_> {
             "start_timestamp": run_start.to_rfc3339(),
             "end_timestamp": Utc::now().to_rfc3339(),
             "wall_clock_ms": start.elapsed().as_millis(),
-            "frontier_model": frontier.model,
-            "frontier_reasoning_effort": frontier.reasoning_effort,
-            "frontier_input_tokens": frontier_usage.input_tokens,
-            "frontier_output_tokens": frontier_usage.output_tokens,
-            "frontier_reasoning_tokens": frontier_usage.reasoning_tokens,
-            "frontier_total_tokens": frontier_usage.total_tokens,
-            "frontier_cached_input_tokens": frontier_usage.cached_input_tokens,
-            "frontier_input_bytes_fallback": frontier_usage.input_bytes,
-            "frontier_output_bytes_fallback": frontier_usage.output_bytes,
-            "codex_visible_bytes": frontier_usage.input_bytes,
-            "supervision_turn_count": frontier_usage.turn_count,
-            "codex_calls": frontier_usage.turn_count,
+            "supervisor_model": supervisor.model,
+            "supervisor_reasoning_effort": supervisor.reasoning_effort,
+            "supervisor_input_tokens": supervisor_usage.input_tokens,
+            "supervisor_output_tokens": supervisor_usage.output_tokens,
+            "supervisor_reasoning_tokens": supervisor_usage.reasoning_tokens,
+            "supervisor_total_tokens": supervisor_usage.total_tokens,
+            "supervisor_cached_input_tokens": supervisor_usage.cached_input_tokens,
+            "supervisor_input_bytes_fallback": supervisor_usage.input_bytes,
+            "supervisor_output_bytes_fallback": supervisor_usage.output_bytes,
+            "codex_visible_bytes": supervisor_usage.input_bytes,
+            "supervision_turn_count": supervisor_usage.turn_count,
+            "codex_calls": supervisor_usage.turn_count,
             "codex_backend": "app-server-per-turn",
-            "codex_app_server_thread_ids": frontier_usage.thread_ids.clone(),
-            "codex_app_server_turn_ids": frontier_usage.turn_ids.clone(),
-            "codex_app_server_thread_count": frontier_usage.thread_count(),
-            "supervisor_session_reused": frontier_usage.session_reused(),
-            "supervisor_resume_count": frontier_usage.thread_reuse_count(),
+            "codex_app_server_thread_ids": supervisor_usage.thread_ids.clone(),
+            "codex_app_server_turn_ids": supervisor_usage.turn_ids.clone(),
+            "codex_app_server_thread_count": supervisor_usage.thread_count(),
+            "supervisor_session_reused": supervisor_usage.session_reused(),
+            "supervisor_resume_count": supervisor_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
             "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
@@ -328,8 +328,8 @@ impl DefaultStrategyRun<'_> {
             "terminal_reject": false,
             "needs_worker_revision": false,
             "notes": [
-                "Default strategy used a fresh Codex app-server supervisor thread for each worker handoff and review turn.",
-                "Codex controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
+                "Default strategy used a fresh supervisor app-server thread for each worker handoff and review turn.",
+                "The supervisor controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
                 "The worker backend was selected through the Mixmod worker settings."
             ]
         });

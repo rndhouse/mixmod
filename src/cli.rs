@@ -7,7 +7,7 @@ use crate::config::WorkerBackend;
 
 #[derive(Debug, Parser)]
 #[command(name = "mixmod")]
-#[command(about = "Reduce frontier LLM cost with supervised worker models")]
+#[command(about = "Reduce supervisor-model cost with worker models")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -32,7 +32,7 @@ pub enum Commands {
         /// Resume a specific worker session.
         #[arg(long)]
         resume_session: Option<String>,
-        /// Codex supervisor model, optionally suffixed with reasoning effort.
+        /// Supervisor model, optionally suffixed with reasoning effort.
         #[arg(long, value_name = "MODEL[:EFFORT]")]
         supervisor_model: Option<String>,
         /// Worker model override, interpreted by the selected backend.

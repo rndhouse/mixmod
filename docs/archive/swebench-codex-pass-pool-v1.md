@@ -10,18 +10,18 @@ the benchmark instances were turned into Codex and Mixmod executions.
 The run tested the core Mixmod hypothesis on three SWE-bench Lite instances that
 Codex-only had already proven it could solve. This was intentional: the point was
 not to show that the local worker can rescue cases Codex cannot solve, but to ask
-whether Mixmod can preserve patch quality while reducing frontier model output.
+whether Mixmod can preserve patch quality while reducing supervisor model output.
 
 Result: both arms resolved all three selected instances under the official
-SWE-bench Docker harness. Mixmod reduced frontier output tokens from 13,038 to
+SWE-bench Docker harness. Mixmod reduced supervisor output tokens from 13,038 to
 1,907, a reduction of 11,131 output tokens, or about 85.4%.
 
 | Metric | Codex-only | Mixmod default | Delta |
 | --- | ---: | ---: | ---: |
 | Official SWE-bench resolved | 3/3 | 3/3 | 0 |
-| Frontier output tokens | 13,038 | 1,907 | -11,131 |
-| Frontier input tokens | 1,398,349 | 122,676 | -1,275,673 |
-| Frontier total tokens | 1,413,143 | 125,634 | -1,287,509 |
+| Supervisor output tokens | 13,038 | 1,907 | -11,131 |
+| Supervisor input tokens | 1,398,349 | 122,676 | -1,275,673 |
+| Supervisor total tokens | 1,413,143 | 125,634 | -1,287,509 |
 | Codex-visible bytes | 25,523 | 78,276 | +52,753 |
 | Codex calls | 3 | 9 | +6 |
 | OpenCode calls | 0 | 5 | +5 |
@@ -158,7 +158,7 @@ codex exec \
 
 The prompt is written to stdin. Codex stdout/stderr are captured under the
 experiment logs. Mixmod parses Codex JSONL `token_count` and `turn.completed`
-events to extract frontier input/output/reasoning token counts.
+events to extract supervisor input/output/reasoning token counts.
 
 The current code now adds:
 
@@ -371,7 +371,7 @@ OpenCode and GPU verification logs:
 ## Conclusion
 
 On this three-instance Codex-pass SWE-bench Lite subset, Mixmod preserved
-official patch quality while substantially reducing frontier output tokens. The
+official patch quality while substantially reducing supervisor output tokens. The
 run also verified that OpenCode used local Ollama `qwen3.6:27b` with GPU
 activity observed.
 

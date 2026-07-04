@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use crate::harness::{AgentBackend, AgentHarness, AgentOutput, AgentRequest};
 use crate::{
-    FrontierConfig, MixmodConfig, append_file, atomic_write, get_str, get_u64, state_layout,
+    MixmodConfig, SupervisorConfig, append_file, atomic_write, get_str, get_u64, state_layout,
 };
 
 /// Result of one Codex app-server turn.
@@ -216,15 +216,15 @@ impl CodexAppServer {
     /// Start a Codex app-server process and create one thread.
     pub(crate) fn start(
         work_dir: &Path,
-        frontier: &FrontierConfig,
+        supervisor: &SupervisorConfig,
         sandbox: CodexSandbox,
     ) -> Result<Self> {
         let code_home = codex_home_for_work_dir(work_dir);
         fs::create_dir_all(&code_home)
             .with_context(|| format!("failed to create Codex home {}", code_home.display()))?;
         let copied_auth = copy_codex_auth_if_available(&code_home)?;
-        let model = normalized_frontier_model(&frontier.model)?;
-        let reasoning_effort = normalized_reasoning_effort(&frontier.reasoning_effort)?;
+        let model = normalized_supervisor_model(&supervisor.model)?;
+        let reasoning_effort = normalized_reasoning_effort(&supervisor.reasoning_effort)?;
         let mut command = Command::new("codex");
         command
             .args(["app-server", "--listen", "stdio://"])
@@ -689,10 +689,10 @@ fn codex_usage_from_breakdown(value: &Value) -> CodexUsage {
     }
 }
 
-fn normalized_frontier_model(value: &str) -> Result<String> {
+fn normalized_supervisor_model(value: &str) -> Result<String> {
     let normalized = value.trim();
     if normalized.is_empty() {
-        bail!("frontier.model must not be empty");
+        bail!("supervisor.model must not be empty");
     }
     Ok(normalized.to_string())
 }
@@ -701,9 +701,9 @@ fn normalized_reasoning_effort(value: &str) -> Result<String> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "minimal" | "low" | "medium" | "high" | "xhigh" => Ok(normalized),
-        "" => bail!("frontier.reasoning_effort must not be empty"),
+        "" => bail!("supervisor.reasoning_effort must not be empty"),
         _ => bail!(
-            "unsupported frontier.reasoning_effort `{value}`; expected one of minimal, low, medium, high, xhigh"
+            "unsupported supervisor.reasoning_effort `{value}`; expected one of minimal, low, medium, high, xhigh"
         ),
     }
 }

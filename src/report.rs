@@ -6,12 +6,12 @@ pub(crate) fn budgeted_report(name: &str, metrics: &Value) -> String {
 
 ## Summary
 
-- Frontier output tokens: {output_tokens}
-- Frontier input tokens: {input_tokens}
-- Total frontier tokens: {total_tokens}
-- Codex model: {frontier_model}
-- Codex reasoning effort: {reasoning_effort}
-- Frontier turns: {turns}
+- Supervisor output tokens: {output_tokens}
+- Supervisor input tokens: {input_tokens}
+- Total supervisor tokens: {total_tokens}
+- Supervisor model: {supervisor_model}
+- Supervisor reasoning effort: {reasoning_effort}
+- Supervisor turns: {turns}
 - Supervisor control events: {supervisor_control_count}
 - Supervisor control interrupts: {supervisor_control_interrupts}
 - Supervisor control actions: {supervisor_control_actions}
@@ -20,17 +20,17 @@ pub(crate) fn budgeted_report(name: &str, metrics: &Value) -> String {
 - Worker provider/model: {provider}/{model}
 - Local inference verified: {local_verified}
 - GPU activity observed: {gpu}
-- Final Codex action: {verdict}
+- Final supervisor action: {verdict}
 
 ## Conclusion
 
-Default strategy result is `{status}` for this arm. This arm uses Codex to produce a compact executable worker handoff, the configured worker to implement from the original task plus that handoff, and Codex to review compact artifacts.
+Default strategy result is `{status}` for this arm. This arm uses the supervisor model to produce a compact executable worker handoff, the configured worker to implement from the original task plus that handoff, and the supervisor model to review compact artifacts.
 "#,
-        output_tokens = get_u64(metrics, "frontier_output_tokens").unwrap_or(0),
-        input_tokens = get_u64(metrics, "frontier_input_tokens").unwrap_or(0),
-        total_tokens = get_u64(metrics, "frontier_total_tokens").unwrap_or(0),
-        frontier_model = get_str(metrics, "frontier_model").unwrap_or("unknown"),
-        reasoning_effort = get_str(metrics, "frontier_reasoning_effort").unwrap_or("unknown"),
+        output_tokens = get_u64(metrics, "supervisor_output_tokens").unwrap_or(0),
+        input_tokens = get_u64(metrics, "supervisor_input_tokens").unwrap_or(0),
+        total_tokens = get_u64(metrics, "supervisor_total_tokens").unwrap_or(0),
+        supervisor_model = get_str(metrics, "supervisor_model").unwrap_or("unknown"),
+        reasoning_effort = get_str(metrics, "supervisor_reasoning_effort").unwrap_or("unknown"),
         turns = get_u64(metrics, "supervision_turn_count").unwrap_or(0),
         supervisor_control_count = get_u64(metrics, "supervisor_control_count").unwrap_or(0),
         supervisor_control_interrupts =
@@ -98,28 +98,28 @@ impl<'a> ExperimentReportRenderer<'a> {
         let default_changed_lines = get_u64(&default_metrics, "changed_line_count").unwrap_or(0);
         let codex_visible = get_u64(&codex_metrics, "codex_visible_bytes")
             .or_else(|| get_u64(&codex_metrics, "approximate_codex_input_bytes"))
-            .or_else(|| get_u64(&codex_metrics, "frontier_input_bytes_fallback"));
+            .or_else(|| get_u64(&codex_metrics, "supervisor_input_bytes_fallback"));
         let default_visible = get_u64(&default_metrics, "codex_visible_bytes")
-            .or_else(|| get_u64(&default_metrics, "frontier_input_bytes_fallback"))
+            .or_else(|| get_u64(&default_metrics, "supervisor_input_bytes_fallback"))
             .or_else(|| get_u64(&default_metrics, "approximate_codex_input_bytes"));
         let local_worker_text = get_u64(&default_metrics, "local_worker_text_bytes").unwrap_or(0);
         let mixmod_delegations = get_u64(&default_metrics, "mixmod_delegations").unwrap_or(0);
-        let codex_output_tokens = frontier_output_tokens(&codex_metrics);
-        let default_output_tokens = frontier_output_tokens(&default_metrics);
-        let codex_input_tokens = frontier_input_tokens(&codex_metrics);
-        let default_input_tokens = frontier_input_tokens(&default_metrics);
-        let codex_total_tokens = frontier_total_tokens(&codex_metrics);
-        let default_total_tokens = frontier_total_tokens(&default_metrics);
-        let codex_frontier_model = get_str(&codex_metrics, "frontier_model")
+        let codex_output_tokens = supervisor_output_tokens(&codex_metrics);
+        let default_output_tokens = supervisor_output_tokens(&default_metrics);
+        let codex_input_tokens = supervisor_input_tokens(&codex_metrics);
+        let default_input_tokens = supervisor_input_tokens(&default_metrics);
+        let codex_total_tokens = supervisor_total_tokens(&codex_metrics);
+        let default_total_tokens = supervisor_total_tokens(&default_metrics);
+        let codex_supervisor_model = get_str(&codex_metrics, "supervisor_model")
             .unwrap_or("unknown")
             .to_string();
-        let default_frontier_model = get_str(&default_metrics, "frontier_model")
+        let default_supervisor_model = get_str(&default_metrics, "supervisor_model")
             .unwrap_or("unknown")
             .to_string();
-        let codex_reasoning_effort = get_str(&codex_metrics, "frontier_reasoning_effort")
+        let codex_reasoning_effort = get_str(&codex_metrics, "supervisor_reasoning_effort")
             .unwrap_or("unknown")
             .to_string();
-        let default_reasoning_effort = get_str(&default_metrics, "frontier_reasoning_effort")
+        let default_reasoning_effort = get_str(&default_metrics, "supervisor_reasoning_effort")
             .unwrap_or("unknown")
             .to_string();
         let default_codex_calls = get_u64(&default_metrics, "codex_calls")
@@ -196,7 +196,7 @@ impl<'a> ExperimentReportRenderer<'a> {
         let token_conclusion = match (
         get_u64(&codex_metrics, "codex_token_usage"),
         get_u64(&default_metrics, "codex_token_usage")
-            .or_else(|| frontier_total_tokens(&default_metrics)),
+            .or_else(|| supervisor_total_tokens(&default_metrics)),
         codex_visible,
         default_visible,
     ) {
@@ -226,7 +226,7 @@ impl<'a> ExperimentReportRenderer<'a> {
 
 Generated: {generated}
 
-## Frontier Output Tokens
+## Supervisor Output Tokens
 
 | Arm | Output tokens | Delta vs Codex-only |
 | --- | ---: | ---: |
@@ -248,11 +248,11 @@ Mixmod default strategy beat Codex-only on output tokens: {default_output_win}.
 
 | Metric | Codex-only | Mixmod default |
 | --- | ---: | ---: |
-| Frontier input tokens | {codex_input_tokens} | {default_input_tokens} |
-| Frontier output tokens | {codex_output_tokens} | {default_output_tokens} |
-| Total frontier tokens | {codex_tokens} | {default_total_tokens} |
-| Codex model | {codex_frontier_model} | {default_frontier_model} |
-| Codex reasoning effort | {codex_reasoning_effort} | {default_reasoning_effort} |
+| Supervisor input tokens | {codex_input_tokens} | {default_input_tokens} |
+| Supervisor output tokens | {codex_output_tokens} | {default_output_tokens} |
+| Total supervisor tokens | {codex_tokens} | {default_total_tokens} |
+| Supervisor model | {codex_supervisor_model} | {default_supervisor_model} |
+| Supervisor reasoning effort | {codex_reasoning_effort} | {default_reasoning_effort} |
 | Codex-visible bytes | {codex_visible} | {default_visible} |
 | Codex calls | 1 | {default_codex_calls} |
 | Mixmod worker calls | 0 | {default_opencode_calls} |
@@ -281,7 +281,7 @@ Mixmod default strategy beat Codex-only on output tokens: {default_output_win}.
 - How much Codex-visible text was involved? Current byte proxies are Codex-only `{codex_visible}` and Mixmod default `{default_visible}`.
 - How much local-worker text was generated? `{local_worker_text}` bytes were captured for the Mixmod run.
 - Did Codex need to read the full Mixmod session? {full_session}.
-- Did Mixmod appear to reduce frontier context exposure? {token_conclusion}
+- Did Mixmod appear to reduce supervisor context exposure? {token_conclusion}
 
 ## Mixmod Details
 
@@ -308,8 +308,8 @@ Exact Codex token telemetry is often unavailable through local CLI workflows. Th
             default_input_tokens = display_optional_u64(default_input_tokens),
             codex_output_tokens = display_optional_u64(codex_output_tokens),
             default_output_tokens = display_optional_u64(default_output_tokens),
-            codex_frontier_model = codex_frontier_model,
-            default_frontier_model = default_frontier_model,
+            codex_supervisor_model = codex_supervisor_model,
+            default_supervisor_model = default_supervisor_model,
             codex_reasoning_effort = codex_reasoning_effort,
             default_reasoning_effort = default_reasoning_effort,
             default_output_delta = display_delta(default_output_tokens, codex_output_tokens),

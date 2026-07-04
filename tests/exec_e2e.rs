@@ -237,8 +237,8 @@ fn assert_qwen_worker(metrics: &Value) {
 fn assert_common_exec_metrics(metrics: &Value) {
     assert_eq!(value_str(metrics, "kind"), "mixmod-default-strategy");
     assert_eq!(value_str(metrics, "final_status"), "approved_by_codex");
-    assert!(value_u64(metrics, "frontier_input_tokens") > 0);
-    assert!(value_u64(metrics, "frontier_output_tokens") > 0);
+    assert!(value_u64(metrics, "supervisor_input_tokens") > 0);
+    assert!(value_u64(metrics, "supervisor_output_tokens") > 0);
     assert!(value_u64(metrics, "codex_calls") >= 2);
     assert!(value_u64(metrics, "opencode_calls") >= 1);
     assert!(value_bool(metrics, "require_local"));
@@ -250,7 +250,7 @@ fn assert_common_exec_metrics(metrics: &Value) {
 
 fn assert_common_exec_artifacts(run_dir: &Path) {
     assert!(run_dir.join("worker-brief.json").exists());
-    assert!(run_dir.join("frontier-feedback.jsonl").exists());
+    assert!(run_dir.join("supervisor-feedback.jsonl").exists());
     assert!(run_dir.join("worker-runs/proposal/metrics.json").exists());
     assert!(run_dir.join("final.patch").exists());
 }

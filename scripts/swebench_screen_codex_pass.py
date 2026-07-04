@@ -405,9 +405,9 @@ def main() -> int:
             "experiment": exp_name,
             "codex_exit": code,
             "patch_bytes": patch_bytes,
-            "frontier_input_tokens": metrics.get("frontier_input_tokens"),
-            "frontier_output_tokens": metrics.get("frontier_output_tokens"),
-            "frontier_total_tokens": metrics.get("frontier_total_tokens"),
+            "supervisor_input_tokens": metrics.get("supervisor_input_tokens"),
+            "supervisor_output_tokens": metrics.get("supervisor_output_tokens"),
+            "supervisor_total_tokens": metrics.get("supervisor_total_tokens"),
             "resolved": resolved,
             "official_summary": display_path(root, summary_path) if summary_path else None,
         }

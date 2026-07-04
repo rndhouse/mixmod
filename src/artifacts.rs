@@ -30,7 +30,7 @@ pub const FINAL_PATCH: &str = "final.patch";
 /// Metrics artifact.
 pub const METRICS_JSON: &str = "metrics.json";
 /// Supervisor feedback transcript artifact.
-pub const FRONTIER_FEEDBACK_JSONL: &str = "frontier-feedback.jsonl";
+pub const SUPERVISOR_FEEDBACK_JSONL: &str = "supervisor-feedback.jsonl";
 /// Local worker verification artifact.
 pub const LOCAL_VERIFICATION_JSON: &str = "local-verification.json";
 /// Patch checkpoint comparison artifact.
@@ -80,7 +80,7 @@ pub const WORKER_RUN_ARTIFACTS: &[&str] = &[
     PREVIOUS_WORKTREE_PATCH,
     PARTIAL_PATCH,
     METRICS_JSON,
-    FRONTIER_FEEDBACK_JSONL,
+    SUPERVISOR_FEEDBACK_JSONL,
     FINAL_PATCH,
     LOCAL_VERIFICATION_JSON,
     SUPERVISOR_CONTROL_LOG,
@@ -196,7 +196,7 @@ pub struct SupervisorControlEvent {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct FrontierFeedback {
+pub struct SupervisorFeedback {
     #[serde(default)]
     pub action: Option<String>,
     #[serde(default)]
@@ -217,7 +217,7 @@ pub struct FrontierFeedback {
     pub risk: Option<String>,
 }
 
-impl FrontierFeedback {
+impl SupervisorFeedback {
     pub fn from_value(value: &Value) -> Self {
         serde_json::from_value(value.clone()).unwrap_or_default()
     }

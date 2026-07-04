@@ -14,12 +14,12 @@ Mixmod default strategy:
 4. Codex reviews compact artifacts and either asks for another worker attempt or approves.
 5. If a patch is expected and OpenCode exits with no diff, Mixmod performs one neutral empty-patch follow-up for that worker attempt.
 
-The main metric is frontier output tokens. In this report, "Mixmod frontier output tokens" means Codex output tokens during the Mixmod run, not local OpenCode/Qwen output.
+The main metric is supervisor output tokens. In this report, "Mixmod supervisor output tokens" means Codex output tokens during the Mixmod run, not local OpenCode/Qwen output.
 
 ## Environment
 
-- Frontier model: `gpt-5.5`
-- Frontier reasoning effort: `high`
+- Supervisor model: `gpt-5.5`
+- Supervisor reasoning effort: `high`
 - Local worker: `local-ollama/qwen3.6:27b`
 - Local inference verified: yes on all three Mixmod runs
 - GPU activity observed: yes on all three Mixmod runs
@@ -27,7 +27,7 @@ The main metric is frontier output tokens. In this report, "Mixmod frontier outp
 
 ## Results
 
-| Instance | Official Codex-only | Official Mixmod | Codex-only output | Mixmod frontier output | Output delta |
+| Instance | Official Codex-only | Official Mixmod | Codex-only output | Mixmod supervisor output | Output delta |
 |---|---:|---:|---:|---:|---:|
 | `pytest-dev__pytest-11143` | resolved | resolved | 6,864 | 2,361 | -4,503 (-65.6%) |
 | `scikit-learn__scikit-learn-13439` | resolved | resolved | 4,058 | 2,518 | -1,540 (-37.9%) |
@@ -36,7 +36,7 @@ The main metric is frontier output tokens. In this report, "Mixmod frontier outp
 
 ## Token Metrics
 
-| Instance | Codex-only input | Mixmod frontier input | Input delta | Codex-only total | Mixmod frontier total | Total delta |
+| Instance | Codex-only input | Mixmod supervisor input | Input delta | Codex-only total | Mixmod supervisor total | Total delta |
 |---|---:|---:|---:|---:|---:|---:|
 | `pytest-dev__pytest-11143` | 698,755 | 95,054 | -603,701 (-86.4%) | 707,314 | 98,939 | -608,375 (-86.0%) |
 | `scikit-learn__scikit-learn-13439` | 267,497 | 91,004 | -176,493 (-66.0%) | 272,543 | 95,235 | -177,308 (-65.1%) |
@@ -64,6 +64,6 @@ The main metric is frontier output tokens. In this report, "Mixmod frontier outp
 
 ## Conclusion
 
-On this three-instance SWE-bench Lite snapshot, the current Mixmod default strategy matched Codex-only patch quality on the selected tasks: both resolved 3/3. Mixmod reduced frontier output tokens from 16,412 to 7,705, a 53.1% reduction, while using local Qwen/OpenCode with verified GPU activity.
+On this three-instance SWE-bench Lite snapshot, the current Mixmod default strategy matched Codex-only patch quality on the selected tasks: both resolved 3/3. Mixmod reduced supervisor output tokens from 16,412 to 7,705, a 53.1% reduction, while using local Qwen/OpenCode with verified GPU activity.
 
-The input-token reduction was also large, but it should be treated as a secondary result. The primary result is that frontier output tokens dropped materially while official benchmark resolution was preserved on this small selected pool.
+The input-token reduction was also large, but it should be treated as a secondary result. The primary result is that supervisor output tokens dropped materially while official benchmark resolution was preserved on this small selected pool.

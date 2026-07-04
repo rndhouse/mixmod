@@ -9,7 +9,7 @@ use chrono::Utc;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::{FrontierFeedbackTurn, METRICS_JSON};
+use crate::{METRICS_JSON, SupervisorFeedbackTurn};
 
 pub(crate) fn append_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -41,7 +41,7 @@ pub(crate) fn read_opencode_session_id_from_metrics(run_dir: &Path) -> Result<Op
 
 pub(crate) fn supervisor_control_decision_from_metrics(
     run_dir: &Path,
-) -> Result<Option<FrontierFeedbackTurn>> {
+) -> Result<Option<SupervisorFeedbackTurn>> {
     let metrics_path = run_dir.join(METRICS_JSON);
     if !metrics_path.exists() {
         return Ok(None);
@@ -91,7 +91,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         "supervisor_control_action": action,
         "feedback": event,
     });
-    Ok(Some(FrontierFeedbackTurn {
+    Ok(Some(SupervisorFeedbackTurn {
         feedback,
         verdict: verdict.to_string(),
         worker_mode,
@@ -191,32 +191,32 @@ pub(crate) fn display_delta(value: Option<u64>, baseline: Option<u64>) -> String
     }
 }
 
-pub(crate) fn frontier_input_tokens(metrics: &Value) -> Option<u64> {
-    get_u64(metrics, "frontier_input_tokens").or_else(|| {
+pub(crate) fn supervisor_input_tokens(metrics: &Value) -> Option<u64> {
+    get_u64(metrics, "supervisor_input_tokens").or_else(|| {
         metrics
             .get("codex_usage")
             .and_then(|usage| get_u64(usage, "input_tokens"))
     })
 }
 
-pub(crate) fn frontier_output_tokens(metrics: &Value) -> Option<u64> {
-    get_u64(metrics, "frontier_output_tokens").or_else(|| {
+pub(crate) fn supervisor_output_tokens(metrics: &Value) -> Option<u64> {
+    get_u64(metrics, "supervisor_output_tokens").or_else(|| {
         metrics
             .get("codex_usage")
             .and_then(|usage| get_u64(usage, "output_tokens"))
     })
 }
 
-pub(crate) fn frontier_total_tokens(metrics: &Value) -> Option<u64> {
-    get_u64(metrics, "frontier_total_tokens")
+pub(crate) fn supervisor_total_tokens(metrics: &Value) -> Option<u64> {
+    get_u64(metrics, "supervisor_total_tokens")
         .or_else(|| get_u64(metrics, "codex_token_usage"))
         .or_else(|| {
-            let input = frontier_input_tokens(metrics)?;
-            let output = frontier_output_tokens(metrics)?;
+            let input = supervisor_input_tokens(metrics)?;
+            let output = supervisor_output_tokens(metrics)?;
             let reasoning = metrics
                 .get("codex_usage")
                 .and_then(|usage| get_u64(usage, "reasoning_output_tokens"))
-                .or_else(|| get_u64(metrics, "frontier_reasoning_tokens"))
+                .or_else(|| get_u64(metrics, "supervisor_reasoning_tokens"))
                 .unwrap_or(0);
             Some(input + output + reasoning)
         })

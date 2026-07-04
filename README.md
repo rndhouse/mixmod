@@ -1,8 +1,8 @@
 <h1 align="center">mixmod</h1>
 
-<p align="center"><strong>Reduce frontier LLM token usage with supervised worker models.</strong></p>
+<p align="center"><strong>Reduce supervisor-model token usage with worker models.</strong></p>
 
-It tests whether a strong frontier model can supervise a cheaper local model while preserving result quality. The current benchmarked pairing is GPT-5.5 supervising Qwen3.6-27B on a single RTX 3090.
+It tests whether a strong supervisor model can supervise a cheaper local model while preserving result quality. The current benchmarked pairing is GPT-5.5 supervising Qwen3.6-27B on a single RTX 3090.
 
 Follow [x.com/rndhouse](https://x.com/rndhouse) for project updates.
 

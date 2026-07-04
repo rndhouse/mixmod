@@ -401,10 +401,10 @@ def copy_metric_fields(record: dict[str, Any], metrics: dict[str, Any]) -> None:
         "codex_calls",
         "final_status",
         "final_verdict",
-        "frontier_cached_input_tokens",
-        "frontier_input_tokens",
-        "frontier_output_tokens",
-        "frontier_total_tokens",
+        "supervisor_cached_input_tokens",
+        "supervisor_input_tokens",
+        "supervisor_output_tokens",
+        "supervisor_total_tokens",
         "gpu_activity_observed",
         "local_inference_verified",
         "opencode_calls",
@@ -502,8 +502,8 @@ def main() -> int:
             write_json(state_path, state)
             print(
                 f"BATCH_REUSE {instance_id} resolved={record.get('resolved')} "
-                f"input={record.get('frontier_input_tokens')} "
-                f"output={record.get('frontier_output_tokens')}",
+                f"input={record.get('supervisor_input_tokens')} "
+                f"output={record.get('supervisor_output_tokens')}",
                 flush=True,
             )
             continue
@@ -515,8 +515,8 @@ def main() -> int:
             print(
                 f"BATCH_ITEM_DONE {instance_id} resolved={record.get('resolved')} "
                 f"status={record.get('final_status')} "
-                f"input={record.get('frontier_input_tokens')} "
-                f"output={record.get('frontier_output_tokens')}",
+                f"input={record.get('supervisor_input_tokens')} "
+                f"output={record.get('supervisor_output_tokens')}",
                 flush=True,
             )
         except Exception as exc:  # noqa: BLE001 - benchmark batch should continue.
@@ -533,8 +533,8 @@ def main() -> int:
     state["finished_at"] = datetime.now(timezone.utc).isoformat()
     write_json(state_path, state)
     resolved = sum(1 for record in state["records"] if record.get("resolved"))
-    total_input = sum(record.get("frontier_input_tokens") or 0 for record in state["records"])
-    total_output = sum(record.get("frontier_output_tokens") or 0 for record in state["records"])
+    total_input = sum(record.get("supervisor_input_tokens") or 0 for record in state["records"])
+    total_output = sum(record.get("supervisor_output_tokens") or 0 for record in state["records"])
     print(
         f"BATCH_DONE records={len(state['records'])} resolved={resolved} "
         f"input={total_input} output={total_output} state={state_path}",

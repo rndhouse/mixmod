@@ -19,10 +19,10 @@ records the model and effort directly in Mixmod metrics and Codex rollouts.
 
 | Metric | Codex-only | Mixmod default | Delta |
 | --- | ---: | ---: | ---: |
-| Frontier output tokens | 16,412 | 3,391 | -13,021 |
-| Frontier input tokens | 1,738,235 | 155,887 | -1,582,348 |
-| Frontier total tokens | 1,758,596 | 161,340 | -1,597,256 |
-| Frontier reasoning tokens | 3,949 | 2,062 | -1,887 |
+| Supervisor output tokens | 16,412 | 3,391 | -13,021 |
+| Supervisor input tokens | 1,738,235 | 155,887 | -1,582,348 |
+| Supervisor total tokens | 1,758,596 | 161,340 | -1,597,256 |
+| Supervisor reasoning tokens | 3,949 | 2,062 | -1,887 |
 | Codex-visible bytes proxy | 25,535 | 74,005 | +48,470 |
 | Codex calls | 3 | 9 | +6 |
 | OpenCode calls | 0 | 6 | +6 |
@@ -30,7 +30,7 @@ records the model and effort directly in Mixmod metrics and Codex rollouts.
 | Wall-clock time | 445.6s | 775.1s | +329.5s |
 | Official SWE-bench resolved | 3/3 | 2/3 | -1 |
 
-Mixmod default reduced frontier output tokens by 13,021 tokens, but did not
+Mixmod default reduced supervisor output tokens by 13,021 tokens, but did not
 preserve patch quality on this sample. Codex-only resolved all three instances;
 Mixmod default resolved two and produced an empty patch for
 `sympy__sympy-20212`.
@@ -125,7 +125,7 @@ Official evaluator summaries:
 ## Conclusion
 
 The pinned rerun supports the token-saving claim but not the quality claim.
-Mixmod default beat Codex-only on frontier output tokens, input tokens, and total
+Mixmod default beat Codex-only on supervisor output tokens, input tokens, and total
 tokens, but failed the three-instance quality bar because the SymPy local-worker
 path produced no patch.
 

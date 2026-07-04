@@ -465,8 +465,8 @@ fn model_overrides_apply_supervisor_and_worker_models() {
     .apply_to_config(&mut config)
     .unwrap();
 
-    assert_eq!(config.frontier.model, "gpt-5.5");
-    assert_eq!(config.frontier.reasoning_effort, "xhigh");
+    assert_eq!(config.supervisor.model, "gpt-5.5");
+    assert_eq!(config.supervisor.reasoning_effort, "xhigh");
     assert_eq!(config.opencode.provider, "ollama");
     assert_eq!(config.opencode.model, "qwen3.6:27b");
     assert!(
@@ -529,8 +529,8 @@ fn model_overrides_apply_codex_worker_backend_and_model() {
     .unwrap();
 
     assert_eq!(config.worker.backend, WorkerBackend::Codex);
-    assert_eq!(config.frontier.model, "gpt-5.5");
-    assert_eq!(config.frontier.reasoning_effort, "xhigh");
+    assert_eq!(config.supervisor.model, "gpt-5.5");
+    assert_eq!(config.supervisor.reasoning_effort, "xhigh");
     assert_eq!(config.codex_worker.model, "gpt-5.4");
     assert_eq!(config.codex_worker.reasoning_effort, "medium");
 }
@@ -561,7 +561,7 @@ fn codex_supervision_turns_use_read_only_app_server_policy() {
 #[test]
 fn supervisor_reuse_metrics_are_derived_from_thread_ids() {
     let sample = |thread_id: &str, turn_id: &str| {
-        FrontierFeedbackTurn {
+        SupervisorFeedbackTurn {
             feedback: json!({}),
             verdict: "approve".to_string(),
             worker_mode: "continue".to_string(),
@@ -583,14 +583,14 @@ fn supervisor_reuse_metrics_are_derived_from_thread_ids() {
     };
 
     let fresh_per_turn = vec![sample("thread-a", "turn-a"), sample("thread-b", "turn-b")];
-    let fresh_usage = aggregate_frontier_usage(&fresh_per_turn);
+    let fresh_usage = aggregate_supervisor_usage(&fresh_per_turn);
     assert_eq!(fresh_usage.turn_count, 2);
     assert_eq!(fresh_usage.thread_count(), 2);
     assert!(!fresh_usage.session_reused());
     assert_eq!(fresh_usage.thread_reuse_count(), 0);
 
     let reused_thread = vec![sample("thread-a", "turn-a"), sample("thread-a", "turn-b")];
-    let reused_usage = aggregate_frontier_usage(&reused_thread);
+    let reused_usage = aggregate_supervisor_usage(&reused_thread);
     assert_eq!(reused_usage.turn_count, 2);
     assert_eq!(reused_usage.thread_count(), 1);
     assert!(reused_usage.session_reused());
@@ -862,10 +862,10 @@ esac
 }
 
 #[test]
-fn frontier_feedback_prompt_explains_worker_session_modes() {
+fn supervisor_feedback_prompt_explains_worker_session_modes() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
-    let prompt = frontier_feedback_prompt(
+    let prompt = supervisor_feedback_prompt(
         root,
         &[root.join("missing-report.md")],
         "decide",
@@ -887,7 +887,7 @@ fn frontier_feedback_prompt_explains_worker_session_modes() {
             "Prefer revise after failed, empty, distracted, or incomplete worker attempts"
         )
     );
-    assert!(prompt.contains("Stop does not permit direct Codex editing."));
+    assert!(prompt.contains("Stop does not permit direct supervisor editing."));
 }
 
 #[test]
@@ -896,7 +896,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     let root = temp.path();
     let guidance = MixmodConfig::default().worker_supervisor_guidance();
     let feedback_prompt =
-        frontier_feedback_prompt(root, &[root.join("missing-report.md")], "decide", &guidance)
+        supervisor_feedback_prompt(root, &[root.join("missing-report.md")], "decide", &guidance)
             .unwrap();
 
     assert!(feedback_prompt.contains("Supervisor-only worker-model guidance"));
@@ -914,7 +914,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     )
     .unwrap();
 
-    let brief_prompt = frontier_worker_brief_prompt(root, &task, &guidance).unwrap();
+    let brief_prompt = supervisor_worker_brief_prompt(root, &task, &guidance).unwrap();
     assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
     assert!(brief_prompt.contains("repository diff"));
     assert!(brief_prompt.contains("Select only relevant points"));
@@ -957,7 +957,7 @@ diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
     )
     .unwrap();
     atomic_write(&current.join("changes.patch"), b"").unwrap();
-    let decision = FrontierFeedbackTurn {
+    let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
         verdict: "revise".to_string(),
         worker_mode: "continue".to_string(),
@@ -1556,7 +1556,7 @@ fn as_given_worker_brief_uses_original_task_defaults() {
     );
 
     let instructions = get_str(&worker_task, "instructions").unwrap();
-    assert!(instructions.contains("Codex message to worker:"));
+    assert!(instructions.contains("Supervisor message to worker:"));
     assert!(instructions.contains("Proceed from the original task."));
     assert!(instructions.contains("Fix the checkout bug."));
     assert!(!instructions.contains("Objective:"));
@@ -1586,9 +1586,9 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     .unwrap();
 
     let prompt =
-        frontier_worker_brief_prompt(root, &task, &WorkerSupervisorGuidance::default()).unwrap();
+        supervisor_worker_brief_prompt(root, &task, &WorkerSupervisorGuidance::default()).unwrap();
 
-    assert!(prompt.contains("minimize frontier output"));
+    assert!(prompt.contains("minimize supervisor output"));
     assert!(prompt.contains("compact executable worker handoff"));
     assert!(prompt.contains("exact files, edit target, expected behavior, and checks"));
     assert!(prompt.contains(r#"Default to "guided""#));
@@ -1779,7 +1779,7 @@ fn focused_worker_brief_overrides_files_and_adds_supplemental_checks() {
             .contains(&"Avoid: broad refactor".to_string())
     );
     let instructions = get_str(&worker_task, "instructions").unwrap();
-    assert!(instructions.contains("Codex message to worker:"));
+    assert!(instructions.contains("Supervisor message to worker:"));
     assert!(instructions.contains("Preserve public return shapes."));
     assert!(instructions.contains("Files:"));
 }
@@ -1820,7 +1820,7 @@ fn direct_worker_message_is_preserved() {
     );
     let instructions = get_str(&worker_task, "instructions").unwrap();
     assert!(instructions.contains(
-        "Codex message to worker:\nInvestigate checkout totals and make the smallest safe fix."
+        "Supervisor message to worker:\nInvestigate checkout totals and make the smallest safe fix."
     ));
 }
 
@@ -1869,7 +1869,7 @@ fn revision_task_preserves_codex_focus_files() {
 }"#,
     )
     .unwrap();
-    let decision = FrontierFeedbackTurn {
+    let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
         verdict: "revise".to_string(),
         worker_mode: "continue".to_string(),
@@ -1932,7 +1932,7 @@ fn context_focus_revision_task_uses_focused_prompt() {
 }"#,
     )
     .unwrap();
-    let decision = FrontierFeedbackTurn {
+    let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
         verdict: "revise".to_string(),
         worker_mode: "context_focus".to_string(),
@@ -1979,7 +1979,7 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
 }"#,
     )
     .unwrap();
-    let decision = FrontierFeedbackTurn {
+    let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
         verdict: "revise".to_string(),
         worker_mode: "context_focus".to_string(),
@@ -2003,7 +2003,7 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
     let instructions = get_str(&revision, "instructions").unwrap();
 
     assert!(instructions.contains("Patch checkpoint decision: revise_previous"));
-    assert!(instructions.contains("Recover the previous candidate using Codex's message"));
+    assert!(instructions.contains("Recover the previous candidate using the supervisor message"));
     assert!(instructions.contains("Do not read Mixmod artifacts directly."));
     assert!(!instructions.contains("previous-worktree.patch"));
     assert_eq!(
@@ -2030,7 +2030,7 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
 }"#,
     )
     .unwrap();
-    let decision = FrontierFeedbackTurn {
+    let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
         verdict: "revise".to_string(),
         worker_mode: "context_focus".to_string(),
@@ -2065,8 +2065,8 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
         vec!["revision-task-3.json", "../default/worker-brief.json"]
     );
     let instructions = get_str(&revision, "instructions").unwrap();
-    assert!(instructions.contains("Mixmod artifact references from Codex"));
-    assert!(instructions.contains("use the current task text and Codex's message instead"));
+    assert!(instructions.contains("Mixmod artifact references from the supervisor"));
+    assert!(instructions.contains("use the current task text and the supervisor message instead"));
     assert!(!instructions.contains("compact artifacts instead"));
     assert!(!instructions.contains("Focus files: [\"revision-task-3.json\""));
 }

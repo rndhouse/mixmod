@@ -158,9 +158,9 @@ fn run_codex_only_baseline(
     })?;
     if find_on_path("codex").is_none() {
         let mut extra = serde_json::Map::new();
-        extra.insert("frontier_input_tokens".to_string(), Value::Null);
-        extra.insert("frontier_output_tokens".to_string(), Value::Null);
-        extra.insert("frontier_total_tokens".to_string(), Value::Null);
+        extra.insert("supervisor_input_tokens".to_string(), Value::Null);
+        extra.insert("supervisor_output_tokens".to_string(), Value::Null);
+        extra.insert("supervisor_total_tokens".to_string(), Value::Null);
         let metrics = CodexOnlyMetrics {
             kind: "codex-only".to_string(),
             recorded_at: Utc::now().to_rfc3339(),
@@ -182,7 +182,7 @@ fn run_codex_only_baseline(
         target,
         "codex-only",
         &prompt,
-        &config.frontier,
+        &config.supervisor,
         CodexSandbox::WorkspaceWrite,
     )?;
     let patch = git_diff_with_untracked(work_dir).unwrap_or_default();
@@ -206,15 +206,15 @@ fn run_codex_only_baseline(
         "task_file": display_path(root, task_path),
         "work_dir": display_path(root, work_dir),
         "codex_exit_status": result.exit_status,
-        "frontier_model": result.model.clone(),
-        "frontier_reasoning_effort": result.reasoning_effort.clone(),
-        "frontier_input_tokens": result.usage.input_tokens,
-        "frontier_output_tokens": result.usage.output_tokens,
-        "frontier_reasoning_tokens": result.usage.reasoning_tokens,
-        "frontier_total_tokens": result.usage.total_tokens,
-        "frontier_cached_input_tokens": result.usage.cached_input_tokens,
-        "frontier_input_bytes_fallback": result.input_bytes,
-        "frontier_output_bytes_fallback": result.output_bytes,
+        "supervisor_model": result.model.clone(),
+        "supervisor_reasoning_effort": result.reasoning_effort.clone(),
+        "supervisor_input_tokens": result.usage.input_tokens,
+        "supervisor_output_tokens": result.usage.output_tokens,
+        "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
+        "supervisor_total_tokens": result.usage.total_tokens,
+        "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
+        "supervisor_input_bytes_fallback": result.input_bytes,
+        "supervisor_output_bytes_fallback": result.output_bytes,
         "codex_visible_bytes": result.input_bytes,
         "codex_token_usage": result.usage.total_tokens,
         "codex_turns": 1,
@@ -342,7 +342,7 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
         "changed_line_count": get_u64(&run_metrics_value, "changed_line_count").unwrap_or(0),
         "final_status": get_str(&json!(receipt), "status").unwrap_or("unknown").to_string(),
         "notes": [
-            "This prototype assumes Codex reviews compact Mixmod artifacts first.",
+            "This prototype assumes the supervisor reviews compact Mixmod artifacts first.",
             "Exact Codex token telemetry is unavailable unless added manually."
         ]
     });
@@ -409,7 +409,7 @@ impl DefaultExperimentRun<'_> {
         ensure_project_state(&work_dir, false)?;
 
         let config = load_config(&work_dir)?;
-        let frontier = config.frontier.clone();
+        let supervisor = config.supervisor.clone();
         let worker_guidance = config.worker_supervisor_guidance();
         let default_dir = exp_dir.join("default");
         let logs_dir = default_dir.join("logs");
@@ -431,12 +431,12 @@ impl DefaultExperimentRun<'_> {
         }
         let _ = read_task_json(&task_file)?;
         let runner = worker_harness_for_config(config);
-        let feedback_path = default_dir.join(FRONTIER_FEEDBACK_JSONL);
-        let worker_brief = run_frontier_brief_turn(
+        let feedback_path = default_dir.join(SUPERVISOR_FEEDBACK_JSONL);
+        let worker_brief = run_supervisor_brief_turn(
             &work_dir,
             &default_dir,
             &task_file,
-            &frontier,
+            &supervisor,
             &worker_guidance,
         )?;
         write_pretty_json(
@@ -471,7 +471,7 @@ impl DefaultExperimentRun<'_> {
         let mut pending_supervisor_control =
             supervisor_control_decision_from_metrics(&proposal_out)?;
         let mut final_out = proposal_out;
-        let mut frontier_samples = vec![worker_brief.usage_sample()];
+        let mut supervisor_samples = vec![worker_brief.usage_sample()];
         let final_decision = loop {
             let decision_index = opencode_calls;
             let decision = if let Some(decision) = pending_supervisor_control.take() {
@@ -491,16 +491,16 @@ impl DefaultExperimentRun<'_> {
                     artifact_paths.push(supervisor_control_path);
                 }
                 append_patch_checkpoint_artifacts(&final_out, &mut artifact_paths)?;
-                let decision = run_frontier_feedback_turn(
+                let decision = run_supervisor_feedback_turn(
                     &work_dir,
                     &default_dir,
                     &label,
                     &artifact_paths,
                     "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not solve by directly editing files.",
-                    &frontier,
+                    &supervisor,
                     &worker_guidance,
                 )?;
-                frontier_samples.push(decision.usage_sample());
+                supervisor_samples.push(decision.usage_sample());
                 decision
             };
             append_jsonl(&feedback_path, &decision.feedback)?;
@@ -512,7 +512,7 @@ impl DefaultExperimentRun<'_> {
                     let resume_session_id = if decision.worker_mode == "continue" {
                         Some(active_opencode_session_id.clone().ok_or_else(|| {
                         anyhow!(
-                            "Codex requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
+                                "The supervisor requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
                             final_out.join(METRICS_JSON).display()
                         )
                     })?)
@@ -570,7 +570,7 @@ impl DefaultExperimentRun<'_> {
             .collect::<Result<Vec<_>>>()?;
         let patch_checkpoint_metrics = patch_checkpoint_metrics(&worker_run_dirs)?;
         let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
-        let frontier_usage = aggregate_frontier_usage(&frontier_samples);
+        let supervisor_usage = aggregate_supervisor_usage(&supervisor_samples);
         let local_worker_stdout = worker_metrics
             .iter()
             .map(|metrics| get_u64(metrics, "stdout_bytes").unwrap_or(0))
@@ -637,24 +637,24 @@ impl DefaultExperimentRun<'_> {
             "start_timestamp": run_start.to_rfc3339(),
             "end_timestamp": Utc::now().to_rfc3339(),
             "wall_clock_ms": start.elapsed().as_millis(),
-            "frontier_model": frontier.model,
-            "frontier_input_tokens": frontier_usage.input_tokens,
-            "frontier_reasoning_effort": frontier.reasoning_effort,
-            "frontier_output_tokens": frontier_usage.output_tokens,
-            "frontier_reasoning_tokens": frontier_usage.reasoning_tokens,
-            "frontier_total_tokens": frontier_usage.total_tokens,
-            "frontier_cached_input_tokens": frontier_usage.cached_input_tokens,
-            "frontier_input_bytes_fallback": frontier_usage.input_bytes,
-            "frontier_output_bytes_fallback": frontier_usage.output_bytes,
-            "codex_visible_bytes": frontier_usage.input_bytes,
-            "supervision_turn_count": frontier_usage.turn_count,
-            "codex_calls": frontier_usage.turn_count,
+            "supervisor_model": supervisor.model,
+            "supervisor_input_tokens": supervisor_usage.input_tokens,
+            "supervisor_reasoning_effort": supervisor.reasoning_effort,
+            "supervisor_output_tokens": supervisor_usage.output_tokens,
+            "supervisor_reasoning_tokens": supervisor_usage.reasoning_tokens,
+            "supervisor_total_tokens": supervisor_usage.total_tokens,
+            "supervisor_cached_input_tokens": supervisor_usage.cached_input_tokens,
+            "supervisor_input_bytes_fallback": supervisor_usage.input_bytes,
+            "supervisor_output_bytes_fallback": supervisor_usage.output_bytes,
+            "codex_visible_bytes": supervisor_usage.input_bytes,
+            "supervision_turn_count": supervisor_usage.turn_count,
+            "codex_calls": supervisor_usage.turn_count,
             "codex_backend": "app-server-per-turn",
-            "codex_app_server_thread_ids": frontier_usage.thread_ids.clone(),
-            "codex_app_server_turn_ids": frontier_usage.turn_ids.clone(),
-            "codex_app_server_thread_count": frontier_usage.thread_count(),
-            "supervisor_session_reused": frontier_usage.session_reused(),
-            "supervisor_resume_count": frontier_usage.thread_reuse_count(),
+            "codex_app_server_thread_ids": supervisor_usage.thread_ids.clone(),
+            "codex_app_server_turn_ids": supervisor_usage.turn_ids.clone(),
+            "codex_app_server_thread_count": supervisor_usage.thread_count(),
+            "supervisor_session_reused": supervisor_usage.session_reused(),
+            "supervisor_resume_count": supervisor_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
             "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
@@ -708,8 +708,8 @@ impl DefaultExperimentRun<'_> {
             "terminal_reject": false,
             "needs_worker_revision": false,
             "notes": [
-                "Default strategy used a fresh Codex app-server supervisor thread for each worker handoff and review turn.",
-                "Codex controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
+                "Default strategy used a fresh supervisor app-server thread for each worker handoff and review turn.",
+                "The supervisor controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
                 "The worker backend was selected through the Mixmod worker settings.",
                 "If the worker times out, run `mixmod experiment recover <name> --require-local` to restart from worker-task.json."
             ]
@@ -803,7 +803,7 @@ pub fn experiment_recover(root: &Path, name: &str, require_local: bool) -> Resul
         "final_patch": display_path(root, &recovery_dir.join(FINAL_PATCH)),
         "notes": [
             "Recovery restarts the configured worker from the saved worker-task.json.",
-            "Codex review is not run automatically; inspect recovery artifacts before accepting."
+            "Supervisor review is not run automatically; inspect recovery artifacts before accepting."
         ]
     });
     write_pretty_json(
@@ -903,19 +903,20 @@ pub(crate) fn write_worker_brief_task(
     constraints.extend(
         get_string_array(brief, "constraints")
             .into_iter()
-            .map(|constraint| format!("Codex constraint: {constraint}")),
+            .map(|constraint| format!("Supervisor constraint: {constraint}")),
     );
     constraints.extend(avoid.iter().map(|item| format!("Avoid: {item}")));
     constraints.push(
-        "Treat the original task JSON as primary; Codex handoff is supplemental.".to_string(),
+        "Treat the original task JSON as primary; the supervisor handoff is supplemental."
+            .to_string(),
     );
     constraints.push("Keep stdout compact.".to_string());
     constraints.sort();
     constraints.dedup();
 
     let original_instructions = get_str(&original, "instructions").unwrap_or("");
-    let brief_json =
-        serde_json::to_string_pretty(brief).context("failed to serialize Codex worker brief")?;
+    let brief_json = serde_json::to_string_pretty(brief)
+        .context("failed to serialize supervisor worker brief")?;
     let title = get_str(&original, "title").unwrap_or("Mixmod task");
     let codex_message = codex_message_to_worker(brief, handoff);
     let acceptance = non_empty_or(checks.clone(), get_string_array(&original, "acceptance"));
@@ -924,7 +925,7 @@ pub(crate) fn write_worker_brief_task(
     let worker_task = json!({
         "title": format!("Mixmod handoff: {title}"),
         "instructions": format!(
-            "Original task instructions:\n{original_instructions}\n\nCodex message to worker:\n{codex_message}\n\nCodex handoff JSON:\n{brief_json}"
+            "Original task instructions:\n{original_instructions}\n\nSupervisor message to worker:\n{codex_message}\n\nSupervisor handoff JSON:\n{brief_json}"
         ),
         "expect_patch": expect_patch,
         "files": target_files,
@@ -997,7 +998,7 @@ pub(crate) fn write_revision_task(
     task_path: &Path,
     default_dir: &Path,
     experiment_name: &str,
-    decision: &FrontierFeedbackTurn,
+    decision: &SupervisorFeedbackTurn,
     revision_index: u64,
 ) -> Result<PathBuf> {
     let task_value = read_json_file(task_path)?;
@@ -1013,7 +1014,7 @@ pub(crate) fn write_revision_task(
         String::new()
     } else {
         format!(
-            "\nMixmod artifact references from Codex, not repo source files: {:?}\nDo not read these from the repo root; use the current task text and Codex's message instead.",
+            "\nMixmod artifact references from the supervisor, not repo source files: {:?}\nDo not read these from the repo root; use the current task text and the supervisor message instead.",
             artifact_focus_files
         )
     };
@@ -1031,20 +1032,20 @@ pub(crate) fn write_revision_task(
     );
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
     let patch_decision_note = if decision.patch_decision == "revise_previous" {
-        "\nPatch checkpoint decision: revise_previous. Codex judged the previous candidate patch better than the current revision. Recover the previous candidate using Codex's message below, then make the requested focused changes. Do not read Mixmod artifacts directly.\n"
+        "\nPatch checkpoint decision: revise_previous. The supervisor judged the previous candidate patch better than the current revision. Recover the previous candidate using the supervisor message below, then make the requested focused changes. Do not read Mixmod artifacts directly.\n"
     } else if decision.patch_decision == "revise_current" {
-        "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues Codex identified.\n"
+        "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues the supervisor identified.\n"
     } else {
         ""
     };
     let instructions = if decision.worker_mode == "context_focus" {
         format!(
-            "Original task instructions:\n{original_instructions}\n\nCodex requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nCodex message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
+            "Original task instructions:\n{original_instructions}\n\nThe supervisor requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nSupervisor message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
             decision.hint, decision.required_checks
         )
     } else {
         format!(
-            "{original_instructions}\n\nCodex decision: revise\nWorker mode: continue\nSame worker session should be reused when available.{patch_decision_note}\nMessage to worker: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for Codex review.",
+            "{original_instructions}\n\nSupervisor decision: revise\nWorker mode: continue\nSame worker session should be reused when available.{patch_decision_note}\nMessage to worker: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for supervisor review.",
             decision.hint, decision.required_checks
         )
     };
@@ -1090,7 +1091,7 @@ pub(crate) fn write_revision_task(
     Ok(path)
 }
 
-fn revision_delta_expected(decision: &FrontierFeedbackTurn) -> bool {
+fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {
     decision.verdict == "revise"
         || decision.patch_decision == "revise_current"
         || decision.patch_decision == "revise_previous"
@@ -1271,7 +1272,7 @@ fn experiment_readme(name: &str) -> String {
 This directory compares one small code-change task in two modes:
 
 1. Codex-only: Codex performs the change directly.
-2. Mixmod default: Codex emits a compact executable worker handoff, the configured worker implements from the original task plus that handoff, and Codex reviews compact artifacts.
+2. Mixmod default: the supervisor emits a compact executable worker handoff, the configured worker implements from the original task plus that handoff, and the supervisor reviews compact artifacts.
 
 Suggested workflow:
 

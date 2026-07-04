@@ -206,7 +206,7 @@ pub(crate) fn supervise_mixmod_task(
             display_path(root, &out_dir.join(METRICS_JSON))
         ],
         "notes": [
-            "This command returns immediately so the same Codex session can inspect run status while the worker runs.",
+            "This command returns immediately so the same supervisor session can inspect run status while the worker runs.",
             "stdout/stderr from the background Mixmod process are written under logs/.",
             "For manual debugging, set MIXMOD_DEBUG_COMMANDS=1 and use mixmod control send, or write control.json to steer or interrupt the worker."
         ]
