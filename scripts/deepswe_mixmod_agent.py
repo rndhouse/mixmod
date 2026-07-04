@@ -122,6 +122,8 @@ class MixmodAgent(BaseInstalledAgent):
             },
         }
         await prepare_codex_auth(environment)
+        if self.worker_model.split("/", 1)[0] == "openrouter":
+            await prepare_opencode_auth(environment)
         write_task = (
             f"cat > {shlex.quote(task_path.as_posix())} <<'JSON'\n"
             f"{json.dumps(task, indent=2)}\n"
@@ -164,7 +166,7 @@ class MixmodAgent(BaseInstalledAgent):
             run_default_args.append("--require-local")
         quoted_run_default = " ".join(shlex.quote(arg) for arg in run_default_args)
         return f"""set -euo pipefail
-{PATH_SETUP}trap 'rm -f "$HOME/.codex/auth.json"' EXIT
+{PATH_SETUP}trap 'rm -f "$HOME/.codex/auth.json" "$HOME/.local/share/opencode/auth.json"' EXIT
 mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())}
 git config user.name "Mixmod"
 git config user.email "mixmod@example.invalid"
@@ -402,4 +404,62 @@ async def prepare_codex_auth(environment: BaseEnvironment) -> None:
     raise RuntimeError(
         "Codex auth is required; set OPENAI_API_KEY, CODEX_AUTH_JSON_PATH, "
         "or provide ~/.codex/auth.json on the Pier host"
+    )
+
+
+async def prepare_opencode_auth(environment: BaseEnvironment) -> None:
+    explicit = os.environ.get("OPENCODE_AUTH_JSON_PATH")
+    auth_path = (
+        Path(explicit).expanduser()
+        if explicit
+        else Path.home() / ".local" / "share" / "opencode" / "auth.json"
+    )
+    remote_auth_path = PurePosixPath("/tmp/mixmod-opencode-auth.json")
+    if auth_path.is_file():
+        await environment.upload_file(auth_path, remote_auth_path)
+        if environment.default_user is not None:
+            await environment.exec(
+                command=f"chown {environment.default_user} {shlex.quote(remote_auth_path.as_posix())}",
+                user="root",
+            )
+        await environment.exec(
+            command=(
+                'mkdir -p "$HOME/.local/share/opencode" && '
+                f"cp {shlex.quote(remote_auth_path.as_posix())} "
+                '"$HOME/.local/share/opencode/auth.json" && '
+                'chmod 600 "$HOME/.local/share/opencode/auth.json" && '
+                f"rm -f {shlex.quote(remote_auth_path.as_posix())}"
+            )
+        )
+        return
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if api_key:
+        with tempfile.NamedTemporaryFile("w", delete=False) as handle:
+            json.dump({"openrouter": {"type": "api", "key": api_key}}, handle, indent=2)
+            handle.write("\n")
+            temp_auth = Path(handle.name)
+        try:
+            await environment.upload_file(temp_auth, remote_auth_path)
+        finally:
+            temp_auth.unlink(missing_ok=True)
+        if environment.default_user is not None:
+            await environment.exec(
+                command=f"chown {environment.default_user} {shlex.quote(remote_auth_path.as_posix())}",
+                user="root",
+            )
+        await environment.exec(
+            command=(
+                'mkdir -p "$HOME/.local/share/opencode" && '
+                f"mv {shlex.quote(remote_auth_path.as_posix())} "
+                '"$HOME/.local/share/opencode/auth.json" && '
+                'chmod 600 "$HOME/.local/share/opencode/auth.json"'
+            )
+        )
+        return
+
+    raise RuntimeError(
+        "OpenRouter auth is required for OpenCode OpenRouter workers; set "
+        "OPENROUTER_API_KEY, OPENCODE_AUTH_JSON_PATH, or provide "
+        "~/.local/share/opencode/auth.json on the Pier host"
     )
