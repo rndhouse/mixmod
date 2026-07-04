@@ -175,6 +175,12 @@ pub enum ExperimentCommand {
         name: String,
         #[arg(long)]
         require_local: bool,
+        #[arg(long, value_name = "MODEL[:EFFORT]")]
+        supervisor_model: Option<String>,
+        #[arg(long, value_name = "MODEL")]
+        worker_model: Option<String>,
+        #[arg(long, value_enum)]
+        worker_backend: Option<WorkerBackend>,
     },
     /// Deprecated alias for `run-default`.
     #[command(hide = true)]
@@ -182,6 +188,12 @@ pub enum ExperimentCommand {
         name: String,
         #[arg(long)]
         require_local: bool,
+        #[arg(long, value_name = "MODEL[:EFFORT]")]
+        supervisor_model: Option<String>,
+        #[arg(long, value_name = "MODEL")]
+        worker_model: Option<String>,
+        #[arg(long, value_enum)]
+        worker_backend: Option<WorkerBackend>,
     },
     /// Recover a default-strategy run by restarting the configured worker.
     Recover {

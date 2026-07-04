@@ -271,16 +271,38 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 ExperimentCommand::RunDefault {
                     name,
                     require_local,
+                    supervisor_model,
+                    worker_model,
+                    worker_backend,
                 } => {
                     ensure_project_state(&root, false)?;
-                    experiment_run_default(&root, &name, DefaultRunOptions { require_local })
+                    experiment_run_default(
+                        &root,
+                        &name,
+                        DefaultRunOptions {
+                            require_local,
+                            model_overrides: ModelOverrides::new(supervisor_model, worker_model)
+                                .with_worker_backend(worker_backend),
+                        },
+                    )
                 }
                 ExperimentCommand::RunBudgeted {
                     name,
                     require_local,
+                    supervisor_model,
+                    worker_model,
+                    worker_backend,
                 } => {
                     ensure_project_state(&root, false)?;
-                    experiment_run_default(&root, &name, DefaultRunOptions { require_local })
+                    experiment_run_default(
+                        &root,
+                        &name,
+                        DefaultRunOptions {
+                            require_local,
+                            model_overrides: ModelOverrides::new(supervisor_model, worker_model)
+                                .with_worker_backend(worker_backend),
+                        },
+                    )
                 }
                 ExperimentCommand::Recover {
                     name,

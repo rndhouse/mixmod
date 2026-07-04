@@ -186,6 +186,46 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
 }
 
 #[test]
+fn experiment_run_default_accepts_model_override_flags() {
+    let cli = Cli::try_parse_from([
+        "mixmod",
+        "experiment",
+        "run-default",
+        "deepswe",
+        "--supervisor-model",
+        "gpt-5.5:high",
+        "--worker-backend",
+        "opencode",
+        "--worker-model",
+        "openrouter/qwen/qwen3.6-flash",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Commands::Experiment {
+            command:
+                ExperimentCommand::RunDefault {
+                    name,
+                    require_local,
+                    supervisor_model,
+                    worker_model,
+                    worker_backend,
+                },
+        } => {
+            assert_eq!(name, "deepswe");
+            assert!(!require_local);
+            assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
+            assert_eq!(worker_backend, Some(WorkerBackend::OpenCode));
+            assert_eq!(
+                worker_model,
+                Some("openrouter/qwen/qwen3.6-flash".to_string())
+            );
+        }
+        _ => panic!("expected experiment run-default command"),
+    }
+}
+
+#[test]
 fn exec_task_resolution_writes_prompt_tasks() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

@@ -5,9 +5,10 @@ use super::util::{
     artifact_byte_sizes, copy_budgeted_artifacts, experiment_dir, validate_experiment_name,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DefaultRunOptions {
     pub require_local: bool,
+    pub model_overrides: ModelOverrides,
 }
 
 pub fn experiment_run_default(root: &Path, name: &str, options: DefaultRunOptions) -> Result<()> {
@@ -49,7 +50,8 @@ impl DefaultExperimentRun<'_> {
         }
         ensure_project_state(&work_dir, false)?;
 
-        let config = load_config(&work_dir)?;
+        let mut config = load_config(&work_dir)?;
+        options.model_overrides.apply_to_config(&mut config)?;
         let supervisor = config.supervisor.clone();
         let worker_guidance = config.worker_supervisor_guidance();
         let default_dir = exp_dir.join("default");

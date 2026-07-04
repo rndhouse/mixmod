@@ -164,6 +164,16 @@ class MixmodAgent(BaseInstalledAgent):
         ]
         if self.require_local:
             run_default_args.append("--require-local")
+        run_default_args.extend(
+            [
+                "--supervisor-model",
+                self.supervisor_model,
+                "--worker-backend",
+                self.worker_backend,
+                "--worker-model",
+                self.worker_model,
+            ]
+        )
         quoted_run_default = " ".join(shlex.quote(arg) for arg in run_default_args)
         return f"""set -euo pipefail
 {PATH_SETUP}trap 'rm -f "$HOME/.codex/auth.json" "$HOME/.local/share/opencode/auth.json"' EXIT
@@ -177,43 +187,7 @@ import json
 import os
 from pathlib import Path
 
-supervisor_model = {self.supervisor_model!r}
-worker_model = {self.worker_model!r}
-require_local = {self.require_local!r}
 base_url = os.environ.get("MIXMOD_OPENCODE_BASE_URL")
-
-def split_supervisor(value):
-    if ":" in value:
-        model, effort = value.rsplit(":", 1)
-        return model, effort
-    return value, "high"
-
-def rewrite_toml(path):
-    supervisor, effort = split_supervisor(supervisor_model)
-    provider, model = worker_model.split("/", 1) if "/" in worker_model else ("mixmod-local-ollama", worker_model)
-    section = None
-    lines = []
-    for line in path.read_text().splitlines():
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            section = stripped.strip("[]")
-        if section in {{"supervisor", "codex_worker"}} and stripped.startswith("model = "):
-            line = f'model = "{{supervisor}}"'
-        elif section in {{"supervisor", "codex_worker"}} and stripped.startswith("reasoning_effort = "):
-            line = f'reasoning_effort = "{{effort}}"'
-        elif section == "opencode" and stripped.startswith("provider = "):
-            line = f'provider = "{{provider}}"'
-        elif section == "opencode" and stripped.startswith("model = "):
-            line = f'model = "{{model}}"'
-        elif section == "opencode" and stripped.startswith("require_local = "):
-            line = f'require_local = {{str(require_local).lower()}}'
-        elif section == "opencode.local_verification" and stripped.startswith("enabled = "):
-            line = f'enabled = {{str(require_local).lower()}}'
-        lines.append(line)
-    path.write_text("\\n".join(lines) + "\\n")
-
-for path in Path({state_dir.as_posix()!r}).glob("projects/*/config.toml"):
-    rewrite_toml(path)
 
 if base_url:
     for path in Path({state_dir.as_posix()!r}).glob("projects/*/opencode.json"):
@@ -338,7 +312,7 @@ def mixmod_install_spec(
     return AgentInstallSpec(
         agent_name=agent_name,
         version=version,
-        cache_key="mixmod-deepswe-agent-v4",
+        cache_key="mixmod-deepswe-agent-v5",
         steps=[
             InstallStep(user="root", env={"DEBIAN_FRONTEND": "noninteractive"}, run=root_run),
             InstallStep(user="agent", run=node_run),
