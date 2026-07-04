@@ -235,6 +235,8 @@ fn model_overrides_apply_supervisor_and_worker_models() {
     assert_eq!(config.supervisor.reasoning_effort, "xhigh");
     assert_eq!(config.opencode.provider, "ollama");
     assert_eq!(config.opencode.model, "qwen3.6:27b");
+    assert!(config.opencode.require_local);
+    assert!(config.opencode.local_verification.enabled);
     assert!(
         config
             .opencode
@@ -242,6 +244,35 @@ fn model_overrides_apply_supervisor_and_worker_models() {
             .get("qwen3.6:27b")
             .unwrap()
             .contains(&"ollama/qwen3.6:27b".to_string())
+    );
+}
+
+#[test]
+fn openrouter_worker_override_selects_non_local_worker() {
+    let mut config = MixmodConfig::default();
+
+    ModelOverrides::new(None, Some("openrouter/qwen/qwen3.6-flash".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+
+    assert_eq!(config.opencode.provider, "openrouter");
+    assert_eq!(config.opencode.model, "qwen/qwen3.6-flash");
+    assert!(!config.opencode.require_local);
+    assert!(!config.opencode.local_verification.enabled);
+    assert!(
+        !config
+            .opencode
+            .local_providers
+            .iter()
+            .any(|provider| provider == "openrouter")
+    );
+    assert!(
+        config
+            .opencode
+            .model_aliases
+            .get("qwen/qwen3.6-flash")
+            .unwrap()
+            .contains(&"openrouter/qwen/qwen3.6-flash".to_string())
     );
 }
 

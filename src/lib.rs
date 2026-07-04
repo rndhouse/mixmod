@@ -51,6 +51,7 @@ pub(crate) use checkpoint::{
     append_patch_checkpoint_artifacts, patch_checkpoint_metrics, write_patch_checkpoint_comparison,
 };
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
+pub(crate) use config::is_cloud_opencode_provider;
 pub use config::{
     LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig, SupervisorConfig,
     WorkerBackend, WorkerConfig,

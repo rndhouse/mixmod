@@ -11,6 +11,27 @@ use crate::{
 };
 
 const REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
+const CLOUD_OPENCODE_PROVIDER_MARKERS: &[&str] = &[
+    "openai",
+    "anthropic",
+    "gemini",
+    "openrouter",
+    "xai",
+    "groq",
+    "copilot",
+    "opencode-hosted",
+    "azure",
+    "bedrock",
+];
+
+/// Return whether an OpenCode provider name identifies a cloud inference
+/// backend.
+pub(crate) fn is_cloud_opencode_provider(provider: &str) -> bool {
+    let provider = provider.to_ascii_lowercase();
+    CLOUD_OPENCODE_PROVIDER_MARKERS
+        .iter()
+        .any(|marker| provider.contains(marker))
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -276,7 +297,10 @@ fn apply_worker_model_override(config: &mut OpenCodeConfig, value: &str) -> Resu
         None => (None, trimmed.to_string()),
     };
     if let Some(provider) = provider {
-        if !config.local_providers.iter().any(|item| item == &provider) {
+        if is_cloud_opencode_provider(&provider) {
+            config.require_local = false;
+            config.local_verification.enabled = false;
+        } else if !config.local_providers.iter().any(|item| item == &provider) {
             config.local_providers.push(provider.clone());
         }
         config.provider = provider;

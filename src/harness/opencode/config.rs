@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 
-use crate::{OpenCodeConfig, get_str, state_layout};
+use crate::{OpenCodeConfig, get_str, is_cloud_opencode_provider, state_layout};
 
 #[derive(Debug, Clone)]
 pub(crate) struct OpenCodeModelSelection {
@@ -105,19 +105,7 @@ fn model_line_matches(
 }
 
 fn reject_cloud_provider(provider: &str) -> Result<()> {
-    let cloud = [
-        "openai",
-        "anthropic",
-        "gemini",
-        "openrouter",
-        "xai",
-        "groq",
-        "copilot",
-        "opencode-hosted",
-        "azure",
-        "bedrock",
-    ];
-    if cloud.iter().any(|item| provider.contains(item)) {
+    if is_cloud_opencode_provider(provider) {
         bail!("cloud OpenCode provider `{provider}` is rejected under --require-local");
     }
     Ok(())
@@ -179,4 +167,68 @@ pub(super) fn opencode_command(command: &str, root: &Path) -> Command {
 
 fn sql_string_literal_content(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{MixmodConfig, ModelOverrides};
+    use tempfile::TempDir;
+
+    fn fake_opencode_with_models(root: &Path, models: &str) -> PathBuf {
+        let command = root.join("fake-opencode.sh");
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"models\" ]; then\n  printf '%s\\n' '{}'\n  exit 0\nfi\nexit 1\n",
+            models
+        );
+        std::fs::write(&command, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&command).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&command, perms).unwrap();
+        }
+        command
+    }
+
+    #[test]
+    fn openrouter_worker_resolves_when_local_requirement_is_disabled() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let command = fake_opencode_with_models(root, "openrouter/qwen/qwen3.6-flash");
+        let mut config = MixmodConfig::default();
+        ModelOverrides::new(None, Some("openrouter/qwen/qwen3.6-flash".to_string()))
+            .apply_to_config(&mut config)
+            .unwrap();
+
+        let selection =
+            resolve_opencode_model(command.to_str().unwrap(), root, &config.opencode, false)
+                .unwrap();
+
+        assert_eq!(selection.provider, "openrouter");
+        assert_eq!(selection.model, "qwen/qwen3.6-flash");
+        assert_eq!(selection.model_arg, "openrouter/qwen/qwen3.6-flash");
+        assert!(!selection.require_local);
+    }
+
+    #[test]
+    fn openrouter_worker_is_rejected_when_local_requirement_is_explicit() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let command = fake_opencode_with_models(root, "openrouter/qwen/qwen3.6-flash");
+        let mut config = MixmodConfig::default();
+        ModelOverrides::new(None, Some("openrouter/qwen/qwen3.6-flash".to_string()))
+            .apply_to_config(&mut config)
+            .unwrap();
+
+        let error = resolve_opencode_model(command.to_str().unwrap(), root, &config.opencode, true)
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("cloud OpenCode provider `openrouter` is rejected")
+        );
+    }
 }
