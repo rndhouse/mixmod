@@ -103,6 +103,16 @@ fn assert_failure(output: Output) {
     }
 }
 
+#[test]
+fn version_flag_reports_package_version() {
+    let output = Command::new(mixmod_bin())
+        .arg("--version")
+        .output()
+        .expect("failed to run mixmod --version");
+
+    assert_success(output);
+}
+
 fn read_json(path: &Path) -> Value {
     let bytes = std::fs::read(path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));

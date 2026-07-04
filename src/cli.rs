@@ -8,6 +8,7 @@ use crate::config::WorkerBackend;
 #[derive(Debug, Parser)]
 #[command(name = "mixmod")]
 #[command(about = "Reduce supervisor-model cost with worker models")]
+#[command(version)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
