@@ -388,6 +388,20 @@ fn should_run_empty_patch_followup(
         && patch.trim().is_empty()
 }
 
+fn expected_patch_for_instruction(mode: DelegationMode, task: &TaskSpec) -> bool {
+    if mode != DelegationMode::Patch {
+        return false;
+    }
+    task.expect_patch
+        .or_else(|| get_bool(&task.context, "expect_patch"))
+        .or_else(|| {
+            task.context
+                .get("worker_brief")
+                .and_then(|brief| get_bool(brief, "expect_patch"))
+        })
+        .unwrap_or(true)
+}
+
 struct EmptyPatchFollowupRequest<'a> {
     root: &'a Path,
     mode: DelegationMode,
@@ -669,10 +683,10 @@ Stop immediately after the requested tests pass. Do not keep exploring after a p
 Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and session artifacts on disk.
 "#,
         mode = mode,
-        expected_patch = match task.expect_patch {
-            Some(true) => "yes",
-            Some(false) => "no",
-            None => "unspecified",
+        expected_patch = if expected_patch_for_instruction(mode, task) {
+            "yes"
+        } else {
+            "no"
         },
         title = task.title,
         instructions = task.instructions,

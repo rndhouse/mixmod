@@ -580,6 +580,20 @@ fn resumed_opencode_args_use_specific_session_without_title() {
     );
 }
 
+#[test]
+fn default_opencode_args_pin_mixmod_worker_agent() {
+    let args = OpenCodeConfig::default().args;
+
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "--agent" && pair[1] == MIXMOD_OPENCODE_AGENT)
+    );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "--model" && pair[1] == "{model_arg}")
+    );
+}
+
 fn test_opencode_request(root: &Path) -> AgentRequest {
     let out_dir = state_layout(root).runs().join("test");
     AgentRequest {
@@ -1024,6 +1038,27 @@ fn opencode_config_is_written_to_central_state() {
     assert!(config_path.starts_with(state_layout(root).project_dir()));
     assert!(!root.join("opencode.json").exists());
     assert_eq!(get_bool(&config, "autoupdate"), Some(false));
+    assert_eq!(
+        get_str(&config, "default_agent"),
+        Some(MIXMOD_OPENCODE_AGENT)
+    );
+    let agent = &config["agent"][MIXMOD_OPENCODE_AGENT];
+    assert_eq!(get_str(agent, "mode"), Some("primary"));
+    assert!(
+        agent.get("model").is_none(),
+        "worker model should stay controlled by --worker-model / --model"
+    );
+    let prompt = get_str(agent, "prompt").unwrap_or_default();
+    assert!(prompt.contains("Expected repository patch: yes"));
+    assert!(prompt.contains("Expected repository patch: no"));
+    let permission = &agent["permission"];
+    assert_eq!(get_str(permission, "read"), Some("allow"));
+    assert_eq!(get_str(permission, "grep"), Some("allow"));
+    assert_eq!(get_str(permission, "glob"), Some("allow"));
+    assert_eq!(get_str(permission, "edit"), Some("allow"));
+    assert_eq!(get_str(permission, "bash"), Some("allow"));
+    assert_eq!(get_str(permission, "todowrite"), Some("deny"));
+    assert_eq!(get_str(permission, "task"), Some("deny"));
 }
 
 #[test]
@@ -1259,6 +1294,7 @@ fn opencode_instruction_includes_local_worker_self_check() {
     .unwrap();
 
     assert!(instruction.contains("## Completion Self-Check"));
+    assert!(instruction.contains("Expected repository patch: yes"));
     assert!(instruction.contains("Mixmod-managed state lives outside this repository"));
     assert!(!instruction.contains("Task file:"));
     assert!(!instruction.contains("Artifact directory:"));
@@ -1266,6 +1302,33 @@ fn opencode_instruction_includes_local_worker_self_check() {
     assert!(instruction.contains("If you intended checks or verification"));
     assert!(instruction.contains("Do not claim success if intended edits"));
     assert!(instruction.contains("## Output Contract"));
+}
+
+#[test]
+fn opencode_instruction_honors_no_patch_tasks() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Investigate only",
+  "instructions": "Explain what changed.",
+  "expect_patch": false
+}"#,
+    )
+    .unwrap();
+    let (_, task_spec) = read_task_json(&task).unwrap();
+
+    let instruction = build_opencode_instruction(
+        DelegationMode::Patch,
+        &task_spec,
+        &task,
+        &state_layout(root).runs().join("example"),
+    )
+    .unwrap();
+
+    assert!(instruction.contains("Expected repository patch: no"));
 }
 
 #[test]

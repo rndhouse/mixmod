@@ -114,6 +114,7 @@ const LIVE_STATUS_FILE: &str = "live-status.json";
 const SUPERVISOR_CONTROL_FILE: &str = "control.json";
 const SUPERVISOR_CONTROL_LOG: &str = "supervisor-control.jsonl";
 const DEFAULT_OPENCODE_PROVIDER: &str = "mixmod-local-ollama";
+const MIXMOD_OPENCODE_AGENT: &str = "mixmod-worker";
 const DEFAULT_OPENCODE_MODEL: &str = "qwen-3.6-27b";
 const DEFAULT_OPENCODE_OLLAMA_MODEL: &str = "qwen3.6:27b";
 const DEFAULT_FRONTIER_MODEL: &str = "gpt-5.5";

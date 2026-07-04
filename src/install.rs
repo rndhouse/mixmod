@@ -1,4 +1,5 @@
 use crate::*;
+use serde_json::{Map, json};
 
 pub fn init_project(root: &Path) -> Result<()> {
     ensure_project_state(root, true)
@@ -158,7 +159,7 @@ command = "opencode"
 # - {{model_arg}}: explicit provider/model argument passed to OpenCode
 # - {{session_id}}: Mixmod-generated OpenCode session label
 # - {{resume_session_id}}: real OpenCode session id used for worker_mode=continue
-args = ["run", "--dangerously-skip-permissions", "--model", "{{model_arg}}", "--title", "{{session_id}}", "{{instruction}}"]
+args = ["run", "--agent", "{mixmod_agent}", "--dangerously-skip-permissions", "--model", "{{model_arg}}", "--title", "{{session_id}}", "{{instruction}}"]
 
 heartbeat_seconds = 10
 worker_timeout_seconds = 600
@@ -200,6 +201,7 @@ reasoning_effort = "{frontier_reasoning_effort}"
 # END MIXMOD MANAGED: config
 "#,
         opencode_provider = DEFAULT_OPENCODE_PROVIDER,
+        mixmod_agent = MIXMOD_OPENCODE_AGENT,
         default_model = DEFAULT_OPENCODE_MODEL,
         ollama_model = DEFAULT_OPENCODE_OLLAMA_MODEL,
         frontier_model = DEFAULT_FRONTIER_MODEL,
@@ -215,7 +217,77 @@ fn legacy_opencode_config_content() -> String {
     opencode_config_content_for_provider("local-ollama", "Ollama (repo-local)")
 }
 
+fn previous_legacy_opencode_config_content() -> String {
+    previous_opencode_config_content_for_provider("local-ollama", "Ollama (repo-local)")
+}
+
 fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
+    let mut agents = Map::new();
+    agents.insert(
+        MIXMOD_OPENCODE_AGENT.to_string(),
+        json!({
+            "description": "Mixmod supervised code worker",
+            "mode": "primary",
+            "prompt": mixmod_opencode_agent_prompt(),
+            "permission": {
+                "read": "allow",
+                "glob": "allow",
+                "grep": "allow",
+                "list": "allow",
+                "edit": "allow",
+                "bash": "allow",
+                "lsp": "allow",
+                "task": "deny",
+                "todowrite": "deny",
+                "webfetch": "deny",
+                "websearch": "deny",
+                "skill": "deny",
+                "question": "deny",
+                "external_directory": "deny"
+            }
+        }),
+    );
+    let mut models = Map::new();
+    models.insert(
+        DEFAULT_OPENCODE_OLLAMA_MODEL.to_string(),
+        json!({
+            "name": "Qwen 3.6 27B (local)"
+        }),
+    );
+    let mut providers = Map::new();
+    providers.insert(
+        provider.to_string(),
+        json!({
+            "name": name,
+            "npm": "@ai-sdk/openai-compatible",
+            "options": {
+                "baseURL": "http://127.0.0.1:11434/v1"
+            },
+            "models": models
+        }),
+    );
+    let config = json!({
+        "$schema": "https://opencode.ai/config.json",
+        "autoupdate": false,
+        "model": format!("{provider}/{ollama_model}", ollama_model = DEFAULT_OPENCODE_OLLAMA_MODEL),
+        "default_agent": MIXMOD_OPENCODE_AGENT,
+        "agent": agents,
+        "provider": providers
+    });
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&config).expect("generated OpenCode config should serialize")
+    )
+}
+
+fn previous_opencode_config_content() -> String {
+    previous_opencode_config_content_for_provider(
+        DEFAULT_OPENCODE_PROVIDER,
+        "Ollama (Mixmod local)",
+    )
+}
+
+fn previous_opencode_config_content_for_provider(provider: &str, name: &str) -> String {
     format!(
         r#"{{
   "$schema": "https://opencode.ai/config.json",
@@ -241,6 +313,14 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
         name = name,
         ollama_model = DEFAULT_OPENCODE_OLLAMA_MODEL
     )
+}
+
+fn mixmod_opencode_agent_prompt() -> &'static str {
+    "You are the Mixmod worker. Codex supervises your output and remains the final authority.\n\
+Use the Mixmod worker task as the source of truth.\n\
+When the task says `Expected repository patch: yes`, a plan, todo list, or explanation is not complete by itself. Read the relevant files, make the smallest necessary repository edits, and confirm the repository diff is non-empty before finalizing. If no patch is actually needed, say that explicitly and explain the blocker or reason compactly.\n\
+When the task says `Expected repository patch: no`, do not invent edits; answer or investigate compactly as requested.\n\
+Do not inspect Mixmod-managed state or artifact directories. Keep final output concise."
 }
 
 fn write_managed_file(path: &Path, label: &str, content: &str, verbose: bool) -> Result<()> {
@@ -290,7 +370,9 @@ pub(crate) fn is_managed_file(path: &Path) -> bool {
     let file_name = path.file_name().and_then(OsStr::to_str);
     file_name == Some("opencode.json")
         && (content.trim_end() == opencode_config_content().trim_end()
-            || content.trim_end() == legacy_opencode_config_content().trim_end())
+            || content.trim_end() == previous_opencode_config_content().trim_end()
+            || content.trim_end() == legacy_opencode_config_content().trim_end()
+            || content.trim_end() == previous_legacy_opencode_config_content().trim_end())
 }
 
 fn file_state(path: &Path) -> String {

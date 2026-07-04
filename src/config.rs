@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     DEFAULT_FRONTIER_MODEL, DEFAULT_FRONTIER_REASONING_EFFORT, DEFAULT_OPENCODE_MODEL,
-    DEFAULT_OPENCODE_OLLAMA_MODEL, DEFAULT_OPENCODE_PROVIDER,
+    DEFAULT_OPENCODE_OLLAMA_MODEL, DEFAULT_OPENCODE_PROVIDER, MIXMOD_OPENCODE_AGENT,
 };
 
 const REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
@@ -233,6 +233,8 @@ impl Default for OpenCodeConfig {
             command: "opencode".to_string(),
             args: vec![
                 "run".to_string(),
+                "--agent".to_string(),
+                MIXMOD_OPENCODE_AGENT.to_string(),
                 "--dangerously-skip-permissions".to_string(),
                 "--model".to_string(),
                 "{model_arg}".to_string(),
