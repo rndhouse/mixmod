@@ -331,7 +331,7 @@ def mixmod_install_spec(
     return AgentInstallSpec(
         agent_name=agent_name,
         version=version,
-        cache_key="mixmod-deepswe-agent-v2",
+        cache_key="mixmod-deepswe-agent-v3",
         steps=[
             InstallStep(user="root", env={"DEBIAN_FRONTEND": "noninteractive"}, run=root_run),
             InstallStep(user="agent", run=node_run),
