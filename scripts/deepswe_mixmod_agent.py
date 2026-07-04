@@ -171,6 +171,7 @@ mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())}
 git config user.name "Mixmod"
 git config user.email "mixmod@example.invalid"
 {shlex.quote(self.mixmod_command)} init
+{shlex.quote(self.mixmod_command)} experiment init deepswe --fixture .
 python3 - <<'PY'
 import json
 import os
@@ -223,7 +224,6 @@ if base_url:
                 options["baseURL"] = base_url
         path.write_text(json.dumps(data, indent=2) + "\\n")
 PY
-{shlex.quote(self.mixmod_command)} experiment init deepswe --fixture .
 exp_dir="$(find {shlex.quote(state_dir.as_posix())}/projects -path '*/experiments/deepswe' -type d | head -1)"
 cp {shlex.quote(task_path.as_posix())} "$exp_dir/task.json"
 {quoted_run_default} 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod.txt").as_posix())}
@@ -338,7 +338,7 @@ def mixmod_install_spec(
     return AgentInstallSpec(
         agent_name=agent_name,
         version=version,
-        cache_key="mixmod-deepswe-agent-v3",
+        cache_key="mixmod-deepswe-agent-v4",
         steps=[
             InstallStep(user="root", env={"DEBIAN_FRONTEND": "noninteractive"}, run=root_run),
             InstallStep(user="agent", run=node_run),
