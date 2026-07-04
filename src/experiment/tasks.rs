@@ -1,0 +1,394 @@
+use crate::*;
+
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct WorkerBriefTask<'a> {
+    title: String,
+    instructions: String,
+    expect_patch: bool,
+    files: Vec<String>,
+    tests: Vec<String>,
+    constraints: Vec<String>,
+    acceptance: Vec<String>,
+    context: WorkerBriefTaskContext<'a>,
+}
+
+#[derive(Serialize)]
+struct WorkerBriefTaskContext<'a> {
+    expect_patch: bool,
+    worker_brief: &'a Value,
+}
+
+#[derive(Serialize)]
+struct RevisionTask<'a> {
+    title: String,
+    instructions: String,
+    expect_patch: bool,
+    worker_mode: &'a str,
+    files: Vec<String>,
+    tests: Vec<String>,
+    constraints: [&'static str; 2],
+    acceptance: Vec<String>,
+    context: RevisionTaskContext<'a>,
+}
+
+#[derive(Serialize)]
+struct RevisionTaskContext<'a> {
+    expect_patch: bool,
+    codex_focus_files: &'a [String],
+    repo_focus_files: &'a [String],
+    patch_decision: &'a str,
+    revision: RevisionTaskDetails<'a>,
+    mixmod_artifact_refs: &'a [String],
+}
+
+#[derive(Serialize)]
+struct RevisionTaskDetails<'a> {
+    delta_expected: bool,
+    message_to_worker: &'a str,
+    worker_mode: &'a str,
+    patch_decision: &'a str,
+    focus_files: &'a [String],
+    repo_focus_files: &'a [String],
+    required_checks: &'a [String],
+}
+
+pub(crate) fn write_worker_brief_task(
+    task_path: &Path,
+    brief: &Value,
+    default_dir: &Path,
+) -> Result<PathBuf> {
+    let original = read_json_file(task_path)?;
+    let original = agent_visible_task_value(&original);
+    let typed_brief = WorkerBrief::from_value(brief);
+    let handoff = typed_brief.handoff.as_deref().unwrap_or_else(|| {
+        if brief_has_legacy_guidance(brief) {
+            "guided"
+        } else {
+            "as_given"
+        }
+    });
+    let explicit_focus_files =
+        first_non_empty_string_array(brief, &["files", "focus_files", "target_files"]);
+    let target_files = non_empty_or(
+        explicit_focus_files.clone(),
+        get_string_array(&original, "files"),
+    );
+    let required_tests = non_empty_or(
+        merged_string_arrays(brief, &["tests", "required_tests"]),
+        get_string_array(&original, "tests"),
+    );
+    let checks = merged_string_arrays(
+        brief,
+        &[
+            "checks",
+            "must_check",
+            "required_checks",
+            "acceptance_checks",
+        ],
+    );
+    let avoid = get_string_array(brief, "avoid");
+    let mut constraints = get_string_array(&original, "constraints");
+    constraints.extend(
+        get_string_array(brief, "constraints")
+            .into_iter()
+            .map(|constraint| format!("Supervisor constraint: {constraint}")),
+    );
+    constraints.extend(avoid.iter().map(|item| format!("Avoid: {item}")));
+    constraints.push(
+        "Treat the original task JSON as primary; the supervisor handoff is supplemental."
+            .to_string(),
+    );
+    constraints.push("Keep stdout compact.".to_string());
+    constraints.sort();
+    constraints.dedup();
+
+    let original_instructions = get_str(&original, "instructions").unwrap_or("");
+    let brief_json = serde_json::to_string_pretty(brief)
+        .context("failed to serialize supervisor worker brief")?;
+    let title = get_str(&original, "title").unwrap_or("Mixmod task");
+    let codex_message = codex_message_to_worker(brief, handoff);
+    let acceptance = non_empty_or(checks.clone(), get_string_array(&original, "acceptance"));
+    let expect_patch = typed_brief.expect_patch.unwrap_or(handoff != "blocked");
+
+    let worker_task = WorkerBriefTask {
+        title: format!("Mixmod handoff: {title}"),
+        instructions: format!(
+            "Original task instructions:\n{original_instructions}\n\nSupervisor message to worker:\n{codex_message}\n\nSupervisor handoff JSON:\n{brief_json}"
+        ),
+        expect_patch,
+        files: target_files,
+        tests: required_tests,
+        constraints,
+        acceptance,
+        context: WorkerBriefTaskContext {
+            expect_patch,
+            worker_brief: brief,
+        },
+    };
+    let path = default_dir.join(WORKER_TASK_JSON);
+    write_pretty_json(&path, &worker_task, "worker task")?;
+    Ok(path)
+}
+
+fn codex_message_to_worker(brief: &Value, handoff: &str) -> String {
+    if let Some(message) = get_str(brief, "message_to_worker")
+        .or_else(|| get_str(brief, "message"))
+        .filter(|message| !message.trim().is_empty())
+    {
+        return message.trim().to_string();
+    }
+    if handoff == "as_given" && !brief_has_legacy_guidance(brief) {
+        return "Proceed from the original task.".to_string();
+    }
+
+    let mut lines = Vec::new();
+    if let Some(supplement) = get_str(brief, "supplement")
+        .or_else(|| get_str(brief, "objective"))
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(supplement.trim().to_string());
+    }
+    append_handoff_list(
+        &mut lines,
+        "Files",
+        &first_non_empty_string_array(brief, &["files", "focus_files", "target_files"]),
+    );
+    append_handoff_list(
+        &mut lines,
+        "Checks",
+        &merged_string_arrays(
+            brief,
+            &[
+                "checks",
+                "must_check",
+                "required_checks",
+                "acceptance_checks",
+            ],
+        ),
+    );
+    append_handoff_list(
+        &mut lines,
+        "Notes",
+        &get_string_array(brief, "implementation_steps"),
+    );
+    append_handoff_list(&mut lines, "Avoid", &get_string_array(brief, "avoid"));
+    if let Some(risk) = get_str(brief, "risk").filter(|value| !value.trim().is_empty()) {
+        lines.push(format!("Risk: {}", risk.trim()));
+    }
+    if lines.is_empty() {
+        "Proceed from the original task.".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+pub(crate) fn write_revision_task(
+    task_path: &Path,
+    default_dir: &Path,
+    experiment_name: &str,
+    decision: &SupervisorFeedbackTurn,
+    revision_index: u64,
+) -> Result<PathBuf> {
+    let task_value = read_json_file(task_path)?;
+    let task_value = agent_visible_task_value(&task_value);
+    let work_dir = task_path.parent().unwrap_or_else(|| Path::new("."));
+    let (repo_focus_files, artifact_focus_files) =
+        split_worker_focus_files(work_dir, default_dir, &decision.focus_files);
+    let focus_files = non_empty_or(
+        repo_focus_files.clone(),
+        get_string_array(&task_value, "files"),
+    );
+    let artifact_note = if artifact_focus_files.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nMixmod artifact references from the supervisor, not repo source files: {:?}\nDo not read these from the repo root; use the current task text and the supervisor message instead.",
+            artifact_focus_files
+        )
+    };
+    let focus_note = format!(
+        "Repo focus files: {:?}{artifact_note}",
+        if repo_focus_files.is_empty() {
+            focus_files.clone()
+        } else {
+            repo_focus_files.clone()
+        }
+    );
+    let acceptance = non_empty_or(
+        decision.required_checks.clone(),
+        get_string_array(&task_value, "acceptance"),
+    );
+    let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
+    let patch_decision_note = if decision.patch_decision == "revise_previous" {
+        "\nPatch checkpoint decision: revise_previous. The supervisor judged the previous candidate patch better than the current revision. Recover the previous candidate using the supervisor message below, then make the requested focused changes. Do not read Mixmod artifacts directly.\n"
+    } else if decision.patch_decision == "revise_current" {
+        "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues the supervisor identified.\n"
+    } else {
+        ""
+    };
+    let instructions = if decision.worker_mode == "context_focus" {
+        format!(
+            "Original task instructions:\n{original_instructions}\n\nThe supervisor requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nSupervisor message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
+            decision.hint, decision.required_checks
+        )
+    } else {
+        format!(
+            "{original_instructions}\n\nSupervisor decision: revise\nWorker mode: continue\nSame worker session should be reused when available.{patch_decision_note}\nMessage to worker: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for supervisor review.",
+            decision.hint, decision.required_checks
+        )
+    };
+    let revision = RevisionTask {
+        title: format!(
+            "Revision {}: {}",
+            revision_index,
+            get_str(&task_value, "title").unwrap_or(experiment_name)
+        ),
+        instructions,
+        expect_patch: true,
+        worker_mode: &decision.worker_mode,
+        files: focus_files,
+        tests: get_string_array(&task_value, "tests"),
+        constraints: ["Keep the revision focused.", "Do not paste long logs."],
+        acceptance,
+        context: RevisionTaskContext {
+            expect_patch: true,
+            codex_focus_files: &decision.focus_files,
+            repo_focus_files: &repo_focus_files,
+            patch_decision: &decision.patch_decision,
+            revision: RevisionTaskDetails {
+                delta_expected: revision_delta_expected(decision),
+                message_to_worker: &decision.hint,
+                worker_mode: &decision.worker_mode,
+                patch_decision: &decision.patch_decision,
+                focus_files: &decision.focus_files,
+                repo_focus_files: &repo_focus_files,
+                required_checks: &decision.required_checks,
+            },
+            mixmod_artifact_refs: &artifact_focus_files,
+        },
+    };
+    let path = if revision_index == 1 {
+        default_dir.join("revision-task.json")
+    } else {
+        default_dir.join(format!("revision-task-{revision_index}.json"))
+    };
+    write_pretty_json(&path, &revision, "revision task")?;
+    if revision_index != 1 {
+        write_pretty_json(
+            &default_dir.join("revision-task.json"),
+            &revision,
+            "latest revision task",
+        )?;
+    }
+    Ok(path)
+}
+
+fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {
+    decision.verdict == "revise"
+        || decision.patch_decision == "revise_current"
+        || decision.patch_decision == "revise_previous"
+}
+
+fn split_worker_focus_files(
+    work_dir: &Path,
+    default_dir: &Path,
+    requested: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let mut repo_files = Vec::new();
+    let mut artifact_refs = Vec::new();
+    for raw in requested {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match classify_worker_focus_file(work_dir, default_dir, trimmed) {
+            WorkerFocusFile::Repo(path) => push_unique(&mut repo_files, path),
+            WorkerFocusFile::Artifact(path) => push_unique(&mut artifact_refs, path),
+        }
+    }
+    (repo_files, artifact_refs)
+}
+
+enum WorkerFocusFile {
+    Repo(String),
+    Artifact(String),
+}
+
+fn classify_worker_focus_file(work_dir: &Path, default_dir: &Path, raw: &str) -> WorkerFocusFile {
+    let normalized = raw.trim_start_matches("./").replace('\\', "/");
+    let path = Path::new(&normalized);
+    if path.is_absolute() {
+        if let Ok(relative) = path.strip_prefix(work_dir) {
+            let relative = path_to_repo_string(relative);
+            if is_artifact_focus_ref(&relative) {
+                WorkerFocusFile::Artifact(normalized)
+            } else {
+                WorkerFocusFile::Repo(relative)
+            }
+        } else {
+            let _ = path.strip_prefix(default_dir);
+            WorkerFocusFile::Artifact(normalized)
+        }
+    } else if normalized.starts_with("../")
+        || normalized.contains("/../")
+        || normalized.starts_with(".mixmod/")
+        || normalized.starts_with(".codex/")
+        || is_artifact_focus_ref(&normalized)
+    {
+        WorkerFocusFile::Artifact(normalized)
+    } else {
+        WorkerFocusFile::Repo(normalized)
+    }
+}
+
+fn is_artifact_focus_ref(path: &str) -> bool {
+    let file_name = Path::new(path)
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or(path);
+    is_static_mixmod_artifact_name(file_name)
+        || file_name == "revision-task.json"
+        || (file_name.starts_with("revision-task-") && file_name.ends_with(".json"))
+}
+
+fn path_to_repo_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn push_unique(items: &mut Vec<String>, item: String) {
+    if !items.contains(&item) {
+        items.push(item);
+    }
+}
+
+fn brief_has_legacy_guidance(brief: &Value) -> bool {
+    get_str(brief, "message_to_worker").is_some()
+        || get_str(brief, "message").is_some()
+        || get_str(brief, "supplement").is_some()
+        || get_str(brief, "objective").is_some()
+        || !get_string_array(brief, "files").is_empty()
+        || !get_string_array(brief, "checks").is_empty()
+        || !get_string_array(brief, "focus_files").is_empty()
+        || !get_string_array(brief, "target_files").is_empty()
+        || !get_string_array(brief, "implementation_steps").is_empty()
+        || !get_string_array(brief, "acceptance_checks").is_empty()
+        || !get_string_array(brief, "required_checks").is_empty()
+        || !get_string_array(brief, "required_tests").is_empty()
+        || !get_string_array(brief, "tests").is_empty()
+        || !get_string_array(brief, "constraints").is_empty()
+        || get_str(brief, "risk").is_some()
+}
+
+fn append_handoff_list(lines: &mut Vec<String>, label: &str, items: &[String]) {
+    if items.is_empty() {
+        return;
+    }
+    lines.push(format!("{label}:"));
+    lines.extend(items.iter().map(|item| format!("- {item}")));
+}
+
+fn non_empty_or<T>(value: Vec<T>, fallback: Vec<T>) -> Vec<T> {
+    if value.is_empty() { fallback } else { value }
+}

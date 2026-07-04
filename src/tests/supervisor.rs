@@ -1,0 +1,193 @@
+use super::*;
+
+#[test]
+fn supervisor_feedback_prompt_explains_worker_session_modes() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let prompt = supervisor_feedback_prompt(
+        root,
+        &[root.join("missing-report.md")],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+    )
+    .unwrap();
+
+    assert!(prompt.contains("worker_mode=continue to keep the same worker session"));
+    assert!(prompt.contains("worker_mode=context_focus to start a new worker session"));
+    assert!(prompt.contains("patch_decision"));
+    assert!(prompt.contains("revise_previous"));
+    assert!(prompt.contains("summarize the concrete source/test edits to recover"));
+    assert!(prompt.contains("Do not ask the worker to inspect Mixmod state"));
+    assert!(prompt.contains("previous worker context is discarded"));
+    assert!(prompt.contains("Do not implement code. Do not edit files."));
+    assert!(prompt.contains("Do not ask the user for approval."));
+    assert!(
+        prompt.contains(
+            "Prefer revise after failed, empty, distracted, or incomplete worker attempts"
+        )
+    );
+    assert!(prompt.contains("Stop does not permit direct supervisor editing."));
+}
+
+#[test]
+fn supervisor_prompts_include_selected_worker_model_guidance() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let guidance = MixmodConfig::default().worker_supervisor_guidance();
+    let feedback_prompt =
+        supervisor_feedback_prompt(root, &[root.join("missing-report.md")], "decide", &guidance)
+            .unwrap();
+
+    assert!(feedback_prompt.contains("Supervisor-only worker-model guidance"));
+    assert!(feedback_prompt.contains("Do not copy every bullet to the worker"));
+    assert!(feedback_prompt.contains("global environments"));
+
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Checkout",
+  "instructions": "Fix totals.",
+  "tests": ["python -m unittest -q"]
+}"#,
+    )
+    .unwrap();
+
+    let brief_prompt = supervisor_worker_brief_prompt(root, &task, &guidance).unwrap();
+    assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
+    assert!(brief_prompt.contains("repository diff"));
+    assert!(brief_prompt.contains("Select only relevant points"));
+}
+
+#[test]
+fn checkpoint_detects_lost_focused_patch_files() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let previous = root.join("previous");
+    let current = root.join("current");
+    fs::create_dir_all(&previous).unwrap();
+    fs::create_dir_all(&current).unwrap();
+    atomic_write(
+        &previous.join("worktree.patch"),
+        br#"diff --git a/src/_pytest/assertion/rewrite.py b/src/_pytest/assertion/rewrite.py
+--- a/src/_pytest/assertion/rewrite.py
++++ b/src/_pytest/assertion/rewrite.py
+@@ -1,1 +1,1 @@
+-old
++new
+diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
+--- a/testing/test_assertrewrite.py
++++ b/testing/test_assertrewrite.py
+@@ -1,1 +1,1 @@
+-old
++new
+"#,
+    )
+    .unwrap();
+    atomic_write(
+        &current.join("worktree.patch"),
+        br#"diff --git a/AUTHORS b/AUTHORS
+--- a/AUTHORS
++++ b/AUTHORS
+@@ -1,1 +1,2 @@
+ Alice
++Bob
+"#,
+    )
+    .unwrap();
+    atomic_write(&current.join("changes.patch"), b"").unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "accept_current".to_string(),
+        hint: "Fix assertion rewrite.".to_string(),
+        focus_files: vec![
+            "src/_pytest/assertion/rewrite.py".to_string(),
+            "testing/test_assertrewrite.py".to_string(),
+        ],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let comparison = write_patch_checkpoint_comparison(&previous, &current, &decision).unwrap();
+
+    assert!(comparison.degradation_detected);
+    assert_eq!(
+        comparison.lost_focus_files,
+        vec![
+            "src/_pytest/assertion/rewrite.py",
+            "testing/test_assertrewrite.py"
+        ]
+    );
+    assert!(current.join(PATCH_COMPARISON).exists());
+    assert!(current.join(PREVIOUS_WORKTREE_PATCH).exists());
+
+    let mut artifacts = Vec::new();
+    append_patch_checkpoint_artifacts(&current, &mut artifacts).unwrap();
+    assert!(
+        artifacts
+            .iter()
+            .any(|path| path.ends_with(PATCH_COMPARISON))
+    );
+    assert!(
+        artifacts
+            .iter()
+            .any(|path| path.ends_with(PREVIOUS_WORKTREE_PATCH))
+    );
+}
+
+#[test]
+fn supervisor_control_metrics_become_revision_decision() {
+    let temp = TempDir::new().unwrap();
+    let run_dir = temp.path().join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    atomic_write(
+        &run_dir.join("metrics.json"),
+        serde_json::to_vec_pretty(&json!({
+            "supervisor_control_events": [{
+                "action": "interrupt_context_focus",
+                "worker_mode": "context_focus",
+                "message_to_worker": "Ignore setup and edit sympy/core/numbers.py first.",
+                "focus_files": ["sympy/core/numbers.py"],
+                "required_checks": ["python -m pytest sympy/core/tests/test_power.py -q"],
+                "risk": "worker was distracted by dependency setup"
+            }]
+        }))
+        .unwrap()
+        .as_slice(),
+    )
+    .unwrap();
+
+    let decision = supervisor_control_decision_from_metrics(&run_dir)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(decision.verdict, "revise");
+    assert_eq!(decision.worker_mode, "context_focus");
+    assert!(decision.hint.contains("edit sympy/core/numbers.py"));
+    assert_eq!(decision.focus_files, vec!["sympy/core/numbers.py"]);
+    assert_eq!(
+        decision.required_checks,
+        vec!["python -m pytest sympy/core/tests/test_power.py -q"]
+    );
+}
+
+#[test]
+fn subtracts_unchanged_preexisting_diff_blocks() {
+    let before = "diff --git a/task.json b/task.json\nnew file mode 100644\n--- /dev/null\n+++ b/task.json\n@@ -0,0 +1,1 @@\n+{}\n";
+    let after = format!(
+        "{before}diff --git a/src/generated.rs b/src/generated.rs\nnew file mode 100644\n--- /dev/null\n+++ b/src/generated.rs\n@@ -0,0 +1,1 @@\n+pub fn generated() {{}}\n"
+    );
+    let filtered = diff_without_unchanged_blocks(&after, before);
+    assert!(!filtered.contains("task.json"));
+    assert!(filtered.contains("src/generated.rs"));
+}
