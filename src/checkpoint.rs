@@ -7,12 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    FrontierFeedbackTurn, PatchStats, file_len, get_bool, patch_stats, read_json_file,
-    write_pretty_json,
+    CHANGES_PATCH, FrontierFeedbackTurn, PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, PatchStats,
+    WORKTREE_PATCH, file_len, get_bool, patch_stats, read_json_file, write_pretty_json,
 };
-
-pub(crate) const PATCH_COMPARISON: &str = "patch-comparison.json";
-pub(crate) const PREVIOUS_WORKTREE_PATCH: &str = "previous-worktree.patch";
 
 /// Summary of a worker revision compared with the previous candidate patch.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -57,7 +54,7 @@ pub(crate) fn write_patch_checkpoint_comparison(
     current_run_dir: &Path,
     decision: &FrontierFeedbackTurn,
 ) -> Result<PatchCheckpointComparison> {
-    let previous_patch_path = previous_run_dir.join("worktree.patch");
+    let previous_patch_path = previous_run_dir.join(WORKTREE_PATCH);
     let previous_copy_path = current_run_dir.join(PREVIOUS_WORKTREE_PATCH);
     fs::copy(&previous_patch_path, &previous_copy_path).with_context(|| {
         format!(
@@ -69,10 +66,10 @@ pub(crate) fn write_patch_checkpoint_comparison(
 
     let previous_patch = fs::read_to_string(&previous_copy_path)
         .with_context(|| format!("failed to read {}", previous_copy_path.display()))?;
-    let current_patch_path = current_run_dir.join("worktree.patch");
+    let current_patch_path = current_run_dir.join(WORKTREE_PATCH);
     let current_patch = fs::read_to_string(&current_patch_path)
         .with_context(|| format!("failed to read {}", current_patch_path.display()))?;
-    let latest_delta_path = current_run_dir.join("changes.patch");
+    let latest_delta_path = current_run_dir.join(CHANGES_PATCH);
 
     let previous_stats = patch_stats(&previous_patch);
     let current_stats = patch_stats(&current_patch);
@@ -162,7 +159,7 @@ pub(crate) fn write_patch_checkpoint_comparison(
 
     let comparison = PatchCheckpointComparison {
         previous_patch_artifact: PREVIOUS_WORKTREE_PATCH.to_string(),
-        current_patch_artifact: "worktree.patch".to_string(),
+        current_patch_artifact: WORKTREE_PATCH.to_string(),
         previous_patch_bytes,
         current_patch_bytes,
         latest_delta_bytes,

@@ -169,26 +169,16 @@ impl<'a> ExperimentReportRenderer<'a> {
         let artifact_sizes = default_metrics
             .get("artifact_byte_sizes")
             .unwrap_or(&Value::Null);
-        let mixmod_report_bytes = get_u64(artifact_sizes, "report.md")
+        let mixmod_report_bytes = get_u64(artifact_sizes, REPORT_MD)
             .or_else(|| get_u64(run_metrics, "report_bytes"))
             .unwrap_or(0);
-        let mixmod_session_bytes = get_u64(artifact_sizes, "session.jsonl")
+        let mixmod_session_bytes = get_u64(artifact_sizes, SESSION_JSONL)
             .or_else(|| get_u64(run_metrics, "session_bytes"))
             .unwrap_or(0);
-        let mixmod_compact_artifact_bytes = [
-            "worker-brief.json",
-            "receipt.json",
-            "report.md",
-            "worktree.patch",
-            "changes.patch",
-            "patch-comparison.json",
-            "previous-worktree.patch",
-            "interventions.jsonl",
-            "metrics.json",
-        ]
-        .iter()
-        .filter_map(|name| get_u64(artifact_sizes, name))
-        .sum::<u64>();
+        let mixmod_compact_artifact_bytes = std::iter::once(WORKER_BRIEF_JSON)
+            .chain(CODEX_REVIEW_ARTIFACTS.iter().copied())
+            .filter_map(|name| get_u64(artifact_sizes, name))
+            .sum::<u64>();
         let opencode_command = default_metrics
             .get("opencode_command")
             .or_else(|| run_metrics.get("opencode_command"))
@@ -366,9 +356,9 @@ Exact Codex token telemetry is often unavailable through local CLI workflows. Th
             },
         );
 
-        atomic_write(&exp_dir.join("report.md"), report.as_bytes())?;
+        atomic_write(&exp_dir.join(REPORT_MD), report.as_bytes())?;
         println!("{}", report.trim_end());
-        println!("\nwrote {}", display_path(root, &exp_dir.join("report.md")));
+        println!("\nwrote {}", display_path(root, &exp_dir.join(REPORT_MD)));
         Ok(report)
     }
 }

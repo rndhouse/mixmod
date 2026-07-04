@@ -1,6 +1,98 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+/// Experiment task markdown artifact.
+pub const TASK_MD: &str = "task.md";
+/// JSON task artifact passed between Mixmod stages.
+pub const TASK_JSON: &str = "task.json";
+/// Worker instruction markdown artifact written before OpenCode runs.
+pub const OPENCODE_INSTRUCTIONS_MD: &str = "opencode-instructions.md";
+/// Worker-facing task artifact for default strategy runs.
+pub const WORKER_TASK_JSON: &str = "worker-task.json";
+/// Supervisor-generated worker brief artifact.
+pub const WORKER_BRIEF_JSON: &str = "worker-brief.json";
+/// Run receipt artifact.
+pub const RECEIPT_JSON: &str = "receipt.json";
+/// Receipt written when a default strategy run is blocked locally.
+pub const BLOCKED_RECEIPT_JSON: &str = "blocked-receipt.json";
+/// Markdown report artifact.
+pub const REPORT_MD: &str = "report.md";
+/// Worker session transcript artifact.
+pub const SESSION_JSONL: &str = "session.jsonl";
+/// Current accumulated repository patch artifact.
+pub const WORKTREE_PATCH: &str = "worktree.patch";
+/// Latest worker-turn patch artifact.
+pub const CHANGES_PATCH: &str = "changes.patch";
+/// Partial patch artifact preserved after interrupted workers.
+pub const PARTIAL_PATCH: &str = "partial.patch";
+/// Final patch artifact for experiment/default strategy outputs.
+pub const FINAL_PATCH: &str = "final.patch";
+/// Metrics artifact.
+pub const METRICS_JSON: &str = "metrics.json";
+/// Supervisor feedback transcript artifact.
+pub const FRONTIER_FEEDBACK_JSONL: &str = "frontier-feedback.jsonl";
+/// Local worker verification artifact.
+pub const LOCAL_VERIFICATION_JSON: &str = "local-verification.json";
+/// Patch checkpoint comparison artifact.
+pub const PATCH_COMPARISON: &str = "patch-comparison.json";
+/// Previous accumulated worktree patch artifact.
+pub const PREVIOUS_WORKTREE_PATCH: &str = "previous-worktree.patch";
+/// Mixmod intervention audit log artifact.
+pub const INTERVENTIONS_JSONL: &str = "interventions.jsonl";
+/// Supervisor control event log artifact.
+pub const SUPERVISOR_CONTROL_LOG: &str = "supervisor-control.jsonl";
+
+/// Compact artifacts that a supervisor can review for a single worker run.
+pub const RUN_COMPACT_ARTIFACTS: &[&str] = &[
+    RECEIPT_JSON,
+    REPORT_MD,
+    WORKTREE_PATCH,
+    CHANGES_PATCH,
+    INTERVENTIONS_JSONL,
+    METRICS_JSON,
+];
+
+/// Supervisor-visible worker-run artifacts, including checkpoint artifacts.
+pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
+    RECEIPT_JSON,
+    REPORT_MD,
+    WORKTREE_PATCH,
+    CHANGES_PATCH,
+    INTERVENTIONS_JSONL,
+    METRICS_JSON,
+    PATCH_COMPARISON,
+    PREVIOUS_WORKTREE_PATCH,
+];
+
+/// Artifacts copied or size-counted from worker/default strategy run dirs.
+pub const WORKER_RUN_ARTIFACTS: &[&str] = &[
+    WORKER_BRIEF_JSON,
+    WORKER_TASK_JSON,
+    RECEIPT_JSON,
+    TASK_JSON,
+    OPENCODE_INSTRUCTIONS_MD,
+    REPORT_MD,
+    SESSION_JSONL,
+    WORKTREE_PATCH,
+    CHANGES_PATCH,
+    INTERVENTIONS_JSONL,
+    PATCH_COMPARISON,
+    PREVIOUS_WORKTREE_PATCH,
+    PARTIAL_PATCH,
+    METRICS_JSON,
+    FRONTIER_FEEDBACK_JSONL,
+    FINAL_PATCH,
+    LOCAL_VERIFICATION_JSON,
+    SUPERVISOR_CONTROL_LOG,
+];
+
+/// Returns true for static artifact file names managed by Mixmod.
+pub(crate) fn is_static_mixmod_artifact_name(file_name: &str) -> bool {
+    WORKER_RUN_ARTIFACTS.contains(&file_name)
+        || file_name == TASK_MD
+        || file_name == BLOCKED_RECEIPT_JSON
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Receipt {
     pub run_id: String,

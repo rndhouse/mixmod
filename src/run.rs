@@ -71,14 +71,14 @@ impl MixmodRun<'_> {
             .with_context(|| format!("failed to create {}", logs_dir.display()))?;
 
         let (task_value, task_spec) = read_task_json(&task_path)?;
-        write_pretty_json(&out_dir.join("task.json"), &task_value, "run task")?;
+        write_pretty_json(&out_dir.join(TASK_JSON), &task_value, "run task")?;
 
         let expect_patch = expect_patch_for_run(mode, &task_value);
         let interventions_path = out_dir.join(INTERVENTIONS_JSONL);
         let mut intervention_log = InterventionLog::new();
         let session_id = make_run_id("worker-session");
         let instruction = build_opencode_instruction(mode, &task_spec, &task_path, &out_dir)?;
-        let instruction_path = out_dir.join("opencode-instructions.md");
+        let instruction_path = out_dir.join(OPENCODE_INSTRUCTIONS_MD);
         atomic_write(&instruction_path, instruction.as_bytes())?;
         let initial_session_policy = if resume_session_id.is_some() {
             InterventionSessionPolicy::SameSession
@@ -95,8 +95,8 @@ impl MixmodRun<'_> {
             )
             .with_session_policy(initial_session_policy)
             .with_artifacts(vec![
-                "task.json".to_string(),
-                "opencode-instructions.md".to_string(),
+                TASK_JSON.to_string(),
+                OPENCODE_INSTRUCTIONS_MD.to_string(),
             ])
             .with_details(intervention_details([
                 ("mode", json!(mode.to_string())),
@@ -237,8 +237,8 @@ impl MixmodRun<'_> {
                         )
                         .with_session_policy(InterventionSessionPolicy::SameSession)
                         .with_artifacts(vec![
-                            "revision-noop-followup/task.json".to_string(),
-                            "revision-noop-followup/opencode-instructions.md".to_string(),
+                            format!("revision-noop-followup/{TASK_JSON}"),
+                            format!("revision-noop-followup/{OPENCODE_INSTRUCTIONS_MD}"),
                         ])
                         .with_details(intervention_details([
                             ("patch_created", json!(revision_noop_followup.patch_created)),
@@ -269,8 +269,8 @@ impl MixmodRun<'_> {
                         .with_session_policy(InterventionSessionPolicy::SameSession)
                         .with_performed(false)
                         .with_artifacts(vec![
-                            "revision-noop-followup/task.json".to_string(),
-                            "revision-noop-followup/opencode-instructions.md".to_string(),
+                            format!("revision-noop-followup/{TASK_JSON}"),
+                            format!("revision-noop-followup/{OPENCODE_INSTRUCTIONS_MD}"),
                         ])
                         .with_details(intervention_details([("error", json!(error.to_string()))])),
                     );
@@ -341,8 +341,8 @@ impl MixmodRun<'_> {
                         )
                         .with_session_policy(InterventionSessionPolicy::SameSession)
                         .with_artifacts(vec![
-                            "empty-patch-followup/task.json".to_string(),
-                            "empty-patch-followup/opencode-instructions.md".to_string(),
+                            format!("empty-patch-followup/{TASK_JSON}"),
+                            format!("empty-patch-followup/{OPENCODE_INSTRUCTIONS_MD}"),
                         ])
                         .with_details(intervention_details([
                             ("patch_created", json!(empty_patch_followup.patch_created)),
@@ -371,8 +371,8 @@ impl MixmodRun<'_> {
                         .with_session_policy(InterventionSessionPolicy::SameSession)
                         .with_performed(false)
                         .with_artifacts(vec![
-                            "empty-patch-followup/task.json".to_string(),
-                            "empty-patch-followup/opencode-instructions.md".to_string(),
+                            format!("empty-patch-followup/{TASK_JSON}"),
+                            format!("empty-patch-followup/{OPENCODE_INSTRUCTIONS_MD}"),
                         ])
                         .with_details(intervention_details([("error", json!(error.to_string()))])),
                     );
@@ -381,10 +381,10 @@ impl MixmodRun<'_> {
             atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
             atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
         }
-        atomic_write(&out_dir.join("changes.patch"), patch.as_bytes())?;
-        atomic_write(&out_dir.join("worktree.patch"), worktree_patch.as_bytes())?;
+        atomic_write(&out_dir.join(CHANGES_PATCH), patch.as_bytes())?;
+        atomic_write(&out_dir.join(WORKTREE_PATCH), worktree_patch.as_bytes())?;
         if output.timed_out || output.idle_timed_out {
-            atomic_write(&out_dir.join("partial.patch"), patch.as_bytes())?;
+            atomic_write(&out_dir.join(PARTIAL_PATCH), patch.as_bytes())?;
             notes.push(
             "The worker did not finish normally; partial.patch preserves the worktree diff captured after termination."
                 .to_string(),
@@ -394,7 +394,7 @@ impl MixmodRun<'_> {
         let worktree_stats = patch_stats(&worktree_patch);
 
         let session = build_session_jsonl(&start_timestamp, &end_timestamp, &output)?;
-        atomic_write(&out_dir.join("session.jsonl"), session.as_bytes())?;
+        atomic_write(&out_dir.join(SESSION_JSONL), session.as_bytes())?;
 
         let needs_supervisor = output.timed_out
             || output.idle_timed_out
@@ -423,21 +423,14 @@ impl MixmodRun<'_> {
             root,
             out_dir: &out_dir,
         });
-        atomic_write(&out_dir.join("report.md"), report.as_bytes())?;
+        atomic_write(&out_dir.join(REPORT_MD), report.as_bytes())?;
         intervention_log.write_jsonl(&interventions_path)?;
 
-        let compact_artifacts = [
-            "receipt.json",
-            "report.md",
-            "worktree.patch",
-            "changes.patch",
-            INTERVENTIONS_JSONL,
-            "metrics.json",
-        ];
-        let report_bytes = file_len(&out_dir.join("report.md"))?;
-        let patch_bytes = file_len(&out_dir.join("changes.patch"))?;
-        let worktree_patch_bytes = file_len(&out_dir.join("worktree.patch"))?;
-        let session_bytes = file_len(&out_dir.join("session.jsonl"))?;
+        let compact_artifacts = RUN_COMPACT_ARTIFACTS;
+        let report_bytes = file_len(&out_dir.join(REPORT_MD))?;
+        let patch_bytes = file_len(&out_dir.join(CHANGES_PATCH))?;
+        let worktree_patch_bytes = file_len(&out_dir.join(WORKTREE_PATCH))?;
+        let session_bytes = file_len(&out_dir.join(SESSION_JSONL))?;
         let mut metrics = RunMetrics {
             start_timestamp: start_timestamp.to_rfc3339(),
             end_timestamp: end_timestamp.to_rfc3339(),
@@ -493,11 +486,11 @@ impl MixmodRun<'_> {
             approximate_codex_output_bytes: None,
             artifact_files_read_by_codex: compact_artifacts
                 .iter()
-                .map(|name| name.to_string())
+                .map(|name| (*name).to_string())
                 .collect::<Vec<_>>(),
             notes,
         };
-        write_pretty_json(&out_dir.join("metrics.json"), &metrics, "run metrics")?;
+        write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "run metrics")?;
 
         let receipt = Receipt {
             run_id,
@@ -505,28 +498,28 @@ impl MixmodRun<'_> {
             mode: mode.to_string(),
             summary,
             changed_files: stats.files.clone(),
-            report: display_path(root, &out_dir.join("report.md")),
-            patch: display_path(root, &out_dir.join("changes.patch")),
-            worktree_patch: display_path(root, &out_dir.join("worktree.patch")),
-            session: display_path(root, &out_dir.join("session.jsonl")),
+            report: display_path(root, &out_dir.join(REPORT_MD)),
+            patch: display_path(root, &out_dir.join(CHANGES_PATCH)),
+            worktree_patch: display_path(root, &out_dir.join(WORKTREE_PATCH)),
+            session: display_path(root, &out_dir.join(SESSION_JSONL)),
             interventions: display_path(root, &interventions_path),
-            metrics: display_path(root, &out_dir.join("metrics.json")),
+            metrics: display_path(root, &out_dir.join(METRICS_JSON)),
             logs: display_path(root, &logs_dir),
         };
-        write_pretty_json(&out_dir.join("receipt.json"), &receipt, "run receipt")?;
+        write_pretty_json(&out_dir.join(RECEIPT_JSON), &receipt, "run receipt")?;
         let compact_total = compact_artifacts
             .iter()
-            .filter_map(|name| file_len(&out_dir.join(name)).ok())
+            .filter_map(|name| file_len(&out_dir.join(*name)).ok())
             .sum();
         metrics.approximate_codex_input_bytes = Some(compact_total);
-        write_pretty_json(&out_dir.join("metrics.json"), &metrics, "run metrics")?;
+        write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "run metrics")?;
         let compact_total_after_metrics_update = compact_artifacts
             .iter()
-            .filter_map(|name| file_len(&out_dir.join(name)).ok())
+            .filter_map(|name| file_len(&out_dir.join(*name)).ok())
             .sum();
         if compact_total_after_metrics_update != compact_total {
             metrics.approximate_codex_input_bytes = Some(compact_total_after_metrics_update);
-            write_pretty_json(&out_dir.join("metrics.json"), &metrics, "run metrics")?;
+            write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "run metrics")?;
         }
 
         println!(
@@ -536,7 +529,7 @@ impl MixmodRun<'_> {
         );
         println!("status: {}", receipt.status);
         println!("compact artifacts:");
-        for artifact in compact_artifacts {
+        for &artifact in compact_artifacts {
             println!("  {}", display_path(root, &out_dir.join(artifact)));
         }
         Ok(receipt)
@@ -753,7 +746,7 @@ fn run_revision_noop_followup(
             }
         }
     });
-    let followup_task_path = followup_dir.join("task.json");
+    let followup_task_path = followup_dir.join(TASK_JSON);
     write_pretty_json(
         &followup_task_path,
         &followup_task,
@@ -761,7 +754,7 @@ fn run_revision_noop_followup(
     )?;
 
     let instruction = build_revision_noop_followup_instruction(mode, task, revision);
-    let instruction_path = followup_dir.join("opencode-instructions.md");
+    let instruction_path = followup_dir.join(OPENCODE_INSTRUCTIONS_MD);
     atomic_write(&instruction_path, instruction.as_bytes())?;
     let followup_request = AgentRequest {
         root: root.to_path_buf(),
@@ -916,7 +909,7 @@ fn run_empty_patch_followup(
             "empty_patch_followup": true
         }
     });
-    let followup_task_path = followup_dir.join("task.json");
+    let followup_task_path = followup_dir.join(TASK_JSON);
     write_pretty_json(
         &followup_task_path,
         &followup_task,
@@ -924,7 +917,7 @@ fn run_empty_patch_followup(
     )?;
 
     let instruction = build_empty_patch_followup_instruction(mode, task, task_path, &followup_dir);
-    let instruction_path = followup_dir.join("opencode-instructions.md");
+    let instruction_path = followup_dir.join(OPENCODE_INSTRUCTIONS_MD);
     atomic_write(&instruction_path, instruction.as_bytes())?;
     let followup_request = AgentRequest {
         root: root.to_path_buf(),
@@ -1376,12 +1369,12 @@ Heartbeat log: `{heartbeat}`
         worker_check_guidance = worker_check_guidance,
         stdout_excerpt = truncate_for_report(&stdout, 4000),
         stderr_excerpt = truncate_for_report(&stderr, 4000),
-        receipt = display_path(root, &out_dir.join("receipt.json")),
-        report = display_path(root, &out_dir.join("report.md")),
-        worktree_patch = display_path(root, &out_dir.join("worktree.patch")),
-        patch = display_path(root, &out_dir.join("changes.patch")),
+        receipt = display_path(root, &out_dir.join(RECEIPT_JSON)),
+        report = display_path(root, &out_dir.join(REPORT_MD)),
+        worktree_patch = display_path(root, &out_dir.join(WORKTREE_PATCH)),
+        patch = display_path(root, &out_dir.join(CHANGES_PATCH)),
         interventions = display_path(root, &out_dir.join(INTERVENTIONS_JSONL)),
-        metrics = display_path(root, &out_dir.join("metrics.json")),
+        metrics = display_path(root, &out_dir.join(METRICS_JSON)),
         heartbeat = display_path(root, &out_dir.join("logs/heartbeat.jsonl")),
         out_dir = display_path(root, out_dir),
         notes = notes,

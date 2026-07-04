@@ -33,13 +33,21 @@ mod task;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use artifacts::{
+    BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
+    FRONTIER_FEEDBACK_JSONL, LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD,
+    PARTIAL_PATCH, PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, RECEIPT_JSON, REPORT_MD,
+    RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISOR_CONTROL_LOG, TASK_JSON, TASK_MD,
+    WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH,
+    is_static_mixmod_artifact_name,
+};
 pub use artifacts::{
-    CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, FrontierFeedback, PatchStats,
-    Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent, WorkerBrief,
+    CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, FrontierFeedback,
+    INTERVENTIONS_JSONL, PatchStats, Receipt, RunMetrics, SupervisorControlCommand,
+    SupervisorControlEvent, WorkerBrief,
 };
 pub(crate) use checkpoint::{
-    PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, append_patch_checkpoint_artifacts,
-    patch_checkpoint_metrics, write_patch_checkpoint_comparison,
+    append_patch_checkpoint_artifacts, patch_checkpoint_metrics, write_patch_checkpoint_comparison,
 };
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub(crate) use config::WorkerSupervisorGuidance;
@@ -61,7 +69,7 @@ pub use harness::{
 };
 pub use install::{doctor_project, init_project, status_project};
 pub use interventions::{
-    INTERVENTIONS_JSONL, InterventionEvent, InterventionKind, InterventionLog, InterventionPhase,
+    InterventionEvent, InterventionKind, InterventionLog, InterventionPhase,
     InterventionSessionPolicy, InterventionTarget,
 };
 pub use report::experiment_report;
@@ -117,7 +125,6 @@ const LEGACY_OPENCODE_CONFIG: &str = "opencode.json";
 const CODEX_INSTRUCTIONS: &str = ".codex/mixmod-instructions.md";
 const LIVE_STATUS_FILE: &str = "live-status.json";
 const SUPERVISOR_CONTROL_FILE: &str = "control.json";
-const SUPERVISOR_CONTROL_LOG: &str = "supervisor-control.jsonl";
 const DEFAULT_OPENCODE_PROVIDER: &str = "mixmod-local-ollama";
 const MIXMOD_OPENCODE_AGENT: &str = "mixmod-worker";
 const DEFAULT_OPENCODE_MODEL: &str = "qwen-3.6-27b";

@@ -13,8 +13,8 @@ pub(crate) fn live_status(root: &Path, run: &Path, json_output: bool) -> Result<
             "note": "run status is written only while a Mixmod worker run is active"
         })
     });
-    let receipt = read_json_file(&run_dir.join("receipt.json")).ok();
-    let metrics = read_json_file(&run_dir.join("metrics.json")).ok();
+    let receipt = read_json_file(&run_dir.join(RECEIPT_JSON)).ok();
+    let metrics = read_json_file(&run_dir.join(METRICS_JSON)).ok();
     let output = json!({
         "run_dir": display_path(root, &run_dir),
         "status": status,
@@ -198,12 +198,12 @@ pub(crate) fn supervise_mixmod_task(
         "control_continue": format!("MIXMOD_DEBUG_COMMANDS=1 mixmod control send --run {run_display} --action interrupt_continue --message '<message>'"),
         "control_context_focus": format!("MIXMOD_DEBUG_COMMANDS=1 mixmod control send --run {run_display} --action interrupt_context_focus --message '<message>'"),
         "compact_artifacts": [
-            display_path(root, &out_dir.join("receipt.json")),
-            display_path(root, &out_dir.join("report.md")),
-            display_path(root, &out_dir.join("worktree.patch")),
-            display_path(root, &out_dir.join("changes.patch")),
+            display_path(root, &out_dir.join(RECEIPT_JSON)),
+            display_path(root, &out_dir.join(REPORT_MD)),
+            display_path(root, &out_dir.join(WORKTREE_PATCH)),
+            display_path(root, &out_dir.join(CHANGES_PATCH)),
             display_path(root, &out_dir.join(INTERVENTIONS_JSONL)),
-            display_path(root, &out_dir.join("metrics.json"))
+            display_path(root, &out_dir.join(METRICS_JSON))
         ],
         "notes": [
             "This command returns immediately so the same Codex session can inspect run status while the worker runs.",

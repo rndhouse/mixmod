@@ -9,7 +9,7 @@ use chrono::Utc;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::FrontierFeedbackTurn;
+use crate::{FrontierFeedbackTurn, METRICS_JSON};
 
 pub(crate) fn append_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -32,7 +32,7 @@ pub(crate) fn read_json_file(path: &Path) -> Result<Value> {
 }
 
 pub(crate) fn read_opencode_session_id_from_metrics(run_dir: &Path) -> Result<Option<String>> {
-    let metrics_path = run_dir.join("metrics.json");
+    let metrics_path = run_dir.join(METRICS_JSON);
     let metrics = read_json_file(&metrics_path)?;
     Ok(get_str(&metrics, "opencode_session_id")
         .filter(|value| value.starts_with("ses_"))
@@ -42,7 +42,7 @@ pub(crate) fn read_opencode_session_id_from_metrics(run_dir: &Path) -> Result<Op
 pub(crate) fn supervisor_control_decision_from_metrics(
     run_dir: &Path,
 ) -> Result<Option<FrontierFeedbackTurn>> {
-    let metrics_path = run_dir.join("metrics.json");
+    let metrics_path = run_dir.join(METRICS_JSON);
     if !metrics_path.exists() {
         return Ok(None);
     }

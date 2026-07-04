@@ -5,7 +5,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-use crate::PatchStats;
+use crate::{PatchStats, TASK_JSON};
 
 pub fn patch_stats(patch: &str) -> PatchStats {
     let mut files = BTreeSet::new();
@@ -121,7 +121,7 @@ pub(crate) fn git_diff_with_untracked(root: &Path) -> Result<String> {
         if rel.starts_with(".mixmod/")
             || rel.starts_with(".codex/")
             || rel == ".mixmod"
-            || rel == "task.json"
+            || rel == TASK_JSON
         {
             continue;
         }

@@ -2,9 +2,6 @@ use crate::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// Compact JSONL artifact written for every Mixmod-owned intervention.
-pub const INTERVENTIONS_JSONL: &str = "interventions.jsonl";
-
 /// The category of Mixmod-owned behavior that changed agent execution.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

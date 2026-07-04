@@ -16,10 +16,10 @@ use serde_json::{Value, json};
 
 use crate::harness::{AgentBackend, AgentHarness, AgentOutput, AgentRequest};
 use crate::{
-    DEFAULT_OPENCODE_OLLAMA_MODEL, LIVE_STATUS_FILE, MixmodConfig, OpenCodeConfig,
-    SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file,
-    append_jsonl, atomic_write, env_u64, get_str, get_string_array, normalize_worker_mode,
-    shell_command, state_layout, write_pretty_json,
+    DEFAULT_OPENCODE_OLLAMA_MODEL, LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, MixmodConfig,
+    OpenCodeConfig, SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent,
+    append_file, append_jsonl, atomic_write, env_u64, get_str, get_string_array,
+    normalize_worker_mode, shell_command, state_layout, write_pretty_json,
 };
 
 pub struct ShellOpenCodeRunner {
@@ -857,7 +857,7 @@ impl LocalVerificationRun<'_> {
             }
         });
         write_pretty_json(
-            &out_dir.join("local-verification.json"),
+            &out_dir.join(LOCAL_VERIFICATION_JSON),
             &verification_json,
             "local verification",
         )?;

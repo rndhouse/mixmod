@@ -57,15 +57,15 @@ impl DefaultStrategyRun<'_> {
         let worker_guidance = config.worker_supervisor_guidance();
         let runner = worker_harness_for_config(config);
 
-        let task_file = out_dir.join("task.json");
+        let task_file = out_dir.join(TASK_JSON);
         write_agent_visible_task_file(&absolutize(root, task_arg), &task_file)?;
         let _ = read_task_json(&task_file)?;
 
-        let feedback_path = out_dir.join("frontier-feedback.jsonl");
+        let feedback_path = out_dir.join(FRONTIER_FEEDBACK_JSONL);
         let worker_brief =
             run_frontier_brief_turn(root, &out_dir, &task_file, &frontier, &worker_guidance)?;
         write_pretty_json(
-            &out_dir.join("worker-brief.json"),
+            &out_dir.join(WORKER_BRIEF_JSON),
             &worker_brief.brief,
             "worker brief",
         )?;
@@ -103,14 +103,10 @@ impl DefaultStrategyRun<'_> {
                 } else {
                     format!("critique-{decision_index}")
                 };
-                let mut artifact_paths = vec![
-                    final_out.join("receipt.json"),
-                    final_out.join("report.md"),
-                    final_out.join("worktree.patch"),
-                    final_out.join("changes.patch"),
-                    final_out.join(INTERVENTIONS_JSONL),
-                    final_out.join("metrics.json"),
-                ];
+                let mut artifact_paths = RUN_COMPACT_ARTIFACTS
+                    .iter()
+                    .map(|name| final_out.join(name))
+                    .collect::<Vec<_>>();
                 let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
                 if supervisor_control_path.exists() {
                     artifact_paths.push(supervisor_control_path);
@@ -138,7 +134,7 @@ impl DefaultStrategyRun<'_> {
                         Some(active_opencode_session_id.clone().ok_or_else(|| {
                             anyhow!(
                                 "Codex requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
-                                final_out.join("metrics.json").display()
+                                final_out.join(METRICS_JSON).display()
                             )
                         })?)
                     } else {
@@ -179,12 +175,12 @@ impl DefaultStrategyRun<'_> {
         };
 
         let final_patch = git_diff_with_untracked(root)?;
-        atomic_write(&out_dir.join("final.patch"), final_patch.as_bytes())?;
+        atomic_write(&out_dir.join(FINAL_PATCH), final_patch.as_bytes())?;
         let stats = patch_stats(&final_patch);
 
         let worker_metrics = worker_run_dirs
             .iter()
-            .map(|dir| read_json_file(&dir.join("metrics.json")))
+            .map(|dir| read_json_file(&dir.join(METRICS_JSON)))
             .collect::<Result<Vec<_>>>()?;
         let patch_checkpoint_metrics = patch_checkpoint_metrics(&worker_run_dirs)?;
         let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
@@ -279,14 +275,14 @@ impl DefaultStrategyRun<'_> {
             "supervisor_resume_count": frontier_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
-            "artifact_files_read_by_codex": ["receipt.json", "report.md", "worktree.patch", "changes.patch", "interventions.jsonl", "metrics.json", "patch-comparison.json", "previous-worktree.patch"],
+            "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
             "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
             "codex_loop_exit": approval_action,
             "final_worker_mode": final_decision.worker_mode,
             "worker_modes": worker_modes,
             "patch_checkpoints": patch_checkpoint_metrics,
             "revision_attempts": opencode_calls.saturating_sub(1),
-            "worker_brief": "worker-brief.json",
+            "worker_brief": WORKER_BRIEF_JSON,
             "worker_task": display_path(root, &worker_task),
             "worker_brief_output_tokens": worker_brief.output_tokens,
             "mixmod_delegations": opencode_calls,
@@ -338,12 +334,12 @@ impl DefaultStrategyRun<'_> {
             ]
         });
         write_pretty_json(
-            &out_dir.join("metrics.json"),
+            &out_dir.join(METRICS_JSON),
             &metrics,
             "default strategy metrics",
         )?;
         atomic_write(
-            &out_dir.join("report.md"),
+            &out_dir.join(REPORT_MD),
             budgeted_report("exec", &metrics).as_bytes(),
         )?;
 
@@ -352,17 +348,14 @@ impl DefaultStrategyRun<'_> {
             display_path(root, &out_dir)
         );
         println!("status: {}", final_status);
-        println!("report: {}", display_path(root, &out_dir.join("report.md")));
-        println!(
-            "patch: {}",
-            display_path(root, &out_dir.join("final.patch"))
-        );
+        println!("report: {}", display_path(root, &out_dir.join(REPORT_MD)));
+        println!("patch: {}", display_path(root, &out_dir.join(FINAL_PATCH)));
         Ok(())
     }
 }
 
 fn ensure_worker_run_verified(out_dir: &Path, receipt: &Receipt, run_dir: &Path) -> Result<()> {
-    let metrics = read_json_file(&run_dir.join("metrics.json"))?;
+    let metrics = read_json_file(&run_dir.join(METRICS_JSON))?;
     if !get_bool(&metrics, "require_local").unwrap_or(false)
         || get_bool(&metrics, "local_inference_verified").unwrap_or(false)
     {
@@ -370,7 +363,7 @@ fn ensure_worker_run_verified(out_dir: &Path, receipt: &Receipt, run_dir: &Path)
     }
 
     write_pretty_json(
-        &out_dir.join("blocked-receipt.json"),
+        &out_dir.join(BLOCKED_RECEIPT_JSON),
         receipt,
         "blocked worker receipt",
     )?;
@@ -382,25 +375,7 @@ fn ensure_worker_run_verified(out_dir: &Path, receipt: &Receipt, run_dir: &Path)
 
 fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
     let mut map = serde_json::Map::new();
-    for name in [
-        "worker-brief.json",
-        "worker-task.json",
-        "receipt.json",
-        "task.json",
-        "report.md",
-        "session.jsonl",
-        "worktree.patch",
-        "changes.patch",
-        INTERVENTIONS_JSONL,
-        PATCH_COMPARISON,
-        PREVIOUS_WORKTREE_PATCH,
-        "partial.patch",
-        "metrics.json",
-        "frontier-feedback.jsonl",
-        "final.patch",
-        "local-verification.json",
-        SUPERVISOR_CONTROL_LOG,
-    ] {
+    for &name in WORKER_RUN_ARTIFACTS {
         let path = dir.join(name);
         if path.exists() {
             map.insert(name.to_string(), json!(file_len(&path)?));
