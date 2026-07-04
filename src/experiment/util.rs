@@ -194,7 +194,7 @@ pub(super) fn copy_fixture_workdir(
     }
     fs::create_dir_all(target)
         .with_context(|| format!("failed to create {label} work dir {}", target.display()))?;
-    copy_dir_contents(fixture, target)?;
+    copy_dir_contents(fixture, target, true)?;
     init_fixture_git_repo(target)?;
     println!("created {} work dir {}", label, display_path(root, target));
     Ok(())
@@ -222,7 +222,7 @@ pub(super) fn seed_experiment_task_from_fixture(
     Ok(())
 }
 
-fn copy_dir_contents(source: &Path, target: &Path) -> Result<()> {
+fn copy_dir_contents(source: &Path, target: &Path, is_fixture_root: bool) -> Result<()> {
     for entry in fs::read_dir(source)
         .with_context(|| format!("failed to read directory {}", source.display()))?
     {
@@ -233,12 +233,15 @@ fn copy_dir_contents(source: &Path, target: &Path) -> Result<()> {
         if name == ".git" || name == ".mixmod" || name == ".codex" {
             continue;
         }
+        if is_fixture_root && (name == TASK_JSON || name == TASK_MD) {
+            continue;
+        }
         let target_path = target.join(name);
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
             fs::create_dir_all(&target_path)
                 .with_context(|| format!("failed to create directory {}", target_path.display()))?;
-            copy_dir_contents(&source_path, &target_path)?;
+            copy_dir_contents(&source_path, &target_path, false)?;
         } else if file_type.is_file() {
             if let Some(parent) = target_path.parent() {
                 fs::create_dir_all(parent)

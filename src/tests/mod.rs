@@ -235,6 +235,7 @@ fn minimal_opencode_output() -> AgentOutput {
 }
 
 mod core;
+mod experiment;
 mod install;
 mod opencode;
 mod report;
