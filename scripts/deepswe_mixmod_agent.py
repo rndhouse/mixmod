@@ -43,6 +43,7 @@ PATH_SETUP = (
     'export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"\n'
     'if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi\n'
 )
+LOCAL_MIXMOD_COMMAND = PurePosixPath("/tmp/mixmod-local/mixmod")
 
 
 class MixmodAgent(BaseInstalledAgent):
@@ -59,6 +60,7 @@ class MixmodAgent(BaseInstalledAgent):
         require_local: bool | str = True,
         mixmod_command: str = "mixmod",
         mixmod_install_command: str | None = None,
+        local_mixmod_binary: str | None = None,
         ollama_base_url: str | None = None,
         mixmod_timeout_sec: int | str | None = None,
         **kwargs: Any,
@@ -70,6 +72,16 @@ class MixmodAgent(BaseInstalledAgent):
         self.require_local = _truthy(require_local)
         self.mixmod_command = mixmod_command
         self.mixmod_install_command = mixmod_install_command
+        self.local_mixmod_binary = (
+            Path(local_mixmod_binary).expanduser().resolve()
+            if local_mixmod_binary
+            else None
+        )
+        self.container_mixmod_command = (
+            LOCAL_MIXMOD_COMMAND.as_posix()
+            if self.local_mixmod_binary
+            else self.mixmod_command
+        )
         self.ollama_base_url = ollama_base_url
         self.mixmod_timeout_sec = (
             int(mixmod_timeout_sec) if mixmod_timeout_sec not in (None, "") else None
@@ -80,6 +92,8 @@ class MixmodAgent(BaseInstalledAgent):
         return "mixmod"
 
     def get_version_command(self) -> str | None:
+        if self.local_mixmod_binary:
+            return None
         return PATH_SETUP + f"{shlex.quote(self.mixmod_command)} --version"
 
     def install_spec(self) -> AgentInstallSpec:
@@ -88,6 +102,7 @@ class MixmodAgent(BaseInstalledAgent):
             self._version,
             self.mixmod_command,
             self.mixmod_install_command,
+            use_local_binary=bool(self.local_mixmod_binary),
         )
 
     def network_allowlist(self) -> NetworkAllowlist:
@@ -129,6 +144,8 @@ class MixmodAgent(BaseInstalledAgent):
         await prepare_codex_auth(environment)
         if self.worker_model.split("/", 1)[0] == "openrouter":
             await prepare_opencode_auth(environment)
+        if self.local_mixmod_binary:
+            await prepare_local_mixmod_binary(environment, self.local_mixmod_binary)
         write_task = (
             f"cat > {shlex.quote(task_path.as_posix())} <<'JSON'\n"
             f"{json.dumps(task, indent=2)}\n"
@@ -162,7 +179,7 @@ class MixmodAgent(BaseInstalledAgent):
         summary_path: PurePosixPath,
     ) -> str:
         run_default_args = [
-            self.mixmod_command,
+            self.container_mixmod_command,
             "exec",
             "--task",
             task_path.as_posix(),
@@ -184,7 +201,7 @@ cd /app
 mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())}
 git config user.name "Mixmod"
 git config user.email "mixmod@example.invalid"
-{shlex.quote(self.mixmod_command)} init
+{shlex.quote(self.container_mixmod_command)} init
 python3 - <<'PY'
 import json
 import os
@@ -285,6 +302,8 @@ def mixmod_install_spec(
     version: str | None,
     mixmod_command: str,
     mixmod_install_command: str | None,
+    *,
+    use_local_binary: bool = False,
 ) -> AgentInstallSpec:
     root_run = (
         "set -euo pipefail; "
@@ -310,24 +329,37 @@ def mixmod_install_spec(
         "codex --version; "
         "opencode --version"
     )
-    mixmod_run = (
-        "set -euo pipefail; "
-        f"{PATH_SETUP} "
-        f"{mixmod_install_command or _default_mixmod_install(mixmod_command)}; "
-        f"{shlex.quote(mixmod_command)} --version; "
-        "codex --version; "
-        "opencode --version"
-    )
+    if use_local_binary:
+        mixmod_run = (
+            "set -euo pipefail; "
+            f"{PATH_SETUP} "
+            "echo 'using local Mixmod binary uploaded at runtime'; "
+            "codex --version; "
+            "opencode --version"
+        )
+        cache_key = "mixmod-deepswe-agent-v7-local"
+        verification_command = f"{PATH_SETUP}codex --version && opencode --version"
+    else:
+        mixmod_run = (
+            "set -euo pipefail; "
+            f"{PATH_SETUP} "
+            f"{mixmod_install_command or _default_mixmod_install(mixmod_command)}; "
+            f"{shlex.quote(mixmod_command)} --version; "
+            "codex --version; "
+            "opencode --version"
+        )
+        cache_key = "mixmod-deepswe-agent-v7"
+        verification_command = f"{PATH_SETUP}{shlex.quote(mixmod_command)} --version"
     return AgentInstallSpec(
         agent_name=agent_name,
         version=version,
-        cache_key="mixmod-deepswe-agent-v5",
+        cache_key=cache_key,
         steps=[
             InstallStep(user="root", env={"DEBIAN_FRONTEND": "noninteractive"}, run=root_run),
             InstallStep(user="agent", run=node_run),
             InstallStep(user="agent", run=mixmod_run),
         ],
-        verification_command=f"{PATH_SETUP}{shlex.quote(mixmod_command)} --version",
+        verification_command=verification_command,
     )
 
 
@@ -387,6 +419,31 @@ async def prepare_codex_auth(environment: BaseEnvironment) -> None:
     raise RuntimeError(
         "Codex auth is required; set OPENAI_API_KEY, CODEX_AUTH_JSON_PATH, "
         "or provide ~/.codex/auth.json on the Pier host"
+    )
+
+
+async def prepare_local_mixmod_binary(
+    environment: BaseEnvironment, binary_path: Path
+) -> None:
+    if not binary_path.is_file():
+        raise FileNotFoundError(f"local Mixmod binary not found: {binary_path}")
+    await environment.exec(
+        command=f"mkdir -p {shlex.quote(LOCAL_MIXMOD_COMMAND.parent.as_posix())}"
+    )
+    await environment.upload_file(binary_path, LOCAL_MIXMOD_COMMAND)
+    if environment.default_user is not None:
+        await environment.exec(
+            command=(
+                f"chown {environment.default_user} "
+                f"{shlex.quote(LOCAL_MIXMOD_COMMAND.as_posix())}"
+            ),
+            user="root",
+        )
+    await environment.exec(
+        command=(
+            f"chmod 755 {shlex.quote(LOCAL_MIXMOD_COMMAND.as_posix())} && "
+            f"{shlex.quote(LOCAL_MIXMOD_COMMAND.as_posix())} --version"
+        )
     )
 
 
