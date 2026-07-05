@@ -133,6 +133,63 @@ fn empty_patch_followup_runs_once_when_patch_expected() {
 }
 
 #[test]
+fn recovery_can_be_disabled_for_first_worker_inspection() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    init_git(root);
+    fs::write(root.join("README.md"), "base\n").unwrap();
+    Command::new("git")
+        .args(["add", "README.md"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "base"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    let task = root.join("example.task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Generate file",
+  "instructions": "Create a small generated file.",
+  "expect_patch": true,
+  "files": ["src/generated.rs"],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+    let runner = EmptyPatchThenPatchRunner::new();
+
+    let run_dir = state_layout(root).runs().join("example");
+    let receipt = run_mixmod_task_with_session_and_recovery(
+        root,
+        DelegationMode::Patch,
+        &task,
+        &run_dir,
+        &runner,
+        false,
+        None,
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(receipt.status, "needs_supervisor");
+    assert_eq!(runner.calls.load(AtomicOrdering::SeqCst), 1);
+    assert!(!run_dir.join("empty-patch-followup").exists());
+    let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
+    assert!(patch.trim().is_empty());
+    let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();
+    assert_eq!(
+        get_bool(&metrics, "empty_patch_followup_triggered"),
+        Some(false)
+    );
+    assert_eq!(get_u64(&metrics, "intervention_count"), Some(1));
+}
+
+#[test]
 fn revision_noop_followup_reuses_worker_session_and_requires_delta() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

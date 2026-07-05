@@ -97,13 +97,15 @@ impl DefaultExperimentRun<'_> {
 
         let worker_task = write_worker_brief_task(&task_file, &worker_brief.brief, &default_dir)?;
         let proposal_out = state_layout(&work_dir).runs().join("default-proposal");
-        let proposal_receipt = run_mixmod_task_with_options(
+        let proposal_receipt = run_mixmod_task_with_session_and_recovery(
             &work_dir,
             DelegationMode::Patch,
             &worker_task,
             &proposal_out,
             runner.as_ref(),
             options.require_local,
+            None,
+            !options.stop_after_first_worker,
         )?;
         ensure_local_run_verified(
             root,

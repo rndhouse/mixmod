@@ -87,7 +87,7 @@ impl DefaultStrategyRun<'_> {
         let worker_task = write_worker_brief_task(&task_file, &worker_brief.brief, &out_dir)?;
         let worker_runs_dir = out_dir.join("worker-runs");
         let proposal_out = worker_runs_dir.join("proposal");
-        let proposal_receipt = run_mixmod_task_with_session(
+        let proposal_receipt = run_mixmod_task_with_session_and_recovery(
             root,
             DelegationMode::Patch,
             &worker_task,
@@ -95,6 +95,7 @@ impl DefaultStrategyRun<'_> {
             runner.as_ref(),
             false,
             options.resume_session,
+            !options.stop_after_first_worker,
         )?;
         ensure_worker_run_verified(&out_dir, &proposal_receipt, &proposal_out)?;
 

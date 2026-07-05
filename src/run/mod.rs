@@ -45,6 +45,28 @@ pub(crate) fn run_mixmod_task_with_session(
     require_local: bool,
     resume_session_id: Option<String>,
 ) -> Result<Receipt> {
+    run_mixmod_task_with_session_and_recovery(
+        root,
+        mode,
+        task_arg,
+        out_arg,
+        runner,
+        require_local,
+        resume_session_id,
+        true,
+    )
+}
+
+pub(crate) fn run_mixmod_task_with_session_and_recovery(
+    root: &Path,
+    mode: DelegationMode,
+    task_arg: &Path,
+    out_arg: &Path,
+    runner: &dyn AgentHarness,
+    require_local: bool,
+    resume_session_id: Option<String>,
+    allow_auto_followups: bool,
+) -> Result<Receipt> {
     MixmodRun {
         root,
         mode,
@@ -53,6 +75,7 @@ pub(crate) fn run_mixmod_task_with_session(
         runner,
         require_local,
         resume_session_id,
+        allow_auto_followups,
     }
     .execute()
 }
@@ -65,6 +88,7 @@ struct MixmodRun<'a> {
     runner: &'a dyn AgentHarness,
     require_local: bool,
     resume_session_id: Option<String>,
+    allow_auto_followups: bool,
 }
 
 impl MixmodRun<'_> {
@@ -77,6 +101,7 @@ impl MixmodRun<'_> {
             runner,
             require_local,
             resume_session_id,
+            allow_auto_followups,
         } = self;
         let run_id = make_run_id("run");
         let task_path = absolutize(root, task_arg);
@@ -179,13 +204,15 @@ impl MixmodRun<'_> {
             &worktree_patch,
             before_diff.as_deref().unwrap_or_default(),
         );
-        if should_run_revision_noop_followup(
-            mode,
-            expect_patch,
-            revision_context.as_ref(),
-            &output,
-            &patch,
-        ) {
+        if allow_auto_followups
+            && should_run_revision_noop_followup(
+                mode,
+                expect_patch,
+                revision_context.as_ref(),
+                &output,
+                &patch,
+            )
+        {
             let revision_context = revision_context
                 .as_ref()
                 .expect("revision context is present when revision no-op follow-up is needed");
@@ -293,7 +320,9 @@ impl MixmodRun<'_> {
             }
             atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
             atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
-        } else if should_run_empty_patch_followup(mode, expect_patch, &output, &patch) {
+        } else if allow_auto_followups
+            && should_run_empty_patch_followup(mode, expect_patch, &output, &patch)
+        {
             empty_patch_followup.triggered = true;
             empty_patch_followup.reason = Some(
                 "patch-mode worker run expected a patch but no repository diff was captured"
