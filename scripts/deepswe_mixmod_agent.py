@@ -166,6 +166,7 @@ class MixmodAgent(BaseInstalledAgent):
         )
         if self.ollama_base_url:
             env["MIXMOD_OPENCODE_BASE_URL"] = self.ollama_base_url
+            _append_no_proxy_host(env, self.ollama_base_url)
 
         command = self._run_command(task_path, state_dir, summary_path)
         await self.exec_as_agent(
@@ -292,6 +293,18 @@ def _truthy(value: bool | str) -> bool:
     if isinstance(value, bool):
         return value
     return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+def _append_no_proxy_host(env: dict[str, str], url: str) -> None:
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        return
+    for key in ("NO_PROXY", "no_proxy"):
+        existing = env.get(key, "")
+        items = [item.strip() for item in existing.split(",") if item.strip()]
+        if parsed.hostname not in items:
+            items.append(parsed.hostname)
+        env[key] = ",".join(items)
 
 
 def mixmod_network_allowlist(extra_url: str | None = None) -> NetworkAllowlist:
