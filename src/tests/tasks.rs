@@ -404,7 +404,7 @@ fn revision_task_preserves_codex_focus_files() {
   "instructions": "Fix the checkout bug.",
   "files": [],
   "tests": [],
-  "constraints": [],
+  "constraints": ["Do not commit."],
   "acceptance": []
 }"#,
     )
@@ -439,6 +439,9 @@ fn revision_task_preserves_codex_focus_files() {
         get_string_array(&revision, "acceptance"),
         vec!["python -m unittest -q"]
     );
+    let constraints = get_string_array(&revision, "constraints");
+    assert!(constraints.contains(&"Do not commit.".to_string()));
+    assert!(constraints.contains(&"Keep the revision focused.".to_string()));
     let instructions = get_str(&revision, "instructions").unwrap();
     assert!(instructions.contains("Message to worker: Update the discount code"));
     assert_eq!(

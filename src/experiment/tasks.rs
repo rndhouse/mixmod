@@ -28,7 +28,7 @@ struct RevisionTask<'a> {
     worker_mode: &'a str,
     files: Vec<String>,
     tests: Vec<String>,
-    constraints: [&'static str; 2],
+    constraints: Vec<String>,
     acceptance: Vec<String>,
     context: RevisionTaskContext<'a>,
 }
@@ -220,6 +220,11 @@ pub(crate) fn write_revision_task(
         decision.required_checks.clone(),
         get_string_array(&task_value, "acceptance"),
     );
+    let mut constraints = get_string_array(&task_value, "constraints");
+    constraints.push("Keep the revision focused.".to_string());
+    constraints.push("Do not paste long logs.".to_string());
+    constraints.sort();
+    constraints.dedup();
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
     let patch_decision_note = if decision.patch_decision == "revise_previous" {
         "\nPatch checkpoint decision: revise_previous. The supervisor judged the previous candidate patch better than the current revision. Recover the previous candidate using the supervisor message below, then make the requested focused changes. Do not read Mixmod artifacts directly.\n"
@@ -250,7 +255,7 @@ pub(crate) fn write_revision_task(
         worker_mode: &decision.worker_mode,
         files: focus_files,
         tests: get_string_array(&task_value, "tests"),
-        constraints: ["Keep the revision focused.", "Do not paste long logs."],
+        constraints,
         acceptance,
         context: RevisionTaskContext {
             expect_patch: true,
