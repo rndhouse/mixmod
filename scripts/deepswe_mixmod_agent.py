@@ -116,10 +116,10 @@ class MixmodAgent(BaseInstalledAgent):
             "constraints": [
                 "Solve the DeepSWE task from the public instruction only.",
                 "Do not inspect /solution or verifier internals.",
-                "Commit the final repository changes before exiting.",
+                "Do not commit during Mixmod worker turns; leave changes as a repository diff.",
             ],
             "acceptance": [
-                "The committed patch should satisfy the DeepSWE verifier.",
+                "The final patch should satisfy the DeepSWE verifier.",
             ],
             "context": {
                 "benchmark": "DeepSWE",
@@ -163,12 +163,10 @@ class MixmodAgent(BaseInstalledAgent):
     ) -> str:
         run_default_args = [
             self.mixmod_command,
-            "experiment",
-            "run-default",
-            "deepswe",
+            "exec",
+            "--task",
+            task_path.as_posix(),
         ]
-        if self.require_local:
-            run_default_args.append("--require-local")
         run_default_args.extend(
             [
                 "--supervisor-model",
@@ -182,11 +180,11 @@ class MixmodAgent(BaseInstalledAgent):
         quoted_run_default = " ".join(shlex.quote(arg) for arg in run_default_args)
         return f"""set -euo pipefail
 {PATH_SETUP}trap 'rm -f "$HOME/.codex/auth.json" "$HOME/.local/share/opencode/auth.json"' EXIT
+cd /app
 mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())}
 git config user.name "Mixmod"
 git config user.email "mixmod@example.invalid"
 {shlex.quote(self.mixmod_command)} init
-{shlex.quote(self.mixmod_command)} experiment init deepswe --fixture .
 python3 - <<'PY'
 import json
 import os
@@ -203,14 +201,19 @@ if base_url:
                 options["baseURL"] = base_url
         path.write_text(json.dumps(data, indent=2) + "\\n")
 PY
-exp_dir="$(find {shlex.quote(state_dir.as_posix())}/projects -path '*/experiments/deepswe' -type d | head -1)"
-cp {shlex.quote(task_path.as_posix())} "$exp_dir/task.json"
 {quoted_run_default} 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod.txt").as_posix())}
-cp "$exp_dir/default/metrics.json" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-metrics.json").as_posix())} || true
-cp "$exp_dir/default/final.patch" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-final.patch").as_posix())} || true
-if [ -s "$exp_dir/default/final.patch" ]; then
-  git apply --whitespace=nowarn "$exp_dir/default/final.patch"
-fi
+run_dir="$(python3 - <<'PY'
+from pathlib import Path
+
+state_dir = Path({state_dir.as_posix()!r})
+runs = [path for path in state_dir.glob("projects/*/runs/run-*") if path.is_dir()]
+if not runs:
+    raise SystemExit("no Mixmod exec run directory found")
+print(max(runs, key=lambda path: path.stat().st_mtime))
+PY
+)"
+cp "$run_dir/metrics.json" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-metrics.json").as_posix())} || true
+cp "$run_dir/final.patch" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-final.patch").as_posix())} || true
 python3 - <<'PY'
 import json
 from pathlib import Path
