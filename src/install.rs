@@ -183,6 +183,7 @@ model = "{default_model}"
 aliases = ["{default_model}", "{ollama_model}", "qwen/qwen3.6-27b", "ollama/{ollama_model}", "local-ollama/{ollama_model}", "{opencode_provider}/{ollama_model}"]
 supervisor_guidance = [
   "On expected-patch tasks, it may stop after exploration without producing a repository diff; if edits are needed, instruct it to make the smallest concrete source/test change before finalizing.",
+  "For broad expected-patch tasks, prefer worker_turn_shape=small_patch_slice with exact_edits, one or two narrow files when possible, no tests before editing, no questions, and a git diff --stat non-empty completion gate.",
   "When tests fail to start because dependencies are missing, keep it focused on repo-level evidence and allowed commands instead of global environment repair.",
   "It can create broad or malformed tests when fixture semantics are unclear; ask for the narrowest regression test that matches existing test style.",
   "It may try to mutate user or global environments while installing dependencies; prefer existing project commands and avoid global installs unless the task explicitly requires them.",

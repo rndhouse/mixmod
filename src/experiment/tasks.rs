@@ -75,10 +75,21 @@ pub(crate) fn write_worker_brief_task(
         explicit_focus_files.clone(),
         get_string_array(&original, "files"),
     );
-    let required_tests = non_empty_or(
+    let expect_patch = typed_brief.expect_patch.unwrap_or(handoff != "blocked");
+    let small_patch_slice = expect_patch
+        && get_str(brief, "worker_turn_shape")
+            .is_some_and(|shape| shape.trim() == "small_patch_slice");
+    let defer_checks_until_patch_exists =
+        get_bool(brief, "defer_checks_until_patch_exists").unwrap_or(small_patch_slice);
+    let original_required_tests = non_empty_or(
         merged_string_arrays(brief, &["tests", "required_tests"]),
         get_string_array(&original, "tests"),
     );
+    let required_tests = if small_patch_slice && defer_checks_until_patch_exists {
+        Vec::new()
+    } else {
+        original_required_tests.clone()
+    };
     let checks = merged_string_arrays(
         brief,
         &[
@@ -96,10 +107,20 @@ pub(crate) fn write_worker_brief_task(
             .map(|constraint| format!("Supervisor constraint: {constraint}")),
     );
     constraints.extend(avoid.iter().map(|item| format!("Avoid: {item}")));
-    constraints.push(
-        "Treat the original task JSON as primary; the supervisor handoff is supplemental."
-            .to_string(),
-    );
+    if small_patch_slice {
+        constraints
+            .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
+        constraints.push(
+            "Do not run tests in this worker turn; checks are deferred until a patch exists."
+                .to_string(),
+        );
+        constraints.push("Do not finalize until git diff --stat is non-empty.".to_string());
+    } else {
+        constraints.push(
+            "Treat the original task JSON as primary; the supervisor handoff is supplemental."
+                .to_string(),
+        );
+    }
     constraints.push("Keep stdout compact.".to_string());
     constraints.sort();
     constraints.dedup();
@@ -115,14 +136,31 @@ pub(crate) fn write_worker_brief_task(
     } else {
         format!("\n\nSupervisor investigation:\n{supervisor_investigation}")
     };
-    let acceptance = non_empty_or(checks.clone(), get_string_array(&original, "acceptance"));
-    let expect_patch = typed_brief.expect_patch.unwrap_or(handoff != "blocked");
+    let completion_gate = get_str(brief, "completion_gate")
+        .filter(|gate| !gate.trim().is_empty())
+        .unwrap_or("git diff --stat must be non-empty");
+    let acceptance = if small_patch_slice {
+        vec![completion_gate.to_string()]
+    } else {
+        non_empty_or(checks.clone(), get_string_array(&original, "acceptance"))
+    };
+    let instructions = if small_patch_slice {
+        small_patch_slice_instructions(
+            &original,
+            brief,
+            &target_files,
+            completion_gate,
+            &codex_message,
+        )
+    } else {
+        format!(
+            "Original task instructions:\n{original_instructions}\n\nSupervisor message to worker:\n{codex_message}{supervisor_investigation_section}\n\nSupervisor handoff JSON:\n{brief_json}"
+        )
+    };
 
     let worker_task = WorkerBriefTask {
         title: format!("Mixmod handoff: {title}"),
-        instructions: format!(
-            "Original task instructions:\n{original_instructions}\n\nSupervisor message to worker:\n{codex_message}{supervisor_investigation_section}\n\nSupervisor handoff JSON:\n{brief_json}"
-        ),
+        instructions,
         expect_patch,
         files: target_files,
         tests: required_tests,
@@ -136,6 +174,102 @@ pub(crate) fn write_worker_brief_task(
     let path = default_dir.join(WORKER_TASK_JSON);
     write_pretty_json(&path, &worker_task, "worker task")?;
     Ok(path)
+}
+
+fn small_patch_slice_instructions(
+    original: &Value,
+    brief: &Value,
+    target_files: &[String],
+    completion_gate: &str,
+    fallback_message: &str,
+) -> String {
+    let title = get_str(original, "title").unwrap_or("the task");
+    let turn_goal = get_str(brief, "turn_goal")
+        .or_else(|| get_str(brief, "objective"))
+        .or_else(|| get_str(brief, "message_to_worker"))
+        .or_else(|| get_str(brief, "message"))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_message)
+        .trim();
+    let exact_edits =
+        first_non_empty_string_array(brief, &["exact_edits", "edit_plan", "implementation_steps"]);
+    let exact_edits = if exact_edits.is_empty() {
+        vec![turn_goal.to_string()]
+    } else {
+        exact_edits
+    };
+
+    let mut hard_rules = vec![
+        "Do not ask questions.".to_string(),
+        "Do not run tests in this turn.".to_string(),
+        "Do not stop after reading files.".to_string(),
+        "Do not inspect unrelated behavior outside this slice.".to_string(),
+        "Do not final-answer until repository files are modified.".to_string(),
+        "If something is ambiguous, make a reasonable assumption and continue editing.".to_string(),
+    ];
+    for action in get_string_array(brief, "forbidden_actions") {
+        let rule = hard_rule_from_forbidden_action(&action);
+        if !hard_rules.contains(&rule) {
+            hard_rules.push(rule);
+        }
+    }
+
+    let file_list = if target_files.is_empty() {
+        "- none specified".to_string()
+    } else {
+        target_files
+            .iter()
+            .map(|file| format!("- {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        r#"Noninteractive coding task. This is the full instruction. No user will answer questions.
+
+Original task: {title}
+
+Your only goal in this turn is to create a non-empty repository patch.
+
+Hard rules:
+{hard_rules}
+
+Patch slice goal: {turn_goal}
+
+Make exactly this first small patch:
+{exact_edits}
+
+Relevant files:
+{file_list}
+
+Use concrete files from this list. If a listed item is a directory, do not read the whole directory; choose the one file required by the exact edits.
+Do not expand beyond this first patch slice unless one of the exact edits requires it.
+If a listed file is missing, continue with the remaining exact edits; create a missing file only when an exact edit requires it.
+Checks are intentionally deferred until after a non-empty patch exists.
+
+After editing, run exactly: git diff --stat
+If git diff --stat is empty, you failed; edit files before finalizing.
+Completion gate: {completion_gate}
+
+Final response format:
+Changed files: <comma-separated list>
+Diff non-empty: yes/no
+"#,
+        hard_rules = bullet_list(&hard_rules),
+        exact_edits = numbered_list(&exact_edits),
+    )
+}
+
+fn hard_rule_from_forbidden_action(action: &str) -> String {
+    let action = action.trim().trim_end_matches('.');
+    if action.is_empty() {
+        return "Do not ask questions.".to_string();
+    }
+    if action.to_ascii_lowercase().starts_with("do not ") {
+        format!("{action}.")
+    } else {
+        format!("Do not {action}.")
+    }
 }
 
 fn supervisor_investigation_to_worker(brief: &Value) -> String {
@@ -407,11 +541,17 @@ fn brief_has_legacy_guidance(brief: &Value) -> bool {
         || get_str(brief, "message").is_some()
         || get_str(brief, "supplement").is_some()
         || get_str(brief, "objective").is_some()
+        || get_str(brief, "worker_turn_shape").is_some()
+        || get_str(brief, "turn_goal").is_some()
+        || get_str(brief, "completion_gate").is_some()
         || !get_string_array(brief, "files").is_empty()
         || !get_string_array(brief, "checks").is_empty()
         || !get_string_array(brief, "focus_files").is_empty()
         || !get_string_array(brief, "target_files").is_empty()
         || !get_string_array(brief, "implementation_steps").is_empty()
+        || !get_string_array(brief, "exact_edits").is_empty()
+        || !get_string_array(brief, "forbidden_actions").is_empty()
+        || !get_string_array(brief, "deferred_checks").is_empty()
         || !get_string_array(brief, "acceptance_checks").is_empty()
         || !get_string_array(brief, "required_checks").is_empty()
         || !get_string_array(brief, "required_tests").is_empty()
@@ -426,6 +566,23 @@ fn append_handoff_list(lines: &mut Vec<String>, label: &str, items: &[String]) {
     }
     lines.push(format!("{label}:"));
     lines.extend(items.iter().map(|item| format!("- {item}")));
+}
+
+fn bullet_list(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|item| format!("- {item}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn numbered_list(items: &[String]) -> String {
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| format!("{}. {item}", index + 1))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn non_empty_or<T>(value: Vec<T>, fallback: Vec<T>) -> Vec<T> {

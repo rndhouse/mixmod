@@ -230,6 +230,10 @@ pub struct WorkerBrief {
     #[serde(default)]
     pub expect_patch: Option<bool>,
     #[serde(default)]
+    pub worker_turn_shape: Option<String>,
+    #[serde(default)]
+    pub turn_goal: Option<String>,
+    #[serde(default)]
     pub message_to_worker: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
@@ -261,6 +265,16 @@ pub struct WorkerBrief {
     pub constraints: Vec<String>,
     #[serde(default)]
     pub implementation_steps: Vec<String>,
+    #[serde(default)]
+    pub exact_edits: Vec<String>,
+    #[serde(default)]
+    pub forbidden_actions: Vec<String>,
+    #[serde(default)]
+    pub deferred_checks: Vec<String>,
+    #[serde(default)]
+    pub defer_checks_until_patch_exists: Option<bool>,
+    #[serde(default)]
+    pub completion_gate: Option<String>,
     #[serde(default)]
     pub risk: Option<String>,
 }

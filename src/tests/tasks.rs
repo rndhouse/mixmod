@@ -141,6 +141,15 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("target <=120 output tokens"));
     assert!(prompt.contains("one command-style message_to_worker"));
     assert!(prompt.contains("usually <=2"));
+    assert!(prompt.contains("worker_turn_shape"));
+    assert!(prompt.contains("small_patch_slice"));
+    assert!(prompt.contains("exact_edits"));
+    assert!(prompt.contains("completion_gate"));
+    assert!(prompt.contains("preferred worker_turn_shape"));
+    assert!(prompt.contains("first patch seed"));
+    assert!(prompt.contains("Bad small_patch_slice choices ask for a whole feature"));
+    assert!(prompt.contains("immediately executable edit commands"));
+    assert!(prompt.contains("concrete repo file paths, not directories"));
     assert!(prompt.contains("omit investigation_summary"));
     assert!(prompt.contains(r#""expect_patch": true"#));
     assert!(prompt.contains("Set false for investigation/no-change handoffs"));
@@ -216,6 +225,118 @@ fn worker_task_surfaces_supervisor_investigation_notes() {
     assert!(instructions.contains("Edit plan:"));
     assert!(instructions.contains("- Update calculate_total."));
     assert!(instructions.contains("Evidence:"));
+}
+
+#[test]
+fn small_patch_slice_worker_task_uses_noninteractive_diff_gate() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Flatten metadata",
+  "instructions": "Implement a broad flatten feature and run pytest.",
+  "files": ["mashumaro/helper.py", "mashumaro/core/meta/code/builder.py"],
+  "tests": ["python -m pytest tests/test_helper.py"],
+  "acceptance": ["all tests pass"]
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "worker_turn_shape": "small_patch_slice",
+        "turn_goal": "Create the first metadata plumbing patch.",
+        "files": ["mashumaro/helper.py", "tests/test_helper.py"],
+        "exact_edits": [
+            "Add flatten: bool = False to field_options.",
+            "Add flatten_prefix: Optional[Union[str, bool]] = None.",
+            "Add flatten_rename: Optional[dict[str, str]] = None.",
+            "Return all three keys in the metadata dict.",
+            "Update tests/test_helper.py expectations for those keys."
+        ],
+        "defer_checks_until_patch_exists": true,
+        "deferred_checks": ["python -m pytest tests/test_helper.py"],
+        "completion_gate": "git diff --stat must be non-empty",
+        "forbidden_actions": ["ask questions", "run tests before editing"]
+    });
+    let worker_task_path = write_worker_brief_task(&task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+
+    assert_eq!(
+        get_string_array(&worker_task, "files"),
+        vec!["mashumaro/helper.py", "tests/test_helper.py"]
+    );
+    assert!(get_string_array(&worker_task, "tests").is_empty());
+    assert_eq!(
+        get_string_array(&worker_task, "acceptance"),
+        vec!["git diff --stat must be non-empty"]
+    );
+
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+    assert!(instructions.contains("Noninteractive coding task"));
+    assert!(instructions.contains("No user will answer questions"));
+    assert!(
+        instructions
+            .contains("Your only goal in this turn is to create a non-empty repository patch.")
+    );
+    assert!(instructions.contains("Do not ask questions."));
+    assert!(instructions.contains("Do not run tests in this turn."));
+    assert!(instructions.contains("Do not stop after reading files."));
+    assert!(instructions.contains("Patch slice goal: Create the first metadata plumbing patch."));
+    assert!(instructions.contains("1. Add flatten: bool = False to field_options."));
+    assert!(instructions.contains("Make exactly this first small patch:"));
+    assert!(
+        instructions.contains("If a listed item is a directory, do not read the whole directory")
+    );
+    assert!(instructions.contains("git diff --stat"));
+    assert!(instructions.contains("Diff non-empty: yes/no"));
+    assert!(!instructions.contains("Supervisor handoff JSON"));
+    assert!(!instructions.contains("python -m pytest tests/test_helper.py"));
+    assert_eq!(worker_task["context"]["worker_brief"], brief);
+}
+
+#[test]
+fn small_patch_slice_opencode_instruction_uses_patch_only_output_contract() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("worker-task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Small patch slice",
+  "instructions": "Noninteractive coding task.\n\nMake exactly this first small patch:\n1. Update helper.py.",
+  "expect_patch": true,
+  "files": ["helper.py"],
+  "tests": [],
+  "acceptance": ["git diff --stat must be non-empty"],
+  "context": {
+    "expect_patch": true,
+    "worker_brief": {
+      "worker_turn_shape": "small_patch_slice"
+    }
+  }
+}"#,
+    )
+    .unwrap();
+    let (_, task_spec) = read_task_json(&task).unwrap();
+
+    let instruction = build_opencode_instruction(
+        DelegationMode::Patch,
+        &task_spec,
+        &task,
+        &state_layout(root).runs().join("example"),
+    )
+    .unwrap();
+
+    assert!(instruction.contains("Did you modify repository files?"));
+    assert!(instruction.contains("Did `git diff --stat` show a non-empty patch?"));
+    assert!(instruction.contains("Diff non-empty: yes/no"));
+    assert!(instruction.contains("Do not mention tests unless you actually ran one by mistake."));
+    assert!(!instruction.contains("Tests run and results"));
+    assert!(!instruction.contains("Stop immediately after the requested tests pass"));
 }
 
 #[test]

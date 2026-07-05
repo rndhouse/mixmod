@@ -58,6 +58,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
             .unwrap();
     assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
     assert!(brief_prompt.contains("repository diff"));
+    assert!(brief_prompt.contains("worker_turn_shape=small_patch_slice"));
+    assert!(brief_prompt.contains("no tests before editing"));
     assert!(brief_prompt.contains("Select only relevant points"));
 }
 

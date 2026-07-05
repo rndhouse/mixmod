@@ -8,6 +8,7 @@ pub(crate) fn build_opencode_instruction(
     _task_path: &Path,
     _out_dir: &Path,
 ) -> Result<String> {
+    let small_patch_slice = is_small_patch_slice_task(task);
     let files = if task.files.is_empty() {
         "- none specified".to_string()
     } else {
@@ -45,6 +46,39 @@ pub(crate) fn build_opencode_instruction(
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let completion_self_check = if small_patch_slice {
+        r#"Before finalizing, do a completion self-check:
+- Did you modify repository files?
+- Did `git diff --stat` show a non-empty patch?
+- If the diff is empty, continue editing instead of finalizing.
+
+Do not claim success if the repository diff is empty."#
+    } else {
+        r#"Before finalizing, do a completion self-check:
+- Did you complete every edit you intended to make?
+- If you intended checks or verification, did you complete them?
+- If any intended edit or check remains incomplete, say exactly what remains incomplete.
+
+Do not claim success if intended edits or intended checks are incomplete."#
+    };
+    let output_contract = if small_patch_slice {
+        r#"Keep the final stdout response compact and include:
+- Changed files
+- Diff non-empty: yes/no
+- Risks or blocker, if any
+
+Do not mention tests unless you actually ran one by mistake.
+Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and session artifacts on disk."#
+    } else {
+        r#"Keep the final stdout response compact and include:
+- Summary
+- Changed files
+- Tests run and results
+- Risks or supervisor questions
+
+Stop immediately after the requested tests pass. Do not keep exploring after a passing test run.
+Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and session artifacts on disk."#
+    };
 
     Ok(format!(
         r#"# Mixmod Local Worker Task
@@ -81,23 +115,11 @@ Title: {title}
 
 ## Completion Self-Check
 
-Before finalizing, do a completion self-check:
-- Did you complete every edit you intended to make?
-- If you intended checks or verification, did you complete them?
-- If any intended edit or check remains incomplete, say exactly what remains incomplete.
-
-Do not claim success if intended edits or intended checks are incomplete.
+{completion_self_check}
 
 ## Output Contract
 
-Keep the final stdout response compact and include:
-- Summary
-- Changed files
-- Tests run and results
-- Risks or supervisor questions
-
-Stop immediately after the requested tests pass. Do not keep exploring after a passing test run.
-Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and session artifacts on disk.
+{output_contract}
 "#,
         mode = mode,
         expected_patch = if expected_patch_for_instruction(mode, task) {
@@ -111,6 +133,8 @@ Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and sess
         tests = tests,
         constraints = constraints,
         acceptance = acceptance,
+        completion_self_check = completion_self_check,
+        output_contract = output_contract,
     ))
 }
 
@@ -243,6 +267,13 @@ fn expected_patch_for_instruction(mode: DelegationMode, task: &TaskSpec) -> bool
                 .and_then(|brief| get_bool(brief, "expect_patch"))
         })
         .unwrap_or(true)
+}
+
+fn is_small_patch_slice_task(task: &TaskSpec) -> bool {
+    task.context
+        .get("worker_brief")
+        .and_then(|brief| get_str(brief, "worker_turn_shape"))
+        .is_some_and(|shape| shape.trim() == "small_patch_slice")
 }
 
 fn string_list_or_none(items: &[String]) -> String {
