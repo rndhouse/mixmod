@@ -156,6 +156,10 @@ def build_pier_command(
         "--agent-kwarg",
         "worker_backend=opencode",
         "--agent-kwarg",
+        f"supervisor_init={args.supervisor_init}",
+        "--agent-kwarg",
+        f"stop_after_first_worker={str(args.stop_after_first_worker).lower()}",
+        "--agent-kwarg",
         f"require_local={str(args.require_local).lower()}",
         "--agent-kwarg",
         f"mixmod_timeout_sec={args.mixmod_timeout_seconds}",
@@ -196,6 +200,12 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--supervisor-model", default=DEFAULT_SUPERVISOR_MODEL)
     parser.add_argument("--worker-model", default=DEFAULT_WORKER_MODEL)
+    parser.add_argument(
+        "--supervisor-init",
+        choices=["compact", "investigate"],
+        default="compact",
+    )
+    parser.add_argument("--stop-after-first-worker", action="store_true")
     parser.add_argument("--no-require-local", dest="require_local", action="store_false")
     parser.add_argument("--ollama-base-url")
     parser.add_argument("--mixmod-install-command")
@@ -240,6 +250,8 @@ def main() -> int:
         "supervisor_model": args.supervisor_model,
         "worker_model": args.worker_model,
         "worker_backend": "opencode",
+        "supervisor_init": args.supervisor_init,
+        "stop_after_first_worker": args.stop_after_first_worker,
         "require_local": args.require_local,
         "local_mixmod_binary": str(local_mixmod_binary) if local_mixmod_binary else None,
         "command": [str(part) for part in cmd],

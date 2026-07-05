@@ -109,13 +109,19 @@ pub(crate) fn write_worker_brief_task(
         .context("failed to serialize supervisor worker brief")?;
     let title = get_str(&original, "title").unwrap_or("Mixmod task");
     let codex_message = codex_message_to_worker(brief, handoff);
+    let supervisor_investigation = supervisor_investigation_to_worker(brief);
+    let supervisor_investigation_section = if supervisor_investigation.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nSupervisor investigation:\n{supervisor_investigation}")
+    };
     let acceptance = non_empty_or(checks.clone(), get_string_array(&original, "acceptance"));
     let expect_patch = typed_brief.expect_patch.unwrap_or(handoff != "blocked");
 
     let worker_task = WorkerBriefTask {
         title: format!("Mixmod handoff: {title}"),
         instructions: format!(
-            "Original task instructions:\n{original_instructions}\n\nSupervisor message to worker:\n{codex_message}\n\nSupervisor handoff JSON:\n{brief_json}"
+            "Original task instructions:\n{original_instructions}\n\nSupervisor message to worker:\n{codex_message}{supervisor_investigation_section}\n\nSupervisor handoff JSON:\n{brief_json}"
         ),
         expect_patch,
         files: target_files,
@@ -130,6 +136,34 @@ pub(crate) fn write_worker_brief_task(
     let path = default_dir.join(WORKER_TASK_JSON);
     write_pretty_json(&path, &worker_task, "worker task")?;
     Ok(path)
+}
+
+fn supervisor_investigation_to_worker(brief: &Value) -> String {
+    let mut lines = Vec::new();
+    if let Some(summary) = get_str(brief, "investigation_summary")
+        .or_else(|| get_str(brief, "investigation"))
+        .or_else(|| get_str(brief, "analysis_summary"))
+        .or_else(|| get_str(brief, "root_cause"))
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("Summary: {}", summary.trim()));
+    }
+    append_handoff_list(
+        &mut lines,
+        "Edit plan",
+        &merged_string_arrays(brief, &["edit_plan", "implementation_plan"]),
+    );
+    append_handoff_list(
+        &mut lines,
+        "Evidence",
+        &merged_string_arrays(brief, &["evidence", "file_evidence", "clues"]),
+    );
+    append_handoff_list(
+        &mut lines,
+        "Unknowns",
+        &merged_string_arrays(brief, &["unknowns", "assumptions"]),
+    );
+    lines.join("\n")
 }
 
 fn codex_message_to_worker(brief: &Value, handoff: &str) -> String {

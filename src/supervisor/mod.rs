@@ -129,8 +129,9 @@ pub(crate) fn run_supervisor_brief_turn(
     task_path: &Path,
     supervisor: &SupervisorConfig,
     worker_guidance: &WorkerSupervisorGuidance,
+    init_mode: SupervisorInitMode,
 ) -> Result<SupervisorBriefTurn> {
-    let prompt = supervisor_worker_brief_prompt(work_dir, task_path, worker_guidance)?;
+    let prompt = supervisor_worker_brief_prompt(work_dir, task_path, worker_guidance, init_mode)?;
     let result = run_codex_app_server_turn(
         work_dir,
         default_dir,
@@ -151,6 +152,7 @@ pub(crate) fn run_supervisor_brief_turn(
     let record = json!({
         "label": "worker-brief",
         "timestamp": Utc::now().to_rfc3339(),
+        "supervisor_init": init_mode.as_str(),
         "brief": parsed_brief,
         "codex_exit_status": result.exit_status,
         "supervisor_model": result.model.clone(),

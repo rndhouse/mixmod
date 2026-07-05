@@ -53,8 +53,8 @@ pub(crate) use checkpoint::{
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub(crate) use config::is_cloud_opencode_provider;
 pub use config::{
-    LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig, SupervisorConfig,
-    WorkerBackend, WorkerConfig,
+    LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig, StrategyConfig,
+    SupervisorConfig, SupervisorInitMode, WorkerBackend, WorkerConfig,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
@@ -159,6 +159,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             supervisor_model,
             worker_model,
             worker_backend,
+            supervisor_init,
+            stop_after_first_worker,
             prompt,
         } => {
             ensure_project_state(&root, false)?;
@@ -173,6 +175,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 DefaultStrategyOptions {
                     resume_session,
                     model_overrides,
+                    supervisor_init,
+                    stop_after_first_worker,
                 },
             )
         }
@@ -274,6 +278,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     supervisor_model,
                     worker_model,
                     worker_backend,
+                    supervisor_init,
+                    stop_after_first_worker,
                 } => {
                     ensure_project_state(&root, false)?;
                     experiment_run_default(
@@ -283,6 +289,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                             require_local,
                             model_overrides: ModelOverrides::new(supervisor_model, worker_model)
                                 .with_worker_backend(worker_backend),
+                            supervisor_init,
+                            stop_after_first_worker,
                         },
                     )
                 }
@@ -292,6 +300,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     supervisor_model,
                     worker_model,
                     worker_backend,
+                    supervisor_init,
+                    stop_after_first_worker,
                 } => {
                     ensure_project_state(&root, false)?;
                     experiment_run_default(
@@ -301,6 +311,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                             require_local,
                             model_overrides: ModelOverrides::new(supervisor_model, worker_model)
                                 .with_worker_backend(worker_backend),
+                            supervisor_init,
+                            stop_after_first_worker,
                         },
                     )
                 }

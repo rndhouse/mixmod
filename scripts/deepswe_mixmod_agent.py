@@ -57,6 +57,8 @@ class MixmodAgent(BaseInstalledAgent):
         supervisor_model: str = "gpt-5.5:high",
         worker_model: str = "mixmod-local-ollama/qwen3.6:27b",
         worker_backend: str = "opencode",
+        supervisor_init: str = "compact",
+        stop_after_first_worker: bool | str = False,
         require_local: bool | str = True,
         mixmod_command: str = "mixmod",
         mixmod_install_command: str | None = None,
@@ -69,6 +71,8 @@ class MixmodAgent(BaseInstalledAgent):
         self.supervisor_model = supervisor_model
         self.worker_model = worker_model
         self.worker_backend = worker_backend
+        self.supervisor_init = supervisor_init
+        self.stop_after_first_worker = _truthy(stop_after_first_worker)
         self.require_local = _truthy(require_local)
         self.mixmod_command = mixmod_command
         self.mixmod_install_command = mixmod_install_command
@@ -192,8 +196,12 @@ class MixmodAgent(BaseInstalledAgent):
                 self.worker_backend,
                 "--worker-model",
                 self.worker_model,
+                "--supervisor-init",
+                self.supervisor_init,
             ]
         )
+        if self.stop_after_first_worker:
+            run_default_args.append("--stop-after-first-worker")
         quoted_run_default = " ".join(shlex.quote(arg) for arg in run_default_args)
         return f"""set -euo pipefail
 {PATH_SETUP}trap 'rm -f "$HOME/.codex/auth.json" "$HOME/.local/share/opencode/auth.json"' EXIT

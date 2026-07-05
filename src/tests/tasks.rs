@@ -125,8 +125,13 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     )
     .unwrap();
 
-    let prompt =
-        supervisor_worker_brief_prompt(root, &task, &WorkerSupervisorGuidance::default()).unwrap();
+    let prompt = supervisor_worker_brief_prompt(
+        root,
+        &task,
+        &WorkerSupervisorGuidance::default(),
+        SupervisorInitMode::Compact,
+    )
+    .unwrap();
 
     assert!(prompt.contains("minimize supervisor output"));
     assert!(prompt.contains("compact executable worker handoff"));
@@ -136,13 +141,81 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("target <=120 output tokens"));
     assert!(prompt.contains("one command-style message_to_worker"));
     assert!(prompt.contains("usually <=2"));
-    assert!(prompt.contains("omit avoid and risk"));
+    assert!(prompt.contains("omit investigation_summary"));
     assert!(prompt.contains(r#""expect_patch": true"#));
     assert!(prompt.contains("Set false for investigation/no-change handoffs"));
     assert!(prompt.contains("setup rabbit holes"));
     assert!(prompt.contains("already names the relevant files, desired behavior, and checks"));
     assert!(prompt.contains(r#"{"handoff":"as_given"}"#));
     assert!(prompt.contains("omit empty fields"));
+}
+
+#[test]
+fn investigative_worker_brief_prompt_allows_read_only_file_pass() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Checkout",
+  "instructions": "Fix totals.",
+  "files": [],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let prompt = supervisor_worker_brief_prompt(
+        root,
+        &task,
+        &WorkerSupervisorGuidance::default(),
+        SupervisorInitMode::Investigate,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("read-only repo investigation"));
+    assert!(prompt.contains("rg"));
+    assert!(prompt.contains("target <=500 output tokens"));
+    assert!(prompt.contains("investigation_summary"));
+    assert!(prompt.contains("edit_plan"));
+    assert!(prompt.contains("evidence"));
+    assert!(prompt.contains("less capable"));
+}
+
+#[test]
+fn worker_task_surfaces_supervisor_investigation_notes() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Investigated handoff",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "message_to_worker": "Patch checkout totals before running broad tests.",
+        "investigation_summary": "Discount total uses pre-tax values in checkout.py.",
+        "edit_plan": ["Update calculate_total.", "Add one regression test."],
+        "evidence": ["checkout.py:calculate_total has the wrong order."]
+    });
+    let worker_task_path = write_worker_brief_task(&task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+
+    assert!(instructions.contains("Supervisor investigation:"));
+    assert!(instructions.contains("Summary: Discount total uses pre-tax values"));
+    assert!(instructions.contains("Edit plan:"));
+    assert!(instructions.contains("- Update calculate_total."));
+    assert!(instructions.contains("Evidence:"));
 }
 
 #[test]

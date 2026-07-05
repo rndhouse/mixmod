@@ -140,6 +140,9 @@ fn default_config_content() -> String {
         r#"# BEGIN MIXMOD MANAGED: config
 # Mixmod configuration for one repository. This file is stored outside the repository.
 
+[strategy]
+supervisor_init = "compact"
+
 [opencode]
 provider = "{opencode_provider}"
 model = "{default_model}"

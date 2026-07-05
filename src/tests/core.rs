@@ -115,6 +115,8 @@ fn exec_command_is_public_cli_surface() {
             supervisor_model,
             worker_model,
             worker_backend,
+            supervisor_init,
+            stop_after_first_worker,
             prompt,
         } => {
             assert!(task.is_none());
@@ -122,6 +124,8 @@ fn exec_command_is_public_cli_surface() {
             assert!(supervisor_model.is_none());
             assert!(worker_model.is_none());
             assert!(worker_backend.is_none());
+            assert!(supervisor_init.is_none());
+            assert!(!stop_after_first_worker);
             assert_eq!(prompt, vec!["Fix", "checkout", "totals"]);
         }
         _ => panic!("expected exec command"),
@@ -164,6 +168,9 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         "codex",
         "--worker-model",
         "gpt-5.4:medium",
+        "--supervisor-init",
+        "investigate",
+        "--stop-after-first-worker",
         "Fix checkout totals.",
     ])
     .unwrap();
@@ -173,12 +180,16 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             supervisor_model,
             worker_model,
             worker_backend,
+            supervisor_init,
+            stop_after_first_worker,
             prompt,
             ..
         } => {
             assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
             assert_eq!(worker_backend, Some(WorkerBackend::Codex));
             assert_eq!(worker_model, Some("gpt-5.4:medium".to_string()));
+            assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
+            assert!(stop_after_first_worker);
             assert_eq!(prompt, vec!["Fix checkout totals."]);
         }
         _ => panic!("expected exec command"),
@@ -198,6 +209,9 @@ fn experiment_run_default_accepts_model_override_flags() {
         "opencode",
         "--worker-model",
         "openrouter/qwen/qwen3.6-flash",
+        "--supervisor-init",
+        "investigate",
+        "--stop-after-first-worker",
     ])
     .unwrap();
 
@@ -210,6 +224,8 @@ fn experiment_run_default_accepts_model_override_flags() {
                     supervisor_model,
                     worker_model,
                     worker_backend,
+                    supervisor_init,
+                    stop_after_first_worker,
                 },
         } => {
             assert_eq!(name, "deepswe");
@@ -220,6 +236,8 @@ fn experiment_run_default_accepts_model_override_flags() {
                 worker_model,
                 Some("openrouter/qwen/qwen3.6-flash".to_string())
             );
+            assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
+            assert!(stop_after_first_worker);
         }
         _ => panic!("expected experiment run-default command"),
     }

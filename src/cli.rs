@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
-use crate::config::WorkerBackend;
+use crate::config::{SupervisorInitMode, WorkerBackend};
 
 #[derive(Debug, Parser)]
 #[command(name = "mixmod")]
@@ -42,6 +42,12 @@ pub enum Commands {
         /// Worker backend used for repository-editing turns.
         #[arg(long, value_enum)]
         worker_backend: Option<WorkerBackend>,
+        /// Initial supervisor briefing style.
+        #[arg(long, value_enum)]
+        supervisor_init: Option<SupervisorInitMode>,
+        /// Stop after the first worker attempt and leave artifacts for inspection.
+        #[arg(long)]
+        stop_after_first_worker: bool,
         /// Natural-language task request.
         #[arg(value_name = "PROMPT", num_args = 0.., trailing_var_arg = true)]
         prompt: Vec<String>,
@@ -181,6 +187,12 @@ pub enum ExperimentCommand {
         worker_model: Option<String>,
         #[arg(long, value_enum)]
         worker_backend: Option<WorkerBackend>,
+        /// Initial supervisor briefing style.
+        #[arg(long, value_enum)]
+        supervisor_init: Option<SupervisorInitMode>,
+        /// Stop after the first worker attempt and leave artifacts for inspection.
+        #[arg(long)]
+        stop_after_first_worker: bool,
     },
     /// Deprecated alias for `run-default`.
     #[command(hide = true)]
@@ -194,6 +206,12 @@ pub enum ExperimentCommand {
         worker_model: Option<String>,
         #[arg(long, value_enum)]
         worker_backend: Option<WorkerBackend>,
+        /// Initial supervisor briefing style.
+        #[arg(long, value_enum)]
+        supervisor_init: Option<SupervisorInitMode>,
+        /// Stop after the first worker attempt and leave artifacts for inspection.
+        #[arg(long)]
+        stop_after_first_worker: bool,
     },
     /// Recover a default-strategy run by restarting the configured worker.
     Recover {

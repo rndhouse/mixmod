@@ -24,6 +24,7 @@ pub(crate) fn supervisor_worker_brief_prompt(
     work_dir: &Path,
     task_path: &Path,
     worker_guidance: &WorkerSupervisorGuidance,
+    init_mode: SupervisorInitMode,
 ) -> Result<String> {
     let task_value = read_json_file(task_path)?;
     let visible_task = agent_visible_task_value(&task_value);
@@ -42,27 +43,21 @@ pub(crate) fn supervisor_worker_brief_prompt(
         ));
     }
     let worker_guidance = render_worker_guidance(worker_guidance);
+    let init_instructions = worker_brief_init_instructions(init_mode);
     Ok(format!(
         r#"You are the supervisor model for a Mixmod worker.
-Use the provided file context. Do not edit files. Do not run tests. Do not implement the patch. Do not ask the user for approval.
+{init_instructions}
 The worker receives the original task JSON and can inspect, edit, and test the repo.
 Use supervisor reasoning freely, but minimize supervisor output.
 {worker_guidance}
 Emit one compact executable worker handoff as minified JSON only; no markdown and no explanation.
 Do not restate the original task. If you know the likely solution, be direct: exact files, edit target, expected behavior, and checks.
 Required field: "handoff" = "as_given" | "focused" | "guided" | "blocked".
-Default to "guided". Guided means terse and executable, not advisory:
-- target <=120 output tokens for the whole JSON on normal tasks
-- one command-style message_to_worker, ideally <=45 words
-- files only when useful, usually <=3
-- checks only when useful, usually <=2
-- omit avoid and risk unless one short phrase prevents a likely wrong patch
-Assume the local worker is capable but prone to setup rabbit holes, broad exploration, and delayed edits.
 Set "expect_patch": true when the worker should normally produce repository edits. Set false for investigation/no-change handoffs.
 Use exactly {{"handoff":"as_given"}} only when the original task already names the relevant files, desired behavior, and checks clearly enough for the worker.
 Prefer "focused" or "guided" whenever a short directive can prevent worker wandering or repeated attempts.
 Optional fields; omit empty fields:
-{{"expect_patch":true,"message_to_worker":"direct message for the worker","files":["optional paths"],"checks":["optional checks"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+{{"expect_patch":true,"message_to_worker":"direct message for the worker","files":["optional paths"],"checks":["optional checks"],"investigation_summary":"optional short finding","edit_plan":["optional concrete steps"],"evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -75,6 +70,33 @@ File context:
 "#,
         work_dir = work_dir.display(),
     ))
+}
+
+fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
+    match init_mode {
+        SupervisorInitMode::Compact => {
+            r#"Use the provided file context. Do not edit files. Do not run tests. Do not implement the patch. Do not ask the user for approval.
+Default to "guided". Guided means terse and executable, not advisory:
+- target <=120 output tokens for the whole JSON on normal tasks
+- one command-style message_to_worker, ideally <=45 words
+- files only when useful, usually <=3
+- checks only when useful, usually <=2
+- omit investigation_summary, edit_plan, evidence, avoid, and risk unless one short phrase prevents a likely wrong patch
+Assume the local worker is capable but prone to setup rabbit holes, broad exploration, and delayed edits."#
+        }
+        SupervisorInitMode::Investigate => {
+            r#"First do a read-only repo investigation before writing the handoff. You may inspect source/test files and run read-only discovery commands such as `rg`, `find`, `ls`, `sed`, or `git grep`. Do not edit files. Do not run tests. Do not install dependencies. Do not inspect Mixmod state/artifact directories. Do not ask the user for approval.
+Default to "guided". Guided means concrete enough for a weaker worker to edit without broad exploration:
+- target <=500 output tokens for the whole JSON
+- one command-style message_to_worker, ideally <=70 words
+- files should name the likely source/test targets, usually <=5
+- checks should name the narrowest useful commands, usually <=3
+- include investigation_summary with the likely root cause or target behavior
+- include edit_plan when it can prevent worker wandering, usually <=4 short steps
+- include evidence when file/function clues matter, usually <=4 short bullets
+Assume the local worker is less capable, prone to setup rabbit holes, broad exploration, delayed edits, and premature final answers."#
+        }
+    }
 }
 
 pub(crate) fn supervisor_feedback_prompt(

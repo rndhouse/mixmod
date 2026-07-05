@@ -36,6 +36,8 @@ pub(crate) fn is_cloud_opencode_provider(provider: &str) -> bool {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct MixmodConfig {
+    /// Default strategy behavior.
+    pub strategy: StrategyConfig,
     /// Worker backend selection.
     pub worker: WorkerConfig,
     /// OpenCode worker configuration.
@@ -52,6 +54,7 @@ pub struct MixmodConfig {
 impl Default for MixmodConfig {
     fn default() -> Self {
         Self {
+            strategy: StrategyConfig::default(),
             worker: WorkerConfig::default(),
             opencode: OpenCodeConfig::default(),
             codex_worker: SupervisorConfig::default(),
@@ -75,6 +78,45 @@ impl MixmodConfig {
                 })
                 .unwrap_or_default(),
             WorkerBackend::Codex => WorkerSupervisorGuidance::default(),
+        }
+    }
+}
+
+/// How much the supervisor should investigate before briefing the worker.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum SupervisorInitMode {
+    /// Keep the initial supervisor handoff compact.
+    #[default]
+    #[value(name = "compact")]
+    Compact,
+    /// Let the supervisor inspect files read-only and pass focused findings to the worker.
+    #[value(name = "investigate")]
+    Investigate,
+}
+
+impl SupervisorInitMode {
+    /// Stable configuration and CLI label for this mode.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Compact => "compact",
+            Self::Investigate => "investigate",
+        }
+    }
+}
+
+/// Strategy-level defaults for supervisor/worker orchestration.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct StrategyConfig {
+    /// Initial supervisor briefing style.
+    pub supervisor_init: SupervisorInitMode,
+}
+
+impl Default for StrategyConfig {
+    fn default() -> Self {
+        Self {
+            supervisor_init: SupervisorInitMode::Compact,
         }
     }
 }

@@ -53,7 +53,9 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     )
     .unwrap();
 
-    let brief_prompt = supervisor_worker_brief_prompt(root, &task, &guidance).unwrap();
+    let brief_prompt =
+        supervisor_worker_brief_prompt(root, &task, &guidance, SupervisorInitMode::Compact)
+            .unwrap();
     assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
     assert!(brief_prompt.contains("repository diff"));
     assert!(brief_prompt.contains("Select only relevant points"));

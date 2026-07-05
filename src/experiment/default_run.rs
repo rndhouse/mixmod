@@ -9,6 +9,8 @@ use super::util::{
 pub struct DefaultRunOptions {
     pub require_local: bool,
     pub model_overrides: ModelOverrides,
+    pub supervisor_init: Option<SupervisorInitMode>,
+    pub stop_after_first_worker: bool,
 }
 
 pub fn experiment_run_default(root: &Path, name: &str, options: DefaultRunOptions) -> Result<()> {
@@ -53,6 +55,9 @@ impl DefaultExperimentRun<'_> {
         let mut config = load_config(&work_dir)?;
         options.model_overrides.apply_to_config(&mut config)?;
         let supervisor = config.supervisor.clone();
+        let supervisor_init = options
+            .supervisor_init
+            .unwrap_or(config.strategy.supervisor_init);
         let worker_guidance = config.worker_supervisor_guidance();
         let default_dir = exp_dir.join("default");
         let logs_dir = default_dir.join("logs");
@@ -81,6 +86,7 @@ impl DefaultExperimentRun<'_> {
             &task_file,
             &supervisor,
             &worker_guidance,
+            supervisor_init,
         )?;
         write_pretty_json(
             &default_dir.join(WORKER_BRIEF_JSON),
@@ -115,91 +121,96 @@ impl DefaultExperimentRun<'_> {
             supervisor_control_decision_from_metrics(&proposal_out)?;
         let mut final_out = proposal_out;
         let mut supervisor_samples = vec![worker_brief.usage_sample()];
-        let final_decision = loop {
-            let decision_index = opencode_calls;
-            let decision = if let Some(decision) = pending_supervisor_control.take() {
-                decision
-            } else {
-                let label = if decision_index == 1 {
-                    "critique".to_string()
+        let final_decision = if options.stop_after_first_worker {
+            None
+        } else {
+            Some(loop {
+                let decision_index = opencode_calls;
+                let decision = if let Some(decision) = pending_supervisor_control.take() {
+                    decision
                 } else {
-                    format!("critique-{decision_index}")
+                    let label = if decision_index == 1 {
+                        "critique".to_string()
+                    } else {
+                        format!("critique-{decision_index}")
+                    };
+                    let mut artifact_paths = RUN_COMPACT_ARTIFACTS
+                        .iter()
+                        .map(|name| final_out.join(name))
+                        .collect::<Vec<_>>();
+                    let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
+                    if supervisor_control_path.exists() {
+                        artifact_paths.push(supervisor_control_path);
+                    }
+                    append_patch_checkpoint_artifacts(&final_out, &mut artifact_paths)?;
+                    let decision = run_supervisor_feedback_turn(
+                        &work_dir,
+                        &default_dir,
+                        &label,
+                        &artifact_paths,
+                        "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not solve by directly editing files.",
+                        &supervisor,
+                        &worker_guidance,
+                    )?;
+                    supervisor_samples.push(decision.usage_sample());
+                    decision
                 };
-                let mut artifact_paths = RUN_COMPACT_ARTIFACTS
-                    .iter()
-                    .map(|name| final_out.join(name))
-                    .collect::<Vec<_>>();
-                let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
-                if supervisor_control_path.exists() {
-                    artifact_paths.push(supervisor_control_path);
-                }
-                append_patch_checkpoint_artifacts(&final_out, &mut artifact_paths)?;
-                let decision = run_supervisor_feedback_turn(
-                    &work_dir,
-                    &default_dir,
-                    &label,
-                    &artifact_paths,
-                    "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not solve by directly editing files.",
-                    &supervisor,
-                    &worker_guidance,
-                )?;
-                supervisor_samples.push(decision.usage_sample());
-                decision
-            };
-            append_jsonl(&feedback_path, &decision.feedback)?;
+                append_jsonl(&feedback_path, &decision.feedback)?;
 
-            match decision.verdict.as_str() {
-                "approve" | "stop" => break decision,
-                _ => {
-                    worker_modes.push(decision.worker_mode.clone());
-                    let resume_session_id = if decision.worker_mode == "continue" {
-                        Some(active_opencode_session_id.clone().ok_or_else(|| {
+                match decision.verdict.as_str() {
+                    "approve" | "stop" => break decision,
+                    _ => {
+                        worker_modes.push(decision.worker_mode.clone());
+                        let resume_session_id = if decision.worker_mode == "continue" {
+                            Some(active_opencode_session_id.clone().ok_or_else(|| {
                         anyhow!(
                                 "The supervisor requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
                             final_out.join(METRICS_JSON).display()
                         )
                     })?)
-                    } else {
-                        None
-                    };
-                    let revision_task = write_revision_task(
-                        &task_file,
-                        &default_dir,
-                        name,
-                        &decision,
-                        decision_index,
-                    )?;
-                    let revision_out_name = if decision_index == 1 {
-                        "default-revision".to_string()
-                    } else {
-                        format!("default-revision-{decision_index}")
-                    };
-                    let previous_out = final_out.clone();
-                    final_out = state_layout(&work_dir).runs().join(revision_out_name);
-                    let revision_receipt = run_mixmod_task_with_session(
-                        &work_dir,
-                        DelegationMode::Patch,
-                        &revision_task,
-                        &final_out,
-                        runner.as_ref(),
-                        options.require_local,
-                        resume_session_id,
-                    )?;
-                    ensure_local_run_verified(
-                        root,
-                        &default_dir,
-                        &revision_receipt,
-                        &final_out,
-                        options.require_local,
-                    )?;
-                    write_patch_checkpoint_comparison(&previous_out, &final_out, &decision)?;
-                    opencode_calls += 1;
-                    worker_run_dirs.push(final_out.clone());
-                    active_opencode_session_id = read_opencode_session_id_from_metrics(&final_out)?;
-                    pending_supervisor_control =
-                        supervisor_control_decision_from_metrics(&final_out)?;
+                        } else {
+                            None
+                        };
+                        let revision_task = write_revision_task(
+                            &task_file,
+                            &default_dir,
+                            name,
+                            &decision,
+                            decision_index,
+                        )?;
+                        let revision_out_name = if decision_index == 1 {
+                            "default-revision".to_string()
+                        } else {
+                            format!("default-revision-{decision_index}")
+                        };
+                        let previous_out = final_out.clone();
+                        final_out = state_layout(&work_dir).runs().join(revision_out_name);
+                        let revision_receipt = run_mixmod_task_with_session(
+                            &work_dir,
+                            DelegationMode::Patch,
+                            &revision_task,
+                            &final_out,
+                            runner.as_ref(),
+                            options.require_local,
+                            resume_session_id,
+                        )?;
+                        ensure_local_run_verified(
+                            root,
+                            &default_dir,
+                            &revision_receipt,
+                            &final_out,
+                            options.require_local,
+                        )?;
+                        write_patch_checkpoint_comparison(&previous_out, &final_out, &decision)?;
+                        opencode_calls += 1;
+                        worker_run_dirs.push(final_out.clone());
+                        active_opencode_session_id =
+                            read_opencode_session_id_from_metrics(&final_out)?;
+                        pending_supervisor_control =
+                            supervisor_control_decision_from_metrics(&final_out)?;
+                    }
                 }
-            }
+            })
         };
 
         let final_patch = git_diff_with_untracked(&work_dir)?;
@@ -264,10 +275,19 @@ impl DefaultExperimentRun<'_> {
         let backend_activity_observed = worker_metrics
             .iter()
             .any(|metrics| get_bool(metrics, "backend_activity_observed").unwrap_or(false));
-        let approval_action = final_decision.verdict.clone();
+        let approval_action = final_decision
+            .as_ref()
+            .map(|decision| decision.verdict.clone())
+            .unwrap_or_else(|| "not_requested".to_string());
+        let final_worker_mode = final_decision
+            .as_ref()
+            .map(|decision| decision.worker_mode.clone())
+            .unwrap_or_else(|| "not_requested".to_string());
         let approved = approval_action == "approve";
         let stopped_by_codex = approval_action == "stop";
-        let final_status = if approved {
+        let final_status = if options.stop_after_first_worker {
+            "stopped_after_first_worker"
+        } else if approved {
             "approved_by_codex"
         } else if stopped_by_codex {
             "stopped_by_codex"
@@ -281,6 +301,7 @@ impl DefaultExperimentRun<'_> {
             "end_timestamp": Utc::now().to_rfc3339(),
             "wall_clock_ms": start.elapsed().as_millis(),
             "supervisor_model": supervisor.model,
+            "supervisor_init": supervisor_init.as_str(),
             "supervisor_input_tokens": supervisor_usage.input_tokens,
             "supervisor_reasoning_effort": supervisor.reasoning_effort,
             "supervisor_output_tokens": supervisor_usage.output_tokens,
@@ -303,10 +324,11 @@ impl DefaultExperimentRun<'_> {
             "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
             "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
             "codex_loop_exit": approval_action,
-            "final_worker_mode": final_decision.worker_mode,
+            "final_worker_mode": final_worker_mode,
             "worker_modes": worker_modes,
             "patch_checkpoints": patch_checkpoint_metrics,
             "revision_attempts": opencode_calls.saturating_sub(1),
+            "stop_after_first_worker": options.stop_after_first_worker,
             "worker_brief": WORKER_BRIEF_JSON,
             "worker_task": display_path(root, &worker_task),
             "worker_brief_output_tokens": worker_brief.output_tokens,
