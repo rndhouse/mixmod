@@ -117,6 +117,7 @@ fn exec_command_is_public_cli_surface() {
             worker_backend,
             supervisor_init,
             stop_after_first_worker,
+            no_require_local,
             prompt,
         } => {
             assert!(task.is_none());
@@ -126,6 +127,7 @@ fn exec_command_is_public_cli_surface() {
             assert!(worker_backend.is_none());
             assert!(supervisor_init.is_none());
             assert!(!stop_after_first_worker);
+            assert!(!no_require_local);
             assert_eq!(prompt, vec!["Fix", "checkout", "totals"]);
         }
         _ => panic!("expected exec command"),
@@ -144,6 +146,20 @@ fn exec_command_is_public_cli_surface() {
     assert!(
         Cli::try_parse_from(["mixmod", "exec", "--task", "task.json", "--require-local",]).is_err()
     );
+    let cli = Cli::try_parse_from([
+        "mixmod",
+        "exec",
+        "--task",
+        "task.json",
+        "--no-require-local",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Exec {
+            no_require_local, ..
+        } => assert!(no_require_local),
+        _ => panic!("expected exec command"),
+    }
     assert!(
         Cli::try_parse_from([
             "mixmod",
@@ -182,6 +198,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             worker_backend,
             supervisor_init,
             stop_after_first_worker,
+            no_require_local,
             prompt,
             ..
         } => {
@@ -190,6 +207,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             assert_eq!(worker_model, Some("gpt-5.4:medium".to_string()));
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
             assert!(stop_after_first_worker);
+            assert!(!no_require_local);
             assert_eq!(prompt, vec!["Fix checkout totals."]);
         }
         _ => panic!("expected exec command"),

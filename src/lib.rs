@@ -165,6 +165,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             worker_backend,
             supervisor_init,
             stop_after_first_worker,
+            no_require_local,
             prompt,
         } => {
             ensure_project_state(&root, false)?;
@@ -181,6 +182,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     model_overrides,
                     supervisor_init,
                     stop_after_first_worker,
+                    no_require_local,
                 },
             )
         }

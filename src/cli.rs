@@ -48,6 +48,9 @@ pub enum Commands {
         /// Stop after the first worker attempt and leave artifacts for inspection.
         #[arg(long)]
         stop_after_first_worker: bool,
+        /// Do not require local worker inference verification for this run.
+        #[arg(long)]
+        no_require_local: bool,
         /// Natural-language task request.
         #[arg(value_name = "PROMPT", num_args = 0.., trailing_var_arg = true)]
         prompt: Vec<String>,

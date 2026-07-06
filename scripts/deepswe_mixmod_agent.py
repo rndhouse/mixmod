@@ -202,6 +202,8 @@ class MixmodAgent(BaseInstalledAgent):
         )
         if self.stop_after_first_worker:
             run_default_args.append("--stop-after-first-worker")
+        if not self.require_local:
+            run_default_args.append("--no-require-local")
         quoted_run_default = " ".join(shlex.quote(arg) for arg in run_default_args)
         return f"""set -euo pipefail
 {PATH_SETUP}trap 'rm -f "$HOME/.codex/auth.json" "$HOME/.local/share/opencode/auth.json"' EXIT

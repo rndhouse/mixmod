@@ -11,6 +11,8 @@ pub(crate) struct DefaultStrategyOptions {
     pub(crate) supervisor_init: Option<SupervisorInitMode>,
     /// Stop after the proposal worker run and leave artifacts for inspection.
     pub(crate) stop_after_first_worker: bool,
+    /// Disable local-inference verification for this run.
+    pub(crate) no_require_local: bool,
 }
 
 /// Run the supervisor-directed default strategy used by Mixmod benchmarks.
@@ -57,6 +59,10 @@ impl DefaultStrategyRun<'_> {
 
         let mut config = load_config(root)?;
         options.model_overrides.apply_to_config(&mut config)?;
+        if options.no_require_local {
+            config.opencode.require_local = false;
+            config.opencode.local_verification.enabled = false;
+        }
         let supervisor = config.supervisor.clone();
         let supervisor_init = options
             .supervisor_init
