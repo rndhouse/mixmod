@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -51,6 +53,23 @@ pub const RUN_COMPACT_ARTIFACTS: &[&str] = &[
     INTERVENTIONS_JSONL,
     METRICS_JSON,
 ];
+
+/// Build the artifact set reviewed by the supervisor after a worker turn.
+pub(crate) fn supervisor_review_artifact_paths(
+    default_dir: &Path,
+    worker_run_dir: &Path,
+) -> Vec<PathBuf> {
+    [TASK_JSON, WORKER_BRIEF_JSON, WORKER_TASK_JSON]
+        .into_iter()
+        .map(|name| default_dir.join(name))
+        .filter(|path| path.exists())
+        .chain(
+            RUN_COMPACT_ARTIFACTS
+                .iter()
+                .map(|name| worker_run_dir.join(name)),
+        )
+        .collect()
+}
 
 /// Supervisor-visible worker-run artifacts, including checkpoint artifacts.
 pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
@@ -215,6 +234,20 @@ pub struct SupervisorFeedback {
     pub required_checks: Vec<String>,
     #[serde(default)]
     pub risk: Option<String>,
+    #[serde(default)]
+    pub worker_turn_shape: Option<String>,
+    #[serde(default)]
+    pub turn_goal: Option<String>,
+    #[serde(default)]
+    pub exact_edits: Vec<String>,
+    #[serde(default)]
+    pub deferred_checks: Vec<String>,
+    #[serde(default)]
+    pub defer_checks_until_patch_exists: Option<bool>,
+    #[serde(default)]
+    pub completion_gate: Option<String>,
+    #[serde(default)]
+    pub forbidden_actions: Vec<String>,
 }
 
 impl SupervisorFeedback {

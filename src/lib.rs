@@ -40,7 +40,7 @@ pub(crate) use artifacts::{
     PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, RECEIPT_JSON, REPORT_MD, RUN_COMPACT_ARTIFACTS,
     SESSION_JSONL, SUPERVISOR_CONTROL_LOG, SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD,
     WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH,
-    is_static_mixmod_artifact_name,
+    is_static_mixmod_artifact_name, supervisor_review_artifact_paths,
 };
 pub use artifacts::{
     CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL,
@@ -108,8 +108,9 @@ pub(crate) use run::{
 };
 pub(crate) use state::state_layout;
 pub(crate) use supervisor::{
-    SupervisorFeedbackTurn, aggregate_supervisor_usage, codex_only_prompt, normalize_worker_mode,
-    run_codex_app_server_turn, run_supervisor_brief_turn, run_supervisor_feedback_turn,
+    RevisionHandoff, SupervisorFeedbackTurn, aggregate_supervisor_usage, codex_only_prompt,
+    normalize_worker_mode, run_codex_app_server_turn, run_supervisor_brief_turn,
+    run_supervisor_feedback_turn,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{

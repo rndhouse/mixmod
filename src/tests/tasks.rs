@@ -340,6 +340,51 @@ fn small_patch_slice_opencode_instruction_uses_patch_only_output_contract() {
 }
 
 #[test]
+fn revision_small_patch_slice_opencode_instruction_uses_patch_only_output_contract() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("revision-task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Revision small patch slice",
+  "instructions": "Noninteractive coding revision.\n\nMake exactly this next small patch:\n1. Update builder.py.",
+  "expect_patch": true,
+  "files": ["builder.py"],
+  "tests": [],
+  "acceptance": ["git diff --stat must be non-empty"],
+  "context": {
+    "expect_patch": true,
+    "revision": {
+      "worker_turn_shape": "small_patch_slice",
+      "message_to_worker": "Add the next narrow source edit.",
+      "worker_mode": "continue",
+      "patch_decision": "revise_current",
+      "focus_files": ["builder.py"],
+      "required_checks": []
+    }
+  }
+}"#,
+    )
+    .unwrap();
+    let (_, task_spec) = read_task_json(&task).unwrap();
+
+    let instruction = build_opencode_instruction(
+        DelegationMode::Patch,
+        &task_spec,
+        &task,
+        &state_layout(root).runs().join("revision"),
+    )
+    .unwrap();
+
+    assert!(instruction.contains("Did you modify repository files?"));
+    assert!(instruction.contains("Diff non-empty: yes/no"));
+    assert!(instruction.contains("Do not mention tests unless you actually ran one by mistake."));
+    assert!(!instruction.contains("Tests run and results"));
+    assert!(!instruction.contains("Stop immediately after the requested tests pass"));
+}
+
+#[test]
 fn agent_visible_task_strips_swebench_scoring_metadata() {
     let task = json!({
         "title": "SWE-bench Lite sympy__sympy-20212",
@@ -609,6 +654,7 @@ fn revision_task_preserves_codex_focus_files() {
         worker_mode: "continue".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Update the discount code and its test.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
         focus_files: vec!["checkout.py".to_string(), "test_checkout.py".to_string()],
         required_checks: vec!["python -m unittest -q".to_string()],
         input_tokens: 0,
@@ -675,6 +721,7 @@ fn context_focus_revision_task_uses_focused_prompt() {
         worker_mode: "context_focus".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Ignore dependency setup and edit the focused files first.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
         focus_files: vec!["checkout.py".to_string()],
         required_checks: vec!["python -m unittest -q".to_string()],
         input_tokens: 0,
@@ -722,6 +769,7 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
         worker_mode: "context_focus".to_string(),
         patch_decision: "revise_previous".to_string(),
         hint: "Recover the earlier source edit and remove unrelated files.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
         focus_files: vec!["checkout.py".to_string()],
         required_checks: vec![],
         input_tokens: 0,
@@ -750,6 +798,97 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
 }
 
 #[test]
+fn small_patch_slice_revision_task_uses_noninteractive_delta_gate() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Add nested checkout discounts and update tests.",
+  "files": [],
+  "tests": ["python -m unittest -q"],
+  "constraints": [],
+  "acceptance": ["discounts apply to nested checkout items"]
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "revise_current".to_string(),
+        hint: "Add the nested item discount branch and one focused assertion.".to_string(),
+        revision_handoff: RevisionHandoff {
+            worker_turn_shape: Some("small_patch_slice".to_string()),
+            turn_goal: Some("nested item discount branch".to_string()),
+            exact_edits: vec![
+                "In checkout.py, add the branch that applies item discounts inside nested checkout items.".to_string(),
+                "In test_checkout.py, add one assertion for a nested discounted item.".to_string(),
+            ],
+            deferred_checks: vec!["python -m unittest test_checkout.py -q".to_string()],
+            defer_checks_until_patch_exists: Some(true),
+            completion_gate: Some("git diff --stat must be non-empty".to_string()),
+            forbidden_actions: vec!["run broad tests before editing".to_string()],
+        },
+        focus_files: vec!["checkout.py".to_string(), "test_checkout.py".to_string()],
+        required_checks: vec!["python -m unittest test_checkout.py -q".to_string()],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 1).unwrap();
+    let revision = read_json_file(&path).unwrap();
+
+    assert_eq!(
+        get_string_array(&revision, "files"),
+        vec!["checkout.py", "test_checkout.py"]
+    );
+    assert_eq!(get_string_array(&revision, "tests"), Vec::<String>::new());
+    assert_eq!(
+        get_string_array(&revision, "acceptance"),
+        vec!["git diff --stat must be non-empty"]
+    );
+    let constraints = get_string_array(&revision, "constraints");
+    assert!(
+        constraints
+            .iter()
+            .any(|constraint| constraint.contains("Do not run tests in this revision turn"))
+    );
+    let instructions = get_str(&revision, "instructions").unwrap();
+    assert!(instructions.contains("Noninteractive coding revision"));
+    assert!(instructions.contains("Current accumulated patch is useful but not yet accepted"));
+    assert!(
+        instructions.contains(
+            "Your only goal in this revision turn is to add a non-empty repository delta"
+        )
+    );
+    assert!(instructions.contains("Make exactly this next small patch"));
+    assert!(instructions.contains("nested item discount branch"));
+    assert!(instructions.contains("Do not run broad tests before editing."));
+    assert!(instructions.contains("After editing, run exactly: git diff --stat"));
+    assert_eq!(
+        get_str(&revision["context"]["revision"], "worker_turn_shape"),
+        Some("small_patch_slice")
+    );
+    assert_eq!(
+        get_string_array(&revision["context"]["revision"], "exact_edits"),
+        vec![
+            "In checkout.py, add the branch that applies item discounts inside nested checkout items.",
+            "In test_checkout.py, add one assertion for a nested discounted item."
+        ]
+    );
+}
+
+#[test]
 fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -773,6 +912,7 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
         worker_mode: "context_focus".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Use the latest focused task and edit the source file.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
         focus_files: vec![
             "revision-task-3.json".to_string(),
             "sympy/core/power.py".to_string(),

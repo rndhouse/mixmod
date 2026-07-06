@@ -15,6 +15,7 @@ pub(crate) struct SupervisorFeedbackTurn {
     pub(crate) worker_mode: String,
     pub(crate) patch_decision: String,
     pub(crate) hint: String,
+    pub(crate) revision_handoff: RevisionHandoff,
     pub(crate) focus_files: Vec<String>,
     pub(crate) required_checks: Vec<String>,
     pub(crate) input_tokens: u64,
@@ -26,6 +27,37 @@ pub(crate) struct SupervisorFeedbackTurn {
     pub(crate) output_bytes: u64,
     pub(crate) thread_id: String,
     pub(crate) turn_id: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RevisionHandoff {
+    pub(crate) worker_turn_shape: Option<String>,
+    pub(crate) turn_goal: Option<String>,
+    pub(crate) exact_edits: Vec<String>,
+    pub(crate) deferred_checks: Vec<String>,
+    pub(crate) defer_checks_until_patch_exists: Option<bool>,
+    pub(crate) completion_gate: Option<String>,
+    pub(crate) forbidden_actions: Vec<String>,
+}
+
+impl RevisionHandoff {
+    pub(crate) fn from_feedback(feedback: &SupervisorFeedback) -> Self {
+        Self {
+            worker_turn_shape: feedback.worker_turn_shape.clone(),
+            turn_goal: feedback.turn_goal.clone(),
+            exact_edits: feedback.exact_edits.clone(),
+            deferred_checks: feedback.deferred_checks.clone(),
+            defer_checks_until_patch_exists: feedback.defer_checks_until_patch_exists,
+            completion_gate: feedback.completion_gate.clone(),
+            forbidden_actions: feedback.forbidden_actions.clone(),
+        }
+    }
+
+    pub(crate) fn is_small_patch_slice(&self) -> bool {
+        self.worker_turn_shape
+            .as_deref()
+            .is_some_and(|shape| shape.trim() == "small_patch_slice")
+    }
 }
 
 #[derive(Debug)]
@@ -216,6 +248,7 @@ pub(crate) fn run_supervisor_feedback_turn(
     let typed_feedback = SupervisorFeedback::from_value(&parsed_feedback);
     let worker_mode = normalize_worker_mode(typed_feedback.worker_mode.as_deref());
     let patch_decision = normalize_patch_decision(typed_feedback.patch_decision.as_deref());
+    let revision_handoff = RevisionHandoff::from_feedback(&typed_feedback);
     if let Value::Object(map) = &mut parsed_feedback {
         map.insert("worker_mode".to_string(), json!(worker_mode.clone()));
         map.insert("patch_decision".to_string(), json!(patch_decision.clone()));
@@ -230,6 +263,7 @@ pub(crate) fn run_supervisor_feedback_turn(
             .message_to_worker
             .or(typed_feedback.hint)
             .unwrap_or_default(),
+        revision_handoff,
         focus_files: typed_feedback.focus_files,
         required_checks: typed_feedback.required_checks,
         feedback: json!({

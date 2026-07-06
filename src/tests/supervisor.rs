@@ -26,6 +26,10 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
             "Prefer revise after failed, empty, distracted, or incomplete worker attempts"
         )
     );
+    assert!(prompt.contains("not merely because the latest worker turn created a non-empty diff"));
+    assert!(prompt.contains("worker-brief.json used worker_turn_shape=small_patch_slice"));
+    assert!(prompt.contains("set worker_turn_shape=small_patch_slice with the next narrow"));
+    assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("Stop does not permit direct supervisor editing."));
 }
 
@@ -61,6 +65,34 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("worker_turn_shape=small_patch_slice"));
     assert!(brief_prompt.contains("no tests before editing"));
     assert!(brief_prompt.contains("Select only relevant points"));
+}
+
+#[test]
+fn supervisor_review_artifacts_include_task_and_handoff_context() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let default_dir = root.join("default");
+    let worker_dir = root.join("worker");
+    fs::create_dir_all(&default_dir).unwrap();
+    fs::create_dir_all(&worker_dir).unwrap();
+    for name in [TASK_JSON, WORKER_BRIEF_JSON, WORKER_TASK_JSON] {
+        atomic_write(&default_dir.join(name), b"{}").unwrap();
+    }
+    for name in RUN_COMPACT_ARTIFACTS {
+        atomic_write(&worker_dir.join(name), b"{}").unwrap();
+    }
+
+    let paths = supervisor_review_artifact_paths(&default_dir, &worker_dir)
+        .into_iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        &paths[..3],
+        &[TASK_JSON, WORKER_BRIEF_JSON, WORKER_TASK_JSON]
+    );
+    assert!(paths.contains(&WORKTREE_PATCH.to_string()));
+    assert!(paths.contains(&CHANGES_PATCH.to_string()));
 }
 
 #[test]
@@ -106,6 +138,7 @@ diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
         worker_mode: "continue".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Fix assertion rewrite.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
         focus_files: vec![
             "src/_pytest/assertion/rewrite.py".to_string(),
             "testing/test_assertrewrite.py".to_string(),

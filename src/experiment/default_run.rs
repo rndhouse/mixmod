@@ -136,10 +136,8 @@ impl DefaultExperimentRun<'_> {
                     } else {
                         format!("critique-{decision_index}")
                     };
-                    let mut artifact_paths = RUN_COMPACT_ARTIFACTS
-                        .iter()
-                        .map(|name| final_out.join(name))
-                        .collect::<Vec<_>>();
+                    let mut artifact_paths =
+                        supervisor_review_artifact_paths(&default_dir, &final_out);
                     let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
                     if supervisor_control_path.exists() {
                         artifact_paths.push(supervisor_control_path);

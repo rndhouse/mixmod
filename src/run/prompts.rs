@@ -273,6 +273,11 @@ fn is_small_patch_slice_task(task: &TaskSpec) -> bool {
     task.context
         .get("worker_brief")
         .and_then(|brief| get_str(brief, "worker_turn_shape"))
+        .or_else(|| {
+            task.context
+                .get("revision")
+                .and_then(|revision| get_str(revision, "worker_turn_shape"))
+        })
         .is_some_and(|shape| shape.trim() == "small_patch_slice")
 }
 

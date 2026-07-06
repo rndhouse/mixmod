@@ -9,7 +9,7 @@ use chrono::Utc;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::{METRICS_JSON, SupervisorFeedbackTurn};
+use crate::{METRICS_JSON, RevisionHandoff, SupervisorFeedbackTurn};
 
 pub(crate) fn append_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -97,6 +97,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         worker_mode,
         patch_decision: "accept_current".to_string(),
         hint,
+        revision_handoff: RevisionHandoff::default(),
         focus_files: get_string_array(event, "focus_files"),
         required_checks: get_string_array(event, "required_checks"),
         input_tokens: 0,

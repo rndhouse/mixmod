@@ -422,6 +422,7 @@ fn supervisor_reuse_metrics_are_derived_from_thread_ids() {
             worker_mode: "continue".to_string(),
             patch_decision: "accept_current".to_string(),
             hint: String::new(),
+            revision_handoff: RevisionHandoff::default(),
             focus_files: vec![],
             required_checks: vec![],
             input_tokens: 1,

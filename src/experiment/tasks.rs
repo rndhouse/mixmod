@@ -49,6 +49,13 @@ struct RevisionTaskDetails<'a> {
     message_to_worker: &'a str,
     worker_mode: &'a str,
     patch_decision: &'a str,
+    worker_turn_shape: Option<&'a str>,
+    turn_goal: Option<&'a str>,
+    exact_edits: &'a [String],
+    deferred_checks: &'a [String],
+    defer_checks_until_patch_exists: Option<bool>,
+    completion_gate: Option<&'a str>,
+    forbidden_actions: &'a [String],
     focus_files: &'a [String],
     repo_focus_files: &'a [String],
     required_checks: &'a [String],
@@ -384,13 +391,39 @@ pub(crate) fn write_revision_task(
             repo_focus_files.clone()
         }
     );
-    let acceptance = non_empty_or(
-        decision.required_checks.clone(),
-        get_string_array(&task_value, "acceptance"),
-    );
+    let small_patch_slice = decision.revision_handoff.is_small_patch_slice();
+    let defer_checks_until_patch_exists = decision
+        .revision_handoff
+        .defer_checks_until_patch_exists
+        .unwrap_or(small_patch_slice);
+    let completion_gate = decision
+        .revision_handoff
+        .completion_gate
+        .as_deref()
+        .filter(|gate| !gate.trim().is_empty())
+        .unwrap_or("git diff --stat must be non-empty");
+    let acceptance = if small_patch_slice {
+        vec![completion_gate.to_string()]
+    } else {
+        non_empty_or(
+            decision.required_checks.clone(),
+            get_string_array(&task_value, "acceptance"),
+        )
+    };
     let mut constraints = get_string_array(&task_value, "constraints");
     constraints.push("Keep the revision focused.".to_string());
     constraints.push("Do not paste long logs.".to_string());
+    if small_patch_slice {
+        constraints
+            .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
+        if defer_checks_until_patch_exists {
+            constraints.push(
+                "Do not run tests in this revision turn; checks are deferred until a patch exists."
+                    .to_string(),
+            );
+        }
+        constraints.push("Do not finalize until git diff --stat is non-empty.".to_string());
+    }
     constraints.sort();
     constraints.dedup();
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
@@ -401,7 +434,17 @@ pub(crate) fn write_revision_task(
     } else {
         ""
     };
-    let instructions = if decision.worker_mode == "context_focus" {
+    let instructions = if small_patch_slice {
+        small_patch_slice_revision_instructions(
+            &task_value,
+            decision,
+            &focus_files,
+            &focus_note,
+            completion_gate,
+            patch_decision_note,
+            defer_checks_until_patch_exists,
+        )
+    } else if decision.worker_mode == "context_focus" {
         format!(
             "Original task instructions:\n{original_instructions}\n\nThe supervisor requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nSupervisor message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
             decision.hint, decision.required_checks
@@ -422,7 +465,11 @@ pub(crate) fn write_revision_task(
         expect_patch: true,
         worker_mode: &decision.worker_mode,
         files: focus_files,
-        tests: get_string_array(&task_value, "tests"),
+        tests: if small_patch_slice && defer_checks_until_patch_exists {
+            Vec::new()
+        } else {
+            get_string_array(&task_value, "tests")
+        },
         constraints,
         acceptance,
         context: RevisionTaskContext {
@@ -435,6 +482,15 @@ pub(crate) fn write_revision_task(
                 message_to_worker: &decision.hint,
                 worker_mode: &decision.worker_mode,
                 patch_decision: &decision.patch_decision,
+                worker_turn_shape: decision.revision_handoff.worker_turn_shape.as_deref(),
+                turn_goal: decision.revision_handoff.turn_goal.as_deref(),
+                exact_edits: &decision.revision_handoff.exact_edits,
+                deferred_checks: &decision.revision_handoff.deferred_checks,
+                defer_checks_until_patch_exists: decision
+                    .revision_handoff
+                    .defer_checks_until_patch_exists,
+                completion_gate: decision.revision_handoff.completion_gate.as_deref(),
+                forbidden_actions: &decision.revision_handoff.forbidden_actions,
                 focus_files: &decision.focus_files,
                 repo_focus_files: &repo_focus_files,
                 required_checks: &decision.required_checks,
@@ -456,6 +512,124 @@ pub(crate) fn write_revision_task(
         )?;
     }
     Ok(path)
+}
+
+fn small_patch_slice_revision_instructions(
+    original: &Value,
+    decision: &SupervisorFeedbackTurn,
+    focus_files: &[String],
+    focus_note: &str,
+    completion_gate: &str,
+    patch_decision_note: &str,
+    defer_checks_until_patch_exists: bool,
+) -> String {
+    let title = get_str(original, "title").unwrap_or("the task");
+    let original_instructions = get_str(original, "instructions")
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let original_context = if original_instructions.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nOriginal task context, for alignment only:\n{}\n",
+            truncate_for_report(&original_instructions, 1200)
+        )
+    };
+    let fallback_goal = if decision.hint.trim().is_empty() {
+        "Apply the supervisor-requested next patch slice."
+    } else {
+        decision.hint.trim()
+    };
+    let turn_goal = decision
+        .revision_handoff
+        .turn_goal
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_goal)
+        .trim();
+    let mut exact_edits = decision.revision_handoff.exact_edits.clone();
+    if exact_edits.is_empty() {
+        exact_edits.push(turn_goal.to_string());
+    }
+    let mut hard_rules = vec![
+        "Do not ask questions.".to_string(),
+        "Do not stop after reading files.".to_string(),
+        "Do not inspect unrelated behavior outside this slice.".to_string(),
+        "Do not final-answer until repository files are modified.".to_string(),
+        "If something is ambiguous, make a reasonable assumption and continue editing.".to_string(),
+    ];
+    if defer_checks_until_patch_exists {
+        hard_rules.push("Do not run tests in this turn.".to_string());
+    } else {
+        hard_rules.push("Make the code/test edit before running any check.".to_string());
+    }
+    for action in &decision.revision_handoff.forbidden_actions {
+        let rule = hard_rule_from_forbidden_action(action);
+        if !hard_rules.contains(&rule) {
+            hard_rules.push(rule);
+        }
+    }
+
+    let file_list = if focus_files.is_empty() {
+        "- none specified".to_string()
+    } else {
+        focus_files
+            .iter()
+            .map(|file| format!("- {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let checks = non_empty_or(
+        decision.revision_handoff.deferred_checks.clone(),
+        decision.required_checks.clone(),
+    );
+    let checks_note = if checks.is_empty() {
+        "Deferred checks: none specified.".to_string()
+    } else {
+        format!(
+            "Deferred checks after a non-empty patch exists:\n{}",
+            bullet_list(&checks)
+        )
+    };
+
+    format!(
+        r#"Noninteractive coding revision. This is the full instruction. No user will answer questions.
+
+Original task: {title}{original_context}
+Current accumulated patch is useful but not yet accepted as the full solution.
+Continue from the current working tree; do not revert existing correct edits.{patch_decision_note}
+
+Your only goal in this revision turn is to add a non-empty repository delta for the next small patch slice.
+
+Hard rules:
+{hard_rules}
+
+Patch slice goal: {turn_goal}
+
+Make exactly this next small patch:
+{exact_edits}
+
+Relevant files:
+{file_list}
+
+{focus_note}
+Use concrete files from the relevant file list. If a listed item is a directory, do not read the whole directory; choose the one file required by the exact edits.
+Do not expand beyond this patch slice unless one of the exact edits requires it.
+If a listed file is missing, continue with the remaining exact edits; create a missing file only when an exact edit requires it.
+{checks_note}
+
+After editing, run exactly: git diff --stat
+If git diff --stat is empty, you failed; edit files before finalizing.
+Completion gate: {completion_gate}
+
+Final response format:
+Changed files: <comma-separated list>
+Diff non-empty: yes/no
+"#,
+        hard_rules = bullet_list(&hard_rules),
+        exact_edits = numbered_list(&exact_edits),
+    )
 }
 
 fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {
