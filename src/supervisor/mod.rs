@@ -342,10 +342,8 @@ fn worker_brief_needs_small_slice_repair(
     brief: &Value,
     worker_guidance: &WorkerSupervisorGuidance,
 ) -> bool {
-    if !worker_guidance
-        .guidance
-        .iter()
-        .any(|item| item.contains("worker_turn_shape=small_patch_slice"))
+    if !worker_guidance_prefers_small_patch_slice(worker_guidance)
+        && !supervisor_value_indicates_complex_source_work(brief)
     {
         return false;
     }
@@ -382,22 +380,21 @@ fn supervisor_feedback_needs_revision_slice_repair(
     feedback: &Value,
     worker_guidance: &WorkerSupervisorGuidance,
 ) -> bool {
-    if !worker_guidance.guidance.iter().any(|item| {
-        item.contains("worker_turn_shape=small_patch_slice")
-            || item.contains("one immediate source edit")
-    }) {
-        return false;
-    }
     let raw_verdict = get_str(feedback, "verdict")
         .or_else(|| get_str(feedback, "action"))
         .unwrap_or("revise");
     if normalize_supervisor_verdict(raw_verdict) != "revise" {
         return false;
     }
+    if !worker_guidance_prefers_small_patch_slice(worker_guidance)
+        && !supervisor_value_indicates_complex_source_work(feedback)
+    {
+        return false;
+    }
     let typed = SupervisorFeedback::from_value(feedback);
     let handoff = RevisionHandoff::from_feedback(&typed);
     if !handoff.is_small_patch_slice() {
-        return false;
+        return true;
     }
     let Some(first_edit) = handoff
         .exact_edits
@@ -407,6 +404,66 @@ fn supervisor_feedback_needs_revision_slice_repair(
         return true;
     };
     first_revision_edit_is_too_broad(first_edit)
+}
+
+fn worker_guidance_prefers_small_patch_slice(worker_guidance: &WorkerSupervisorGuidance) -> bool {
+    worker_guidance.guidance.iter().any(|item| {
+        item.contains("worker_turn_shape=small_patch_slice")
+            || item.contains("one immediate source edit")
+    })
+}
+
+fn supervisor_value_indicates_complex_source_work(value: &Value) -> bool {
+    let mut text = String::new();
+    collect_supervisor_value_text(value, &mut text);
+    let text = text.to_ascii_lowercase();
+    let strong_terms = [
+        "codegen",
+        "code generation",
+        "generated code",
+        "compiler",
+        "parser",
+    ];
+    if strong_terms.iter().any(|term| text.contains(term)) {
+        return true;
+    }
+    let terms = [
+        "alias",
+        "validation",
+        "collision",
+        "serializ",
+        "deserializ",
+        "pack",
+        "unpack",
+        "optional",
+        "default",
+        "nested",
+        "metadata",
+        "schema",
+        "config",
+    ];
+    let matches = terms.iter().filter(|term| text.contains(**term)).count();
+    matches >= 3
+}
+
+fn collect_supervisor_value_text(value: &Value, out: &mut String) {
+    match value {
+        Value::String(text) => {
+            out.push(' ');
+            out.push_str(text);
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_supervisor_value_text(item, out);
+            }
+        }
+        Value::Object(map) => {
+            for value in map.values() {
+                collect_supervisor_value_text(value, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn first_revision_edit_is_too_broad(edit: &str) -> bool {
@@ -946,6 +1003,25 @@ mod tests {
     }
 
     #[test]
+    fn complex_unknown_worker_brief_needs_small_slice_repair() {
+        let brief = json!({
+            "handoff": "guided",
+            "expect_patch": true,
+            "message_to_worker": "Implement generated serialization and deserialization support.",
+            "edit_plan": [
+                "Update code generation for alias-sensitive packing.",
+                "Add validation for nested optional metadata.",
+                "Handle unpack defaults."
+            ]
+        });
+
+        assert!(worker_brief_needs_small_slice_repair(
+            &brief,
+            &WorkerSupervisorGuidance::default()
+        ));
+    }
+
+    #[test]
     fn broad_small_slice_worker_brief_still_needs_repair() {
         let brief = json!({
             "handoff": "guided",
@@ -1060,6 +1136,20 @@ mod tests {
         assert!(supervisor_feedback_needs_revision_slice_repair(
             &feedback,
             &small_slice_guidance()
+        ));
+    }
+
+    #[test]
+    fn complex_non_small_revision_feedback_needs_repair() {
+        let feedback = json!({
+            "action": "revise",
+            "message_to_worker": "Implement generated pack/unpack alias validation for nested metadata.",
+            "focus_files": ["src/builder.py"]
+        });
+
+        assert!(supervisor_feedback_needs_revision_slice_repair(
+            &feedback,
+            &WorkerSupervisorGuidance::default()
         ));
     }
 

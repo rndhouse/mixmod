@@ -258,6 +258,7 @@ Use concrete files from this list. If a listed item is a directory, do not read 
 Do not expand beyond this first patch slice unless one of the exact edits requires it.
 If a listed file is missing, continue with the remaining exact edits; create a missing file only when an exact edit requires it.
 Checks are intentionally deferred until after a non-empty patch exists.
+When editing an existing source function, preserve surrounding control flow and indentation. Do not rewrite the whole function. Do not delete or reindent unrelated branches. Make the smallest local edit that satisfies this slice.
 
 After editing, run exactly: git diff --stat
 If git diff --stat is empty, you failed; edit files before finalizing.

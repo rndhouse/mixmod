@@ -59,7 +59,9 @@ Use exactly {{"handoff":"as_given"}} only when the original task already names t
 Prefer "focused" or "guided" whenever a short directive can prevent worker wandering or repeated attempts.
 For expected-patch tasks with workers prone to delayed edits, prefer "worker_turn_shape":"small_patch_slice": choose a first patch seed, not the full implementation. Use one or two narrow files when possible, list mechanical exact_edits, defer checks until after a non-empty diff, and include a completion_gate such as "git diff --stat must be non-empty".
 Good small_patch_slice choices are repo-generic seed patches: public API/options plumbing plus a narrow test, one parser/config branch plus a narrow test, one validation branch plus a narrow test, or one localized source edit plus a regression test. Bad small_patch_slice choices ask for a whole feature, core algorithm, validation, aliases, optional/default behavior, and full tests in one turn.
+For complex source tasks involving generated code, alias/key behavior, validation matrices, serializers/deserializers, pack/unpack paths, parser/compiler behavior, or multiple cross-cutting flows, do not use worker_turn_shape="default" for the initial worker. Use small_patch_slice and stage the work.
 For small_patch_slice, exact_edits must be immediately executable edit commands. Do not write "locate", "investigate", "understand", or broad algorithm work as an exact edit. The files array must contain concrete repo file paths, not directories; include the file that defines any function, option, flag, or public API named in exact_edits.
+For source edits inside large functions or code-generation paths, add structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
 Optional fields; omit empty fields:
 {{"expect_patch":true,"worker_turn_shape":"small_patch_slice|default","turn_goal":"one-turn goal","message_to_worker":"direct message for the worker","files":["optional paths"],"exact_edits":["concrete edit"],"checks":["optional checks"],"deferred_checks":["checks to run after a patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"git diff --stat must be non-empty","forbidden_actions":["ask questions","run tests before editing"],"investigation_summary":"optional short finding","edit_plan":["optional concrete steps"],"evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
@@ -108,6 +110,7 @@ Return a corrected expected-patch handoff with:
 - forbidden_actions including "ask questions" and "run tests before editing"
 Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
 Include a concrete symbol and a literal nearby code anchor when possible, such as `near the line containing "..."`.
+For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
 If file details are uncertain, pick the smallest public API source seed patch; do not ask the worker to investigate broadly.
 Working repo: {work_dir}
@@ -161,6 +164,7 @@ Return one corrected expected-patch handoff with:
 - forbidden_actions including "ask questions" and "run tests before editing"
 Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
+For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Working repo: {work_dir}
 
 Task JSON:
@@ -238,13 +242,15 @@ Return only JSON matching this schema:
 {{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 60 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Use approve when no more local worker attempts are needed because the accumulated worktree.patch appears to satisfy the original task, not merely because the latest worker turn created a non-empty diff.
 Prefer revise after failed, empty, distracted, or incomplete worker attempts, and put the next worker instruction in message_to_worker.
-Use worker_mode=continue to keep the same worker session and let the worker continue with its existing context.
-Use worker_mode=context_focus to start a new worker session on the same worktree; previous worker context is discarded unless you repeat it in message_to_worker.
+Use worker_mode=continue to keep the same worker session and let the worker continue with its existing context. Prefer continue for complex tasks because the worker needs accumulated file context.
+Use worker_mode=context_focus to start a new worker session on the same worktree; previous worker context is discarded unless you repeat it in message_to_worker. Use context_focus only when the previous worker context is clearly harmful, confused, or stale.
 If worker-brief.json used worker_turn_shape=small_patch_slice, treat the first non-empty patch as a starter slice. Approve only after comparing worktree.patch to task.json and deciding the original acceptance criteria appear satisfied. If the slice is useful but incomplete, return action=revise, patch_decision=revise_current, usually worker_mode=continue, and set worker_turn_shape=small_patch_slice with the next narrow source/test slice.
 For revision small_patch_slice, make exact_edits immediately executable and concrete; use focus_files for repo source/test paths, defer checks until after another non-empty diff, and include a completion_gate such as "git diff --stat must be non-empty". Treat exact_edits as a queue: the next worker turn executes only the first item, so put one source edit first and leave tests or follow-up edits for later turns. Make the next slice one behavior only: one source file plus at most one focused test file, no validation matrix, no bundled prefix+rename+deserialization work, and no broad "implement the feature" instruction.
+For source edits inside large functions or code-generation paths, include structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
 When a revision needs source details, inspect repo files read-only before returning JSON and name exact symbols plus a literal nearby code anchor when possible, such as `near the line containing "..."`
 in exact_edits. Do not ask the worker to investigate broadly or complete the whole feature in one revision slice.
 When patch-comparison.json is present, choose patch_decision explicitly. Use accept_current when the current worktree.patch should stand, revise_current when the current patch should be edited further, and revise_previous when previous-worktree.patch is the better candidate. Mixmod will not mutate the repo directly from this choice. If you choose revise_previous, summarize the concrete source/test edits to recover in message_to_worker; do not tell the worker to read previous-worktree.patch or any Mixmod artifact.
+If patch-comparison.json reports destructive or broad small-slice degradation, prefer patch_decision=revise_previous and ask for a smaller structure-preserving recovery edit unless the current patch is clearly better.
 Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files. Do not ask the worker to inspect Mixmod state or artifact directories.
 Important artifact semantics: worktree.patch is the accumulated current repository diff and is authoritative for deciding whether the patch exists; changes.patch is only the latest worker run delta and may be empty after a verification-only revision.
 Use stop only to record a blocked or inconclusive worker result when no useful worker path remains. Stop does not permit direct supervisor editing.
@@ -284,7 +290,7 @@ The selected worker needs a smaller revision slice than the previous feedback pr
 {worker_guidance}
 Return a corrected revise decision with:
 - "action":"revise"
-- "worker_mode":"continue" unless the previous feedback required context_focus
+- "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
 - "worker_turn_shape":"small_patch_slice"
 - exact_edits must be an array with exactly one string item; do not use objects
@@ -298,6 +304,7 @@ The one exact edit must be atomic: one function or branch, one direction, one so
 Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong. Repair the size/shape of that requested next slice; do not rewind to an earlier completed slice.
 Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
 If previous feedback named one focus file, keep that same repo source file in focus_files and exact_edits while making the edit smaller.
+For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Include an exact symbol and a literal nearby code anchor when possible, for example `near the line containing "..."`.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
 Do not include a test edit in exact_edits. Tests belong in deferred_checks or a later revision.
@@ -347,7 +354,7 @@ The previous repair was rejected for this structural reason: {rejection_reason}
 {worker_guidance}
 Return one corrected revise decision with:
 - "action":"revise"
-- "worker_mode":"continue" unless the previous feedback required context_focus
+- "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
 - "worker_turn_shape":"small_patch_slice"
 - exact_edits as an array with exactly one string item; do not use objects
@@ -359,6 +366,7 @@ Return one corrected revise decision with:
 Repair the size/shape of the previous requested next slice. Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong.
 Do not rewind to an earlier completed slice. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
+For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Working repo: {work_dir}
 
 Previous feedback:

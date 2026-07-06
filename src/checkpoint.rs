@@ -24,6 +24,8 @@ pub(crate) struct PatchCheckpointComparison {
     pub(crate) current_patch_bytes: u64,
     /// Latest worker-turn delta size in bytes.
     pub(crate) latest_delta_bytes: u64,
+    /// Patch stats for the latest worker-turn delta only.
+    pub(crate) latest_delta_stats: PatchStats,
     /// Patch stats for the previous candidate.
     pub(crate) previous_stats: PatchStats,
     /// Patch stats for the current candidate.
@@ -70,9 +72,11 @@ pub(crate) fn write_patch_checkpoint_comparison(
     let current_patch = fs::read_to_string(&current_patch_path)
         .with_context(|| format!("failed to read {}", current_patch_path.display()))?;
     let latest_delta_path = current_run_dir.join(CHANGES_PATCH);
+    let latest_delta_patch = fs::read_to_string(&latest_delta_path).unwrap_or_default();
 
     let previous_stats = patch_stats(&previous_patch);
     let current_stats = patch_stats(&current_patch);
+    let latest_delta_stats = patch_stats(&latest_delta_patch);
     let latest_delta_bytes = file_len(&latest_delta_path).unwrap_or(0);
     let previous_patch_bytes = previous_patch.len() as u64;
     let current_patch_bytes = current_patch.len() as u64;
@@ -148,10 +152,30 @@ pub(crate) fn write_patch_checkpoint_comparison(
                 .to_string(),
         );
     }
+    if decision.revision_handoff.is_small_patch_slice() {
+        if latest_delta_stats.removed_lines > 25 {
+            reasons.push(format!(
+                "small patch slice removed too many lines: {}",
+                latest_delta_stats.removed_lines
+            ));
+        }
+        if latest_delta_stats.changed_line_count > 80 {
+            reasons.push(format!(
+                "small patch slice changed too many lines: {}",
+                latest_delta_stats.changed_line_count
+            ));
+        }
+        if latest_delta_stats.files.len() > 2 {
+            reasons.push(format!(
+                "small patch slice changed too many files: {}",
+                latest_delta_stats.files.join(", ")
+            ));
+        }
+    }
 
     let degradation_detected = !reasons.is_empty();
     let supervisor_guidance = if degradation_detected {
-        "A worker revision may have degraded the candidate. Choose patch_decision explicitly: accept_current/revise_current if the current patch is better, or revise_previous if the previous patch should be preserved and the worker should recover from it."
+        "A worker revision may have degraded the candidate. Choose patch_decision explicitly: accept_current/revise_current if the current patch is better, or revise_previous if the previous patch should be preserved and the worker should recover from it. If the reasons mention a broad/destructive small patch slice, prefer revise_previous plus a smaller structure-preserving recovery edit."
     } else {
         "No patch degradation heuristic fired. Review the current worktree.patch normally."
     }
@@ -163,6 +187,7 @@ pub(crate) fn write_patch_checkpoint_comparison(
         previous_patch_bytes,
         current_patch_bytes,
         latest_delta_bytes,
+        latest_delta_stats,
         previous_stats,
         current_stats,
         lost_changed_files,
@@ -219,6 +244,7 @@ pub(crate) fn patch_checkpoint_metrics(worker_run_dirs: &[PathBuf]) -> Result<se
             "previous_patch_bytes": comparison.get("previous_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
             "current_patch_bytes": comparison.get("current_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
             "latest_delta_bytes": comparison.get("latest_delta_bytes").cloned().unwrap_or_else(|| json!(0)),
+            "latest_delta_stats": comparison.get("latest_delta_stats").cloned().unwrap_or_else(|| json!({})),
             "lost_changed_files": comparison.get("lost_changed_files").cloned().unwrap_or_else(|| json!([])),
             "lost_focus_files": comparison.get("lost_focus_files").cloned().unwrap_or_else(|| json!([])),
         }));

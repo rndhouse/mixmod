@@ -230,6 +230,70 @@ diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
 }
 
 #[test]
+fn checkpoint_detects_destructive_small_patch_slice() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let previous = root.join("previous");
+    let current = root.join("current");
+    fs::create_dir_all(&previous).unwrap();
+    fs::create_dir_all(&current).unwrap();
+    atomic_write(
+        &previous.join(WORKTREE_PATCH),
+        br#"diff --git a/src/builder.py b/src/builder.py
+--- a/src/builder.py
++++ b/src/builder.py
+@@ -1,1 +1,1 @@
+-old
++new
+"#,
+    )
+    .unwrap();
+    let destructive_patch = format!(
+        "diff --git a/src/builder.py b/src/builder.py\n--- a/src/builder.py\n+++ b/src/builder.py\n@@ -1,30 +1,1 @@\n{}\n+replacement\n",
+        (0..30)
+            .map(|index| format!("-removed_{index}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    atomic_write(&current.join(WORKTREE_PATCH), destructive_patch.as_bytes()).unwrap();
+    atomic_write(&current.join(CHANGES_PATCH), destructive_patch.as_bytes()).unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "revise_current".to_string(),
+        hint: "Add one builder branch.".to_string(),
+        revision_handoff: RevisionHandoff {
+            worker_turn_shape: Some("small_patch_slice".to_string()),
+            ..RevisionHandoff::default()
+        },
+        focus_files: vec!["src/builder.py".to_string()],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let comparison = write_patch_checkpoint_comparison(&previous, &current, &decision).unwrap();
+
+    assert!(comparison.degradation_detected);
+    assert!(comparison.latest_delta_stats.removed_lines > 25);
+    assert!(
+        comparison
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("small patch slice removed too many lines"))
+    );
+    assert!(comparison.supervisor_guidance.contains("revise_previous"));
+}
+
+#[test]
 fn supervisor_control_metrics_become_revision_decision() {
     let temp = TempDir::new().unwrap();
     let run_dir = temp.path().join("run");

@@ -370,11 +370,38 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
 #[test]
 fn unknown_worker_model_has_no_default_guidance() {
     let mut config = MixmodConfig::default();
-    ModelOverrides::new(None, Some("ollama/glm-4.7-flash:q4_K_M".to_string()))
+    ModelOverrides::new(None, Some("ollama/unknown-local-model:latest".to_string()))
         .apply_to_config(&mut config)
         .unwrap();
 
     assert!(config.worker_supervisor_guidance().is_empty());
+}
+
+#[test]
+fn glm_worker_profile_is_selected_by_alias() {
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(
+        None,
+        Some("mixmod-local-ollama/glm-4.7-flash:Q4_K_M".to_string()),
+    )
+    .apply_to_config(&mut config)
+    .unwrap();
+
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, "glm-4.7-flash:Q4_K_M");
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("rewrite or delete too much"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("worker_mode=continue"))
+    );
 }
 
 #[test]
