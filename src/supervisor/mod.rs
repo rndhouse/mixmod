@@ -361,9 +361,9 @@ fn first_revision_edit_is_too_broad(edit: &str) -> bool {
         ("prefix", "rename"),
         ("read", "write"),
     ];
-    broad_pairs
-        .iter()
-        .any(|(left, right)| lower.contains(left) && lower.contains(right))
+    broad_pairs.iter().any(|(left, right)| {
+        contains_broad_term(&lower, left) && contains_broad_term(&lower, right)
+    })
 }
 
 fn actionable_revision_edit_text(edit: &str) -> String {
@@ -381,6 +381,19 @@ fn actionable_revision_edit_text(edit: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+fn contains_broad_term(text: &str, needle: &str) -> bool {
+    let mut search_start = 0;
+    while let Some(relative_index) = text[search_start..].find(needle) {
+        let index = search_start + relative_index;
+        let before = text[..index].chars().next_back();
+        if before.is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_') {
+            return true;
+        }
+        search_start = index + needle.len();
+    }
+    false
 }
 
 pub(crate) fn run_supervisor_feedback_turn(
@@ -673,6 +686,23 @@ mod tests {
             "expect_patch": true,
             "worker_turn_shape": "small_patch_slice",
             "exact_edits": ["Edit helper.py."]
+        });
+
+        assert!(!worker_brief_needs_small_slice_repair(
+            &brief,
+            &small_slice_guidance()
+        ));
+    }
+
+    #[test]
+    fn initial_api_seed_with_flatten_option_names_does_not_need_repair() {
+        let brief = json!({
+            "handoff": "guided",
+            "expect_patch": true,
+            "worker_turn_shape": "small_patch_slice",
+            "exact_edits": [
+                "In mashumaro/helper.py, update symbol field_options near the line containing \"def field_options\" to accept flatten=False, flatten_prefix=None, and flatten_rename=None, then include exactly those three values in the returned metadata/options structure following the existing field_options style."
+            ]
         });
 
         assert!(!worker_brief_needs_small_slice_repair(
