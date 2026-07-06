@@ -60,13 +60,17 @@ pub(crate) struct VerifiedCommandOutput {
 }
 
 const DEFAULT_REVISION_NO_DELTA_INTERRUPT_SECONDS: u64 = 90;
+const DEFAULT_REVISION_NO_DELTA_MAX_INTERRUPTS: u64 = 1;
 
 #[derive(Debug)]
 struct RevisionNoDeltaIntervention {
     threshold: Duration,
     baseline_diff: String,
-    control: Value,
-    triggered: bool,
+    interrupt_control: Value,
+    stop_control: Value,
+    interrupt_count: u64,
+    max_interrupts: u64,
+    stopped: bool,
 }
 
 impl RevisionNoDeltaIntervention {
@@ -76,14 +80,21 @@ impl RevisionNoDeltaIntervention {
         if threshold_seconds == 0 {
             return None;
         }
+        let max_interrupts = env_u64("MIXMOD_REVISION_NO_DELTA_MAX_INTERRUPTS")
+            .unwrap_or(DEFAULT_REVISION_NO_DELTA_MAX_INTERRUPTS);
         let task = fs::read_to_string(&request.task_path)
             .ok()
             .and_then(|text| serde_json::from_str::<Value>(&text).ok())?;
         let baseline_diff = git_diff_with_untracked(&request.root).ok()?;
-        Self::from_task(&task, baseline_diff, threshold_seconds)
+        Self::from_task(&task, baseline_diff, threshold_seconds, max_interrupts)
     }
 
-    fn from_task(task: &Value, baseline_diff: String, threshold_seconds: u64) -> Option<Self> {
+    fn from_task(
+        task: &Value,
+        baseline_diff: String,
+        threshold_seconds: u64,
+        max_interrupts: u64,
+    ) -> Option<Self> {
         if threshold_seconds == 0 {
             return None;
         }
@@ -100,8 +111,11 @@ impl RevisionNoDeltaIntervention {
         Some(Self {
             threshold: Duration::from_secs(threshold_seconds),
             baseline_diff,
-            control: revision_no_delta_control(revision),
-            triggered: false,
+            interrupt_control: revision_no_delta_interrupt_control(revision),
+            stop_control: revision_no_delta_stop_control(revision),
+            interrupt_count: 0,
+            max_interrupts,
+            stopped: false,
         })
     }
 
@@ -111,19 +125,23 @@ impl RevisionNoDeltaIntervention {
     }
 
     fn maybe_control_for_diff(&mut self, current_diff: &str, elapsed: Duration) -> Option<Value> {
-        if self.triggered || elapsed < self.threshold {
+        if self.stopped || elapsed < self.threshold {
             return None;
         }
         let new_delta = diff_without_unchanged_blocks(current_diff, &self.baseline_diff);
         if !new_delta.trim().is_empty() {
             return None;
         }
-        self.triggered = true;
-        Some(self.control.clone())
+        if self.interrupt_count < self.max_interrupts {
+            self.interrupt_count += 1;
+            return Some(self.interrupt_control.clone());
+        }
+        self.stopped = true;
+        Some(self.stop_control.clone())
     }
 }
 
-fn revision_no_delta_control(revision: &Value) -> Value {
+fn revision_no_delta_interrupt_control(revision: &Value) -> Value {
     let exact_edits = get_string_array(revision, "exact_edits");
     let focus_files = get_string_array(revision, "focus_files");
     let first_edit = exact_edits
@@ -154,6 +172,29 @@ fn revision_no_delta_control(revision: &Value) -> Value {
         "focus_files": focus_files,
         "required_checks": [],
         "risk": "revision made no new repository delta before the no-delta guard fired"
+    })
+}
+
+fn revision_no_delta_stop_control(revision: &Value) -> Value {
+    let focus_files = get_string_array(revision, "focus_files");
+    let exact_edits = get_string_array(revision, "exact_edits");
+    let first_edit = exact_edits
+        .first()
+        .map(String::as_str)
+        .filter(|edit| !edit.trim().is_empty())
+        .or_else(|| get_str(revision, "message_to_worker"))
+        .unwrap_or("the requested revision edit")
+        .trim();
+    json!({
+        "action": "stop",
+        "worker_mode": "continue",
+        "source": "auto_revision_no_delta_stop",
+        "message_to_worker": format!(
+            "Worker made no repository delta after no-delta recovery. Stopping after failing to apply: {first_edit}"
+        ),
+        "focus_files": focus_files,
+        "required_checks": [],
+        "risk": "worker_stalled_no_delta"
     })
 }
 
@@ -267,6 +308,7 @@ impl LocalVerificationRun<'_> {
         let exit_status = 'segments: loop {
             segment_index += 1;
             let segment_started = Utc::now();
+            let segment_started_instant = Instant::now();
             let segment_stdout_start = stdout_bytes.load(Ordering::Relaxed);
             let segment_stderr_start = stderr_bytes.load(Ordering::Relaxed);
             let mut segment_command = vec![command.to_string()];
@@ -399,15 +441,20 @@ impl LocalVerificationRun<'_> {
                     last_heartbeat = Instant::now();
                 }
 
-                if let Some(control) = revision_no_delta_intervention
-                    .as_mut()
-                    .and_then(|intervention| intervention.maybe_control(root, start.elapsed()))
-                {
-                    write_pretty_json(
-                        &supervisor_control_path,
-                        &control,
-                        "revision no-delta supervisor control",
-                    )?;
+                if !supervisor_control_path.exists() {
+                    if let Some(control) =
+                        revision_no_delta_intervention
+                            .as_mut()
+                            .and_then(|intervention| {
+                                intervention.maybe_control(root, segment_started_instant.elapsed())
+                            })
+                    {
+                        write_pretty_json(
+                            &supervisor_control_path,
+                            &control,
+                            "revision no-delta supervisor control",
+                        )?;
+                    }
                 }
 
                 if let Some(control) = read_supervisor_control(&supervisor_control_path) {
@@ -801,9 +848,9 @@ mod tests {
     }
 
     #[test]
-    fn revision_no_delta_guard_fires_once_after_threshold() {
+    fn revision_no_delta_guard_interrupts_then_stops_after_thresholds() {
         let mut guard =
-            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 2)
+            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 2, 1)
                 .unwrap();
 
         assert!(
@@ -811,17 +858,29 @@ mod tests {
                 .maybe_control_for_diff("", Duration::from_secs(1))
                 .is_none()
         );
-        let control = guard
+        let interrupt = guard
             .maybe_control_for_diff("", Duration::from_secs(2))
             .unwrap();
 
-        assert_eq!(get_str(&control, "action"), Some("interrupt_continue"));
-        assert_eq!(get_str(&control, "source"), Some("auto_revision_no_delta"));
+        assert_eq!(get_str(&interrupt, "action"), Some("interrupt_continue"));
+        assert_eq!(
+            get_str(&interrupt, "source"),
+            Some("auto_revision_no_delta")
+        );
         assert!(
-            get_str(&control, "message_to_worker")
+            get_str(&interrupt, "message_to_worker")
                 .unwrap()
                 .contains("Add only the flatten=True serialization branch.")
         );
+        let stop = guard
+            .maybe_control_for_diff("", Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(get_str(&stop, "action"), Some("stop"));
+        assert_eq!(
+            get_str(&stop, "source"),
+            Some("auto_revision_no_delta_stop")
+        );
+        assert_eq!(get_str(&stop, "risk"), Some("worker_stalled_no_delta"));
         assert!(
             guard
                 .maybe_control_for_diff("", Duration::from_secs(3))
@@ -832,7 +891,7 @@ mod tests {
     #[test]
     fn revision_no_delta_guard_ignores_existing_new_delta() {
         let mut guard =
-            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1)
+            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1, 1)
                 .unwrap();
         let current_diff = "\
 diff --git a/builder.py b/builder.py
@@ -851,6 +910,32 @@ diff --git a/builder.py b/builder.py
     }
 
     #[test]
+    fn revision_no_delta_guard_does_not_stop_after_recovery_delta() {
+        let mut guard =
+            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1, 1)
+                .unwrap();
+        assert!(
+            guard
+                .maybe_control_for_diff("", Duration::from_secs(1))
+                .is_some()
+        );
+        let current_diff = "\
+diff --git a/builder.py b/builder.py
+--- a/builder.py
++++ b/builder.py
+@@ -1,1 +1,2 @@
+ old
++new
+";
+
+        assert!(
+            guard
+                .maybe_control_for_diff(current_diff, Duration::from_secs(1))
+                .is_none()
+        );
+    }
+
+    #[test]
     fn revision_no_delta_guard_requires_revision_small_patch_slice() {
         let task = json!({
             "context": {
@@ -861,6 +946,6 @@ diff --git a/builder.py b/builder.py
             }
         });
 
-        assert!(RevisionNoDeltaIntervention::from_task(&task, String::new(), 1).is_none());
+        assert!(RevisionNoDeltaIntervention::from_task(&task, String::new(), 1, 1).is_none());
     }
 }

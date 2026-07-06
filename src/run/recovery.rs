@@ -53,6 +53,7 @@ impl RevisionNoopFollowup {
 pub(super) struct RevisionNoopContext {
     pub(super) delta_expected: bool,
     pub(super) message_to_worker: String,
+    pub(super) revision_handoff: RevisionHandoff,
     pub(super) focus_files: Vec<String>,
     pub(super) required_checks: Vec<String>,
     pub(super) worker_mode: String,
@@ -75,6 +76,18 @@ impl RevisionNoopContext {
                 .unwrap_or("")
                 .trim()
                 .to_string(),
+            revision_handoff: RevisionHandoff {
+                worker_turn_shape: get_str(revision, "worker_turn_shape").map(ToOwned::to_owned),
+                turn_goal: get_str(revision, "turn_goal").map(ToOwned::to_owned),
+                exact_edits: get_string_array(revision, "exact_edits"),
+                deferred_checks: get_string_array(revision, "deferred_checks"),
+                defer_checks_until_patch_exists: get_bool(
+                    revision,
+                    "defer_checks_until_patch_exists",
+                ),
+                completion_gate: get_str(revision, "completion_gate").map(ToOwned::to_owned),
+                forbidden_actions: get_string_array(revision, "forbidden_actions"),
+            },
             focus_files: get_string_array(revision, "focus_files"),
             required_checks: get_string_array(revision, "required_checks"),
             worker_mode: get_str(revision, "worker_mode")
@@ -127,19 +140,32 @@ pub(super) fn run_revision_noop_followup(
             followup_dir.display()
         )
     })?;
+    let small_patch_slice = revision.revision_handoff.is_small_patch_slice();
+    let acceptance = if small_patch_slice {
+        vec![
+            revision
+                .revision_handoff
+                .completion_gate
+                .clone()
+                .unwrap_or_else(|| "git diff --stat must be non-empty".to_string()),
+        ]
+    } else {
+        vec![
+            "Make a new repository diff relative to the previous candidate patch, or return BLOCKED with a concrete reason."
+                .to_string(),
+        ]
+    };
     let followup_task = json!({
         "title": format!("Revision no-op follow-up: {}", task.title),
         "expect_patch": true,
         "instructions": "The previous revision worker turn exited successfully, but Mixmod captured no new delta against the existing candidate patch.",
         "files": revision_focus_files(task, revision),
-        "tests": revision.required_checks,
+        "tests": if small_patch_slice { Vec::<String>::new() } else { revision.required_checks.clone() },
         "constraints": [
             "Do not only inspect files.",
             "Apply the exact supervisor revision or report BLOCKED."
         ],
-        "acceptance": [
-            "Make a new repository diff relative to the previous candidate patch, or return BLOCKED with a concrete reason."
-        ],
+        "acceptance": acceptance,
         "context": {
             "source_task": task_path.to_string_lossy(),
             "revision_noop_followup": true,
@@ -147,6 +173,13 @@ pub(super) fn run_revision_noop_followup(
                 "message_to_worker": revision.message_to_worker,
                 "worker_mode": revision.worker_mode,
                 "patch_decision": revision.patch_decision,
+                "worker_turn_shape": revision.revision_handoff.worker_turn_shape,
+                "turn_goal": revision.revision_handoff.turn_goal,
+                "exact_edits": revision.revision_handoff.exact_edits,
+                "deferred_checks": revision.revision_handoff.deferred_checks,
+                "defer_checks_until_patch_exists": revision.revision_handoff.defer_checks_until_patch_exists,
+                "completion_gate": revision.revision_handoff.completion_gate,
+                "forbidden_actions": revision.revision_handoff.forbidden_actions,
                 "focus_files": revision.focus_files,
                 "required_checks": revision.required_checks
             }

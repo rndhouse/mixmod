@@ -64,8 +64,8 @@ pub(crate) fn supervisor_control_decision_from_metrics(
     let action = get_str(event, "action").unwrap_or("wait");
     let verdict = if action == "stop" { "stop" } else { "revise" };
     let control = event.get("control").unwrap_or(event);
-    let auto_revision_no_delta =
-        get_str(control, "source").is_some_and(|source| source == "auto_revision_no_delta");
+    let auto_revision_no_delta = get_str(control, "source")
+        .is_some_and(|source| source.starts_with("auto_revision_no_delta"));
     let patch_decision = if verdict == "revise" && auto_revision_no_delta {
         "revise_current"
     } else {

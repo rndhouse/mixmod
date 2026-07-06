@@ -270,6 +270,44 @@ fn auto_no_delta_control_preserves_small_patch_slice_revision_shape() {
 }
 
 #[test]
+fn auto_no_delta_stop_control_classifies_worker_stall() {
+    let temp = TempDir::new().unwrap();
+    let run_dir = temp.path().join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    atomic_write(
+        &run_dir.join("metrics.json"),
+        serde_json::to_vec_pretty(&json!({
+            "supervisor_control_events": [{
+                "action": "stop",
+                "worker_mode": "continue",
+                "message_to_worker": "Worker made no repository delta after no-delta recovery.",
+                "focus_files": ["builder.py"],
+                "required_checks": [],
+                "risk": "worker_stalled_no_delta",
+                "control": {
+                    "source": "auto_revision_no_delta_stop"
+                }
+            }]
+        }))
+        .unwrap()
+        .as_slice(),
+    )
+    .unwrap();
+
+    let decision = supervisor_control_decision_from_metrics(&run_dir)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(decision.verdict, "stop");
+    assert_eq!(decision.worker_mode, "continue");
+    assert_eq!(decision.patch_decision, "accept_current");
+    assert_eq!(
+        get_str(&decision.feedback, "risk"),
+        Some("worker_stalled_no_delta")
+    );
+}
+
+#[test]
 fn subtracts_unchanged_preexisting_diff_blocks() {
     let before = "diff --git a/task.json b/task.json\nnew file mode 100644\n--- /dev/null\n+++ b/task.json\n@@ -0,0 +1,1 @@\n+{}\n";
     let after = format!(

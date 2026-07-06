@@ -261,6 +261,18 @@ impl DefaultExperimentRun<'_> {
                 get_str(metrics, "supervisor_control_action").map(ToOwned::to_owned)
             })
             .collect::<Vec<_>>();
+        let supervisor_control_risks = worker_metrics
+            .iter()
+            .flat_map(|metrics| {
+                metrics
+                    .get("supervisor_control_events")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|event| get_str(event, "risk").map(ToOwned::to_owned))
+            })
+            .filter(|risk| !risk.trim().is_empty())
+            .collect::<Vec<_>>();
         let supervisor_control_interrupts = worker_metrics
             .iter()
             .filter(|metrics| get_bool(metrics, "interrupted_by_supervisor").unwrap_or(false))
@@ -346,6 +358,7 @@ impl DefaultExperimentRun<'_> {
             "worker_session_reused": get_bool(&final_metrics, "worker_session_reused").unwrap_or(false),
             "supervisor_control_count": supervisor_control_count,
             "supervisor_control_actions": supervisor_control_actions,
+            "supervisor_control_risks": supervisor_control_risks,
             "supervisor_control_interrupts": supervisor_control_interrupts,
             "interrupted_by_supervisor": get_bool(&final_metrics, "interrupted_by_supervisor").unwrap_or(false),
             "supervisor_control_action": get_str(&final_metrics, "supervisor_control_action"),

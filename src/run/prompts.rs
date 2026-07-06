@@ -143,6 +143,9 @@ pub(super) fn build_revision_noop_followup_instruction(
     task: &TaskSpec,
     revision: &RevisionNoopContext,
 ) -> String {
+    if revision.revision_handoff.is_small_patch_slice() {
+        return build_small_patch_slice_revision_noop_followup_instruction(mode, task, revision);
+    }
     let files = string_list_or_none(&revision_focus_files(task, revision));
     let checks = string_list_or_none(&revision.required_checks);
     let message = if revision.message_to_worker.trim().is_empty() {
@@ -189,6 +192,98 @@ Keep the final response compact.
         worker_mode = revision.worker_mode,
         files = files,
         checks = checks,
+    )
+}
+
+fn build_small_patch_slice_revision_noop_followup_instruction(
+    mode: DelegationMode,
+    task: &TaskSpec,
+    revision: &RevisionNoopContext,
+) -> String {
+    let files = string_list_or_none(&revision_focus_files(task, revision));
+    let first_edit = revision
+        .revision_handoff
+        .exact_edits
+        .first()
+        .map(String::as_str)
+        .filter(|edit| !edit.trim().is_empty())
+        .unwrap_or_else(|| {
+            if revision.message_to_worker.trim().is_empty() {
+                "Apply the supervisor-requested source edit."
+            } else {
+                revision.message_to_worker.trim()
+            }
+        });
+    let turn_goal = revision
+        .revision_handoff
+        .turn_goal
+        .as_deref()
+        .filter(|goal| !goal.trim().is_empty())
+        .unwrap_or(first_edit);
+    let completion_gate = revision
+        .revision_handoff
+        .completion_gate
+        .as_deref()
+        .filter(|gate| !gate.trim().is_empty())
+        .unwrap_or("git diff --stat must be non-empty");
+    let mut hard_rules = vec![
+        "Do not ask questions.".to_string(),
+        "Do not run tests in this turn.".to_string(),
+        "Do not inspect unrelated behavior outside this one edit.".to_string(),
+        "Do not restate the plan.".to_string(),
+        "Do not finalize unless repository files are modified.".to_string(),
+        "If the edit is impossible, return exactly `BLOCKED: <reason>`.".to_string(),
+    ];
+    for action in &revision.revision_handoff.forbidden_actions {
+        let action = action.trim().trim_end_matches('.');
+        if action.is_empty() {
+            continue;
+        }
+        let rule = if action.to_ascii_lowercase().starts_with("do not ") {
+            format!("{action}.")
+        } else {
+            format!("Do not {action}.")
+        };
+        if !hard_rules.contains(&rule) {
+            hard_rules.push(rule);
+        }
+    }
+
+    format!(
+        r#"# Revision No-Op Follow-Up
+
+Mode: {mode}
+Expected repository patch: yes
+
+Mixmod-managed state lives outside this repository. Do not inspect Mixmod state or artifact directories.
+
+Your previous revision turn made no new repository delta. That turn is incomplete.
+
+Continue in the existing worktree and make exactly one small patch slice now.
+
+Hard rules:
+{hard_rules}
+
+Patch slice goal: {turn_goal}
+
+Make only this edit:
+1. {first_edit}
+
+Focus files:
+{files}
+
+Do not expand beyond this one edit. Do not implement neighboring behavior, validation, aliases, serialization/deserialization variants, or tests unless that exact edit explicitly requires it.
+
+After editing, run exactly: git diff --stat
+If git diff --stat is empty, return exactly `BLOCKED: no repository delta`.
+Completion gate: {completion_gate}
+
+Final response format:
+Changed files: <comma-separated list>
+Diff non-empty: yes/no
+"#,
+        mode = mode,
+        hard_rules = plain_string_list_or_none(&hard_rules),
     )
 }
 
@@ -290,5 +385,62 @@ fn string_list_or_none(items: &[String]) -> String {
             .map(|item| format!("- `{item}`"))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+}
+
+fn plain_string_list_or_none(items: &[String]) -> String {
+    if items.is_empty() {
+        "- none specified".to_string()
+    } else {
+        items
+            .iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn revision_noop_followup_keeps_small_patch_slice_shape() {
+        let task = TaskSpec {
+            title: "Flatten task".to_string(),
+            files: vec!["builder.py".to_string(), "test_builder.py".to_string()],
+            ..TaskSpec::default()
+        };
+        let revision = RevisionNoopContext {
+            delta_expected: true,
+            message_to_worker: "Make one builder edit.".to_string(),
+            revision_handoff: RevisionHandoff {
+                worker_turn_shape: Some("small_patch_slice".to_string()),
+                turn_goal: Some("first builder edit".to_string()),
+                exact_edits: vec![
+                    "Edit builder.py around the packer loop only.".to_string(),
+                    "Do not add tests.".to_string(),
+                ],
+                deferred_checks: vec![],
+                defer_checks_until_patch_exists: Some(true),
+                completion_gate: Some("git diff --stat must be non-empty".to_string()),
+                forbidden_actions: vec!["run tests before editing".to_string()],
+            },
+            focus_files: vec!["builder.py".to_string()],
+            required_checks: vec!["pytest test_builder.py".to_string()],
+            worker_mode: "continue".to_string(),
+            patch_decision: "revise_current".to_string(),
+        };
+
+        let instruction =
+            build_revision_noop_followup_instruction(DelegationMode::Patch, &task, &revision);
+
+        assert!(instruction.contains("make exactly one small patch slice now"));
+        assert!(instruction.contains("Make only this edit:"));
+        assert!(instruction.contains("Edit builder.py around the packer loop only."));
+        assert!(instruction.contains("Do not run tests in this turn."));
+        assert!(instruction.contains("Diff non-empty: yes/no"));
+        assert!(!instruction.contains("Required checks:"));
+        assert!(!instruction.contains("Tests run and results"));
     }
 }
