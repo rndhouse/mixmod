@@ -455,6 +455,7 @@ pub(crate) fn run_supervisor_feedback_turn(
             .map(|feedback| normalize_feedback_value(feedback).0);
         let repair_accepted = repaired_feedback.as_ref().is_some_and(|feedback| {
             !supervisor_feedback_needs_revision_slice_repair(feedback, worker_guidance)
+                && revision_repair_preserves_focus(&parsed_feedback, feedback)
         });
         repair_record = Some(json!({
             "label": format!("{label}-repair"),
@@ -536,6 +537,29 @@ pub(crate) fn run_supervisor_feedback_turn(
         turn_id,
     };
     Ok(turn)
+}
+
+fn revision_repair_preserves_focus(previous: &Value, repaired: &Value) -> bool {
+    let previous_feedback = SupervisorFeedback::from_value(previous);
+    let previous_focus = previous_feedback
+        .focus_files
+        .iter()
+        .filter(|path| !path.trim().is_empty())
+        .collect::<Vec<_>>();
+    if previous_focus.len() != 1 {
+        return true;
+    }
+
+    let target = previous_focus[0].as_str();
+    let repaired_feedback = SupervisorFeedback::from_value(repaired);
+    repaired_feedback
+        .focus_files
+        .iter()
+        .any(|path| path == target)
+        || repaired_feedback
+            .exact_edits
+            .iter()
+            .any(|edit| edit.contains(target))
 }
 
 pub(crate) fn run_codex_app_server_turn(
@@ -757,6 +781,46 @@ mod tests {
             &feedback,
             &small_slice_guidance()
         ));
+    }
+
+    #[test]
+    fn revision_repair_must_preserve_single_focus_file() {
+        let previous = json!({
+            "action": "revise",
+            "focus_files": ["mashumaro/core/meta/code/builder.py"],
+            "exact_edits": [
+                "In mashumaro/core/meta/code/builder.py, implement a serialization-only flatten slice."
+            ]
+        });
+        let repaired = json!({
+            "action": "revise",
+            "focus_files": ["mashumaro/helper.py"],
+            "exact_edits": [
+                "In mashumaro/helper.py, remove flatten_prefix and flatten_rename from field_options."
+            ]
+        });
+
+        assert!(!revision_repair_preserves_focus(&previous, &repaired));
+    }
+
+    #[test]
+    fn revision_repair_can_keep_single_focus_file() {
+        let previous = json!({
+            "action": "revise",
+            "focus_files": ["mashumaro/core/meta/code/builder.py"],
+            "exact_edits": [
+                "In mashumaro/core/meta/code/builder.py, implement a serialization-only flatten slice."
+            ]
+        });
+        let repaired = json!({
+            "action": "revise",
+            "focus_files": ["mashumaro/core/meta/code/builder.py"],
+            "exact_edits": [
+                "In mashumaro/core/meta/code/builder.py, near the line containing \"packers = {}\", collect field names with metadata flatten=True."
+            ]
+        });
+
+        assert!(revision_repair_preserves_focus(&previous, &repaired));
     }
 
     #[test]

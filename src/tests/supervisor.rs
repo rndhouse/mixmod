@@ -39,6 +39,44 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
 }
 
 #[test]
+fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let artifact = root.join("worktree.patch");
+    atomic_write(
+        &artifact,
+        br#"diff --git a/mashumaro/helper.py b/mashumaro/helper.py
+--- a/mashumaro/helper.py
++++ b/mashumaro/helper.py
+@@ -1,1 +1,3 @@
++flatten_prefix
++flatten_rename
+"#,
+    )
+    .unwrap();
+    let previous = json!({
+        "action": "revise",
+        "focus_files": ["mashumaro/core/meta/code/builder.py"],
+        "exact_edits": [
+            "In mashumaro/core/meta/code/builder.py, implement serialization-only flatten support."
+        ]
+    });
+
+    let prompt = supervisor_feedback_repair_prompt(
+        root,
+        &[artifact],
+        &WorkerSupervisorGuidance::default(),
+        &previous,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Preserve the previous feedback's intended target behavior"));
+    assert!(prompt.contains("do not rewind to an earlier completed slice"));
+    assert!(prompt.contains("Treat useful accumulated worktree.patch changes as context to keep"));
+    assert!(prompt.contains("If previous feedback named one focus file"));
+}
+
+#[test]
 fn supervisor_prompts_include_selected_worker_model_guidance() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

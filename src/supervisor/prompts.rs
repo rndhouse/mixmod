@@ -236,6 +236,9 @@ Return a corrected revise decision with:
 - completion_gate mentioning git diff --stat
 - forbidden_actions including "ask questions" and "run tests before editing"
 The one exact edit must be atomic: one function or branch, one direction, one source behavior. If the previous edit bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
+Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong. Repair the size/shape of that requested next slice; do not rewind to an earlier completed slice.
+Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
+If previous feedback named one focus file, keep that same repo source file in focus_files and exact_edits while making the edit smaller.
 Include an exact symbol and a literal nearby code anchor when possible, for example `near the line containing "..."`.
 Do not include a test edit in exact_edits. Tests belong in deferred_checks or a later revision.
 Working repo: {work_dir}
