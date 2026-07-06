@@ -287,6 +287,9 @@ fn small_patch_slice_worker_task_uses_noninteractive_diff_gate() {
     assert!(instructions.contains("Do not stop after reading files."));
     assert!(instructions.contains("Patch slice goal: Create the first metadata plumbing patch."));
     assert!(instructions.contains("1. Add flatten: bool = False to field_options."));
+    assert!(!instructions.contains("Add flatten_prefix: Optional"));
+    assert!(instructions.contains("additional edit(s)"));
+    assert!(instructions.contains("Do not do them now."));
     assert!(instructions.contains("Make exactly this first small patch:"));
     assert!(
         instructions.contains("If a listed item is a directory, do not read the whole directory")

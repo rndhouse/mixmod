@@ -198,12 +198,16 @@ fn small_patch_slice_instructions(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(fallback_message)
         .trim();
-    let exact_edits =
+    let all_exact_edits =
         first_non_empty_string_array(brief, &["exact_edits", "edit_plan", "implementation_steps"]);
-    let exact_edits = if exact_edits.is_empty() {
-        vec![turn_goal.to_string()]
+    let exact_edits = immediate_small_patch_exact_edits(&all_exact_edits, turn_goal);
+    let deferred_edit_note = if all_exact_edits.len() > exact_edits.len() {
+        format!(
+            "The supervisor supplied {} additional edit(s); Mixmod is intentionally deferring them to later turns. Do not do them now.\n",
+            all_exact_edits.len() - exact_edits.len()
+        )
     } else {
-        exact_edits
+        String::new()
     };
 
     let mut hard_rules = vec![
@@ -245,6 +249,7 @@ Patch slice goal: {turn_goal}
 
 Make exactly this first small patch:
 {exact_edits}
+{deferred_edit_note}
 
 Relevant files:
 {file_list}
@@ -264,6 +269,7 @@ Diff non-empty: yes/no
 "#,
         hard_rules = bullet_list(&hard_rules),
         exact_edits = numbered_list(&exact_edits),
+        deferred_edit_note = deferred_edit_note,
     )
 }
 
@@ -549,7 +555,7 @@ fn small_patch_slice_revision_instructions(
         .unwrap_or(fallback_goal)
         .trim();
     let all_exact_edits = decision.revision_handoff.exact_edits.clone();
-    let exact_edits = immediate_revision_exact_edits(&all_exact_edits, turn_goal);
+    let exact_edits = immediate_small_patch_exact_edits(&all_exact_edits, turn_goal);
     let deferred_edit_note = if all_exact_edits.len() > exact_edits.len() {
         format!(
             "The supervisor supplied {} additional edit(s); Mixmod is intentionally deferring them to later turns. Do not do them now.\n",
@@ -640,7 +646,7 @@ Diff non-empty: yes/no
     )
 }
 
-fn immediate_revision_exact_edits(all_exact_edits: &[String], turn_goal: &str) -> Vec<String> {
+fn immediate_small_patch_exact_edits(all_exact_edits: &[String], turn_goal: &str) -> Vec<String> {
     all_exact_edits
         .iter()
         .find(|edit| !edit.trim().is_empty())
