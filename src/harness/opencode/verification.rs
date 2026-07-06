@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -13,7 +14,8 @@ use crate::harness::AgentRequest;
 use crate::{
     DEFAULT_OPENCODE_OLLAMA_MODEL, LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OpenCodeConfig,
     SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file,
-    append_jsonl, atomic_write, env_u64, get_str, get_string_array, write_pretty_json,
+    append_jsonl, atomic_write, diff_without_unchanged_blocks, env_u64, get_bool, get_str,
+    get_string_array, git_diff_with_untracked, write_pretty_json,
 };
 
 use super::args::{prepare_opencode_control_args, redact_runtime_opencode_arg};
@@ -55,6 +57,104 @@ pub(crate) struct VerifiedCommandOutput {
     pub(crate) gpu_activity_observed: bool,
     pub(crate) backend_activity_observed: bool,
     pub(crate) verification_notes: Vec<String>,
+}
+
+const DEFAULT_REVISION_NO_DELTA_INTERRUPT_SECONDS: u64 = 90;
+
+#[derive(Debug)]
+struct RevisionNoDeltaIntervention {
+    threshold: Duration,
+    baseline_diff: String,
+    control: Value,
+    triggered: bool,
+}
+
+impl RevisionNoDeltaIntervention {
+    fn from_request(request: &AgentRequest) -> Option<Self> {
+        let threshold_seconds = env_u64("MIXMOD_REVISION_NO_DELTA_INTERRUPT_SECONDS")
+            .unwrap_or(DEFAULT_REVISION_NO_DELTA_INTERRUPT_SECONDS);
+        if threshold_seconds == 0 {
+            return None;
+        }
+        let task = fs::read_to_string(&request.task_path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())?;
+        let baseline_diff = git_diff_with_untracked(&request.root).ok()?;
+        Self::from_task(&task, baseline_diff, threshold_seconds)
+    }
+
+    fn from_task(task: &Value, baseline_diff: String, threshold_seconds: u64) -> Option<Self> {
+        if threshold_seconds == 0 {
+            return None;
+        }
+        let revision = task.get("context")?.get("revision")?;
+        let delta_expected = get_bool(revision, "delta_expected").unwrap_or_else(|| {
+            let patch_decision = get_str(revision, "patch_decision").unwrap_or("");
+            matches!(patch_decision, "revise_current" | "revise_previous")
+        });
+        let small_patch_slice = get_str(revision, "worker_turn_shape")
+            .is_some_and(|shape| shape.trim() == "small_patch_slice");
+        if !delta_expected || !small_patch_slice {
+            return None;
+        }
+        Some(Self {
+            threshold: Duration::from_secs(threshold_seconds),
+            baseline_diff,
+            control: revision_no_delta_control(revision),
+            triggered: false,
+        })
+    }
+
+    fn maybe_control(&mut self, root: &Path, elapsed: Duration) -> Option<Value> {
+        let current_diff = git_diff_with_untracked(root).ok()?;
+        self.maybe_control_for_diff(&current_diff, elapsed)
+    }
+
+    fn maybe_control_for_diff(&mut self, current_diff: &str, elapsed: Duration) -> Option<Value> {
+        if self.triggered || elapsed < self.threshold {
+            return None;
+        }
+        let new_delta = diff_without_unchanged_blocks(current_diff, &self.baseline_diff);
+        if !new_delta.trim().is_empty() {
+            return None;
+        }
+        self.triggered = true;
+        Some(self.control.clone())
+    }
+}
+
+fn revision_no_delta_control(revision: &Value) -> Value {
+    let exact_edits = get_string_array(revision, "exact_edits");
+    let focus_files = get_string_array(revision, "focus_files");
+    let first_edit = exact_edits
+        .first()
+        .map(String::as_str)
+        .filter(|edit| !edit.trim().is_empty())
+        .or_else(|| get_str(revision, "message_to_worker"))
+        .unwrap_or("Apply the next requested source edit.")
+        .trim();
+    let first_file = focus_files
+        .first()
+        .map(String::as_str)
+        .filter(|file| !file.trim().is_empty())
+        .unwrap_or("the focused source file");
+    json!({
+        "action": "interrupt_continue",
+        "worker_mode": "continue",
+        "source": "auto_revision_no_delta",
+        "worker_turn_shape": "small_patch_slice",
+        "turn_goal": "make the first no-delta recovery edit",
+        "exact_edits": [first_edit],
+        "defer_checks_until_patch_exists": true,
+        "completion_gate": "git diff --stat must be non-empty",
+        "forbidden_actions": ["ask questions", "run tests before editing"],
+        "message_to_worker": format!(
+            "You have not modified files in this revision. Make only this edit now in {first_file}: {first_edit} Then run git diff --stat and stop with Diff non-empty: yes/no. Do not run tests."
+        ),
+        "focus_files": focus_files,
+        "required_checks": [],
+        "risk": "revision made no new repository delta before the no-delta guard fired"
+    })
 }
 
 pub(crate) fn run_with_local_verification(
@@ -124,6 +224,7 @@ impl LocalVerificationRun<'_> {
         let stdout_bytes = Arc::new(AtomicU64::new(0));
         let stderr_bytes = Arc::new(AtomicU64::new(0));
         let last_output_at = Arc::new(AtomicU64::new(now_millis()));
+        let mut revision_no_delta_intervention = RevisionNoDeltaIntervention::from_request(request);
 
         let start = Instant::now();
         let heartbeat_seconds = env_u64("MIXMOD_OPENCODE_HEARTBEAT_SECONDS")
@@ -296,6 +397,17 @@ impl LocalVerificationRun<'_> {
                         }),
                     )?;
                     last_heartbeat = Instant::now();
+                }
+
+                if let Some(control) = revision_no_delta_intervention
+                    .as_mut()
+                    .and_then(|intervention| intervention.maybe_control(root, start.elapsed()))
+                {
+                    write_pretty_json(
+                        &supervisor_control_path,
+                        &control,
+                        "revision no-delta supervisor control",
+                    )?;
                 }
 
                 if let Some(control) = read_supervisor_control(&supervisor_control_path) {
@@ -667,4 +779,88 @@ fn backend_activity_observed(text: Option<&str>, selection: &OpenCodeModelSelect
     lower.contains(&model)
         || lower.contains(&model_arg)
         || lower.contains(DEFAULT_OPENCODE_OLLAMA_MODEL)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn revision_slice_task() -> Value {
+        json!({
+            "context": {
+                "revision": {
+                    "delta_expected": true,
+                    "worker_turn_shape": "small_patch_slice",
+                    "patch_decision": "revise_current",
+                    "message_to_worker": "Add the serialization branch.",
+                    "focus_files": ["builder.py", "test_builder.py"],
+                    "exact_edits": ["Add only the flatten=True serialization branch."]
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn revision_no_delta_guard_fires_once_after_threshold() {
+        let mut guard =
+            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 2)
+                .unwrap();
+
+        assert!(
+            guard
+                .maybe_control_for_diff("", Duration::from_secs(1))
+                .is_none()
+        );
+        let control = guard
+            .maybe_control_for_diff("", Duration::from_secs(2))
+            .unwrap();
+
+        assert_eq!(get_str(&control, "action"), Some("interrupt_continue"));
+        assert_eq!(get_str(&control, "source"), Some("auto_revision_no_delta"));
+        assert!(
+            get_str(&control, "message_to_worker")
+                .unwrap()
+                .contains("Add only the flatten=True serialization branch.")
+        );
+        assert!(
+            guard
+                .maybe_control_for_diff("", Duration::from_secs(3))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn revision_no_delta_guard_ignores_existing_new_delta() {
+        let mut guard =
+            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1)
+                .unwrap();
+        let current_diff = "\
+diff --git a/builder.py b/builder.py
+--- a/builder.py
++++ b/builder.py
+@@ -1,1 +1,2 @@
+ old
++new
+";
+
+        assert!(
+            guard
+                .maybe_control_for_diff(current_diff, Duration::from_secs(5))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn revision_no_delta_guard_requires_revision_small_patch_slice() {
+        let task = json!({
+            "context": {
+                "revision": {
+                    "delta_expected": true,
+                    "worker_turn_shape": "default"
+                }
+            }
+        });
+
+        assert!(RevisionNoDeltaIntervention::from_task(&task, String::new(), 1).is_none());
+    }
 }

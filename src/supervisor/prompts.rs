@@ -76,6 +76,53 @@ File context:
     ))
 }
 
+pub(crate) fn supervisor_worker_brief_repair_prompt(
+    work_dir: &Path,
+    task_path: &Path,
+    worker_guidance: &WorkerSupervisorGuidance,
+    previous_brief: &Value,
+) -> Result<String> {
+    let task_value = read_json_file(task_path)?;
+    let visible_task = agent_visible_task_value(&task_value);
+    let task = serde_json::to_string_pretty(&visible_task)
+        .context("failed to serialize agent-visible task for worker brief repair prompt")?;
+    let previous = serde_json::to_string_pretty(previous_brief)
+        .context("failed to serialize previous worker brief for repair prompt")?;
+    let worker_guidance = render_worker_guidance(worker_guidance);
+    Ok(format!(
+        r#"You are repairing a Mixmod supervisor handoff before the worker sees it.
+Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
+The previous handoff is too broad for this selected worker because it did not use worker_turn_shape=small_patch_slice.
+{worker_guidance}
+Return a corrected expected-patch handoff with:
+- "handoff":"guided"
+- "expect_patch":true
+- "worker_turn_shape":"small_patch_slice"
+- one turn_goal for the first patch slice only
+- <=2 concrete repo file paths when possible
+- <=3 exact_edits that are immediately executable
+- no checks unless listed in deferred_checks
+- defer_checks_until_patch_exists:true
+- completion_gate:"git diff --stat must be non-empty"
+- forbidden_actions including "ask questions" and "run tests before editing"
+Choose one behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice.
+If file details are uncertain, pick the smallest public API/test seed patch; do not ask the worker to investigate broadly.
+Working repo: {work_dir}
+
+Task JSON:
+```json
+{task}
+```
+
+Rejected previous handoff:
+```json
+{previous}
+```
+"#,
+        work_dir = work_dir.display(),
+    ))
+}
+
 fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
     match init_mode {
         SupervisorInitMode::Compact => {
@@ -135,7 +182,8 @@ Prefer revise after failed, empty, distracted, or incomplete worker attempts, an
 Use worker_mode=continue to keep the same worker session and let the worker continue with its existing context.
 Use worker_mode=context_focus to start a new worker session on the same worktree; previous worker context is discarded unless you repeat it in message_to_worker.
 If worker-brief.json used worker_turn_shape=small_patch_slice, treat the first non-empty patch as a starter slice. Approve only after comparing worktree.patch to task.json and deciding the original acceptance criteria appear satisfied. If the slice is useful but incomplete, return action=revise, patch_decision=revise_current, usually worker_mode=continue, and set worker_turn_shape=small_patch_slice with the next narrow source/test slice.
-For revision small_patch_slice, make exact_edits immediately executable and concrete; use focus_files for repo source/test paths, defer checks until after another non-empty diff, and include a completion_gate such as "git diff --stat must be non-empty". Do not ask the worker to investigate broadly or complete the whole feature in one revision slice.
+For revision small_patch_slice, make exact_edits immediately executable and concrete; use focus_files for repo source/test paths, defer checks until after another non-empty diff, and include a completion_gate such as "git diff --stat must be non-empty". Make the next slice one behavior only: one source file plus at most one focused test file, no validation matrix, no bundled prefix+rename+deserialization work, and no broad "implement the feature" instruction.
+When a revision needs source details, inspect repo files read-only before returning JSON and name exact symbols or nearby code anchors in exact_edits. Do not ask the worker to investigate broadly or complete the whole feature in one revision slice.
 When patch-comparison.json is present, choose patch_decision explicitly. Use accept_current when the current worktree.patch should stand, revise_current when the current patch should be edited further, and revise_previous when previous-worktree.patch is the better candidate. Mixmod will not mutate the repo directly from this choice. If you choose revise_previous, summarize the concrete source/test edits to recover in message_to_worker; do not tell the worker to read previous-worktree.patch or any Mixmod artifact.
 Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files. Do not ask the worker to inspect Mixmod state or artifact directories.
 Important artifact semantics: worktree.patch is the accumulated current repository diff and is authoritative for deciding whether the patch exists; changes.patch is only the latest worker run delta and may be empty after a verification-only revision.

@@ -346,6 +346,12 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
             .iter()
             .any(|item| item.contains("repository diff"))
     );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("one source behavior"))
+    );
 
     ModelOverrides::new(None, Some("ollama/qwen3.6:27b".to_string()))
         .apply_to_config(&mut config)

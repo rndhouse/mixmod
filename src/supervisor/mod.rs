@@ -7,6 +7,7 @@ mod prompts;
 
 pub(crate) use prompts::{
     codex_only_prompt, supervisor_feedback_prompt, supervisor_worker_brief_prompt,
+    supervisor_worker_brief_repair_prompt,
 };
 
 pub(crate) struct SupervisorFeedbackTurn {
@@ -179,40 +180,123 @@ pub(crate) fn run_supervisor_brief_turn(
             "risk": truncate_for_report(&result.last_message, 160)
         })
     });
-    let thread_id = result.thread_id.clone();
-    let turn_id = result.turn_id.clone();
+    let mut final_brief = parsed_brief;
+    let mut repair_record = None;
+    let mut input_tokens = result.usage.input_tokens;
+    let mut output_tokens = result.usage.output_tokens;
+    let mut reasoning_tokens = result.usage.reasoning_tokens;
+    let mut total_tokens = result.usage.total_tokens;
+    let mut cached_input_tokens = result.usage.cached_input_tokens;
+    let mut input_bytes = result.input_bytes;
+    let mut output_bytes = result.output_bytes;
+    let mut thread_id = result.thread_id.clone();
+    let mut turn_id = result.turn_id.clone();
+    if worker_brief_needs_small_slice_repair(&final_brief, worker_guidance) {
+        let repair_prompt = supervisor_worker_brief_repair_prompt(
+            work_dir,
+            task_path,
+            worker_guidance,
+            &final_brief,
+        )?;
+        let repair = run_codex_app_server_turn(
+            work_dir,
+            default_dir,
+            "worker-brief-repair",
+            &repair_prompt,
+            supervisor,
+            CodexSandbox::ReadOnly,
+        )?;
+        let repaired_brief = parse_feedback_json(&repair.last_message);
+        let repair_accepted = repaired_brief
+            .as_ref()
+            .is_some_and(|brief| !worker_brief_needs_small_slice_repair(brief, worker_guidance));
+        repair_record = Some(json!({
+            "label": "worker-brief-repair",
+            "trigger": "expected-patch handoff for selected worker omitted small_patch_slice",
+            "accepted": repair_accepted,
+            "codex_exit_status": repair.exit_status,
+            "supervisor_model": repair.model.clone(),
+            "supervisor_reasoning_effort": repair.reasoning_effort.clone(),
+            "supervisor_input_tokens": repair.usage.input_tokens,
+            "supervisor_output_tokens": repair.usage.output_tokens,
+            "supervisor_reasoning_tokens": repair.usage.reasoning_tokens,
+            "supervisor_total_tokens": repair.usage.total_tokens,
+            "supervisor_cached_input_tokens": repair.usage.cached_input_tokens,
+            "input_bytes": repair.input_bytes,
+            "output_bytes": repair.output_bytes,
+            "codex_app_server_thread_id": repair.thread_id.clone(),
+            "codex_app_server_turn_id": repair.turn_id.clone(),
+        }));
+        if repair_accepted && let Some(repaired_brief) = repaired_brief {
+            final_brief = repaired_brief;
+        }
+        input_tokens += repair.usage.input_tokens;
+        output_tokens += repair.usage.output_tokens;
+        reasoning_tokens += repair.usage.reasoning_tokens;
+        total_tokens += repair.usage.total_tokens;
+        cached_input_tokens += repair.usage.cached_input_tokens;
+        input_bytes += repair.input_bytes;
+        output_bytes += repair.output_bytes;
+        thread_id = repair.thread_id;
+        turn_id = repair.turn_id;
+    }
     let record = json!({
         "label": "worker-brief",
         "timestamp": Utc::now().to_rfc3339(),
         "supervisor_init": init_mode.as_str(),
-        "brief": parsed_brief,
+        "brief": final_brief,
+        "repair": repair_record,
         "codex_exit_status": result.exit_status,
         "supervisor_model": result.model.clone(),
         "supervisor_reasoning_effort": result.reasoning_effort.clone(),
-        "supervisor_input_tokens": result.usage.input_tokens,
-        "supervisor_output_tokens": result.usage.output_tokens,
-        "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
-        "supervisor_total_tokens": result.usage.total_tokens,
-        "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
-        "input_bytes": result.input_bytes,
-        "output_bytes": result.output_bytes,
+        "supervisor_input_tokens": input_tokens,
+        "supervisor_output_tokens": output_tokens,
+        "supervisor_reasoning_tokens": reasoning_tokens,
+        "supervisor_total_tokens": total_tokens,
+        "supervisor_cached_input_tokens": cached_input_tokens,
+        "input_bytes": input_bytes,
+        "output_bytes": output_bytes,
         "auth_copied_then_removed": result.auth_copied_then_removed,
         "codex_app_server_thread_id": thread_id.clone(),
         "codex_app_server_turn_id": turn_id.clone()
     });
     Ok(SupervisorBriefTurn {
         record,
-        brief: parsed_brief,
-        input_tokens: result.usage.input_tokens,
-        output_tokens: result.usage.output_tokens,
-        reasoning_tokens: result.usage.reasoning_tokens,
-        total_tokens: result.usage.total_tokens,
-        cached_input_tokens: result.usage.cached_input_tokens,
-        input_bytes: result.input_bytes,
-        output_bytes: result.output_bytes,
+        brief: final_brief,
+        input_tokens,
+        output_tokens,
+        reasoning_tokens,
+        total_tokens,
+        cached_input_tokens,
+        input_bytes,
+        output_bytes,
         thread_id,
         turn_id,
     })
+}
+
+fn worker_brief_needs_small_slice_repair(
+    brief: &Value,
+    worker_guidance: &WorkerSupervisorGuidance,
+) -> bool {
+    if !worker_guidance
+        .guidance
+        .iter()
+        .any(|item| item.contains("worker_turn_shape=small_patch_slice"))
+    {
+        return false;
+    }
+    let typed = WorkerBrief::from_value(brief);
+    let handoff = typed.handoff.as_deref().unwrap_or("guided");
+    if handoff == "blocked" {
+        return false;
+    }
+    let expect_patch = typed.expect_patch.unwrap_or(handoff != "as_given");
+    let small_patch_slice = typed
+        .worker_turn_shape
+        .as_deref()
+        .is_some_and(|shape| shape.trim() == "small_patch_slice");
+    expect_patch && !small_patch_slice
 }
 
 pub(crate) fn run_supervisor_feedback_turn(
@@ -387,4 +471,63 @@ pub(crate) fn aggregate_supervisor_usage(turns: &[SupervisorUsageSample]) -> Sup
         usage.turn_ids.push(turn.turn_id.clone());
     }
     usage
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn small_slice_guidance() -> WorkerSupervisorGuidance {
+        WorkerSupervisorGuidance {
+            model: "qwen".to_string(),
+            guidance: vec![
+                "For broad expected-patch tasks, prefer worker_turn_shape=small_patch_slice."
+                    .to_string(),
+            ],
+        }
+    }
+
+    #[test]
+    fn broad_qwen_worker_brief_needs_small_slice_repair() {
+        let brief = json!({
+            "handoff": "guided",
+            "expect_patch": true,
+            "worker_turn_shape": "default",
+            "message_to_worker": "Implement the feature."
+        });
+
+        assert!(worker_brief_needs_small_slice_repair(
+            &brief,
+            &small_slice_guidance()
+        ));
+    }
+
+    #[test]
+    fn small_slice_worker_brief_does_not_need_repair() {
+        let brief = json!({
+            "handoff": "guided",
+            "expect_patch": true,
+            "worker_turn_shape": "small_patch_slice",
+            "exact_edits": ["Edit helper.py."]
+        });
+
+        assert!(!worker_brief_needs_small_slice_repair(
+            &brief,
+            &small_slice_guidance()
+        ));
+    }
+
+    #[test]
+    fn blocked_worker_brief_does_not_need_repair() {
+        let brief = json!({
+            "handoff": "blocked",
+            "expect_patch": false,
+            "message_to_worker": "Cannot proceed."
+        });
+
+        assert!(!worker_brief_needs_small_slice_repair(
+            &brief,
+            &small_slice_guidance()
+        ));
+    }
 }

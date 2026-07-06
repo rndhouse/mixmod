@@ -30,6 +30,8 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("worker-brief.json used worker_turn_shape=small_patch_slice"));
     assert!(prompt.contains("set worker_turn_shape=small_patch_slice with the next narrow"));
     assert!(prompt.contains("exact_edits"));
+    assert!(prompt.contains("Make the next slice one behavior only"));
+    assert!(prompt.contains("exact symbols or nearby code anchors"));
     assert!(prompt.contains("Stop does not permit direct supervisor editing."));
 }
 
@@ -215,6 +217,55 @@ fn supervisor_control_metrics_become_revision_decision() {
     assert_eq!(
         decision.required_checks,
         vec!["python -m pytest sympy/core/tests/test_power.py -q"]
+    );
+}
+
+#[test]
+fn auto_no_delta_control_preserves_small_patch_slice_revision_shape() {
+    let temp = TempDir::new().unwrap();
+    let run_dir = temp.path().join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    atomic_write(
+        &run_dir.join("metrics.json"),
+        serde_json::to_vec_pretty(&json!({
+            "supervisor_control_events": [{
+                "action": "interrupt_continue",
+                "worker_mode": "continue",
+                "message_to_worker": "Make only this edit now.",
+                "focus_files": ["builder.py"],
+                "required_checks": [],
+                "risk": "no delta",
+                "control": {
+                    "source": "auto_revision_no_delta",
+                    "worker_turn_shape": "small_patch_slice",
+                    "turn_goal": "make one recovery edit",
+                    "exact_edits": ["Edit builder.py in one place."],
+                    "defer_checks_until_patch_exists": true,
+                    "completion_gate": "git diff --stat must be non-empty",
+                    "forbidden_actions": ["ask questions"]
+                }
+            }]
+        }))
+        .unwrap()
+        .as_slice(),
+    )
+    .unwrap();
+
+    let decision = supervisor_control_decision_from_metrics(&run_dir)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(decision.verdict, "revise");
+    assert_eq!(decision.worker_mode, "continue");
+    assert_eq!(decision.patch_decision, "revise_current");
+    assert!(decision.revision_handoff.is_small_patch_slice());
+    assert_eq!(
+        decision.revision_handoff.exact_edits,
+        vec!["Edit builder.py in one place."]
+    );
+    assert_eq!(
+        decision.revision_handoff.completion_gate.as_deref(),
+        Some("git diff --stat must be non-empty")
     );
 }
 

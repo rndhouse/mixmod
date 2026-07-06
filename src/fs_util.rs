@@ -63,6 +63,14 @@ pub(crate) fn supervisor_control_decision_from_metrics(
     };
     let action = get_str(event, "action").unwrap_or("wait");
     let verdict = if action == "stop" { "stop" } else { "revise" };
+    let control = event.get("control").unwrap_or(event);
+    let auto_revision_no_delta =
+        get_str(control, "source").is_some_and(|source| source == "auto_revision_no_delta");
+    let patch_decision = if verdict == "revise" && auto_revision_no_delta {
+        "revise_current"
+    } else {
+        "accept_current"
+    };
     let worker_mode = get_str(event, "worker_mode")
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| {
@@ -76,6 +84,8 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         .unwrap_or("")
         .trim()
         .to_string();
+    let revision_handoff =
+        revision_handoff_from_supervisor_control(control, auto_revision_no_delta, &hint);
     let feedback = json!({
         "label": "supervisor-control",
         "timestamp": Utc::now().to_rfc3339(),
@@ -83,7 +93,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         "verdict": verdict,
         "action": verdict,
         "worker_mode": worker_mode.clone(),
-        "patch_decision": "accept_current",
+        "patch_decision": patch_decision,
         "message_to_worker": hint,
         "focus_files": get_string_array(event, "focus_files"),
         "required_checks": get_string_array(event, "required_checks"),
@@ -95,9 +105,9 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         feedback,
         verdict: verdict.to_string(),
         worker_mode,
-        patch_decision: "accept_current".to_string(),
+        patch_decision: patch_decision.to_string(),
         hint,
-        revision_handoff: RevisionHandoff::default(),
+        revision_handoff,
         focus_files: get_string_array(event, "focus_files"),
         required_checks: get_string_array(event, "required_checks"),
         input_tokens: 0,
@@ -110,6 +120,48 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         thread_id: String::new(),
         turn_id: String::new(),
     }))
+}
+
+fn revision_handoff_from_supervisor_control(
+    control: &Value,
+    auto_revision_no_delta: bool,
+    hint: &str,
+) -> RevisionHandoff {
+    let worker_turn_shape = get_str(control, "worker_turn_shape")
+        .map(ToOwned::to_owned)
+        .or_else(|| auto_revision_no_delta.then(|| "small_patch_slice".to_string()));
+    let mut exact_edits = get_string_array(control, "exact_edits");
+    if exact_edits.is_empty() && auto_revision_no_delta && !hint.trim().is_empty() {
+        exact_edits.push(hint.trim().to_string());
+    }
+    RevisionHandoff {
+        worker_turn_shape,
+        turn_goal: get_str(control, "turn_goal")
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                auto_revision_no_delta.then(|| "make the first no-delta recovery edit".to_string())
+            }),
+        exact_edits,
+        deferred_checks: get_string_array(control, "deferred_checks"),
+        defer_checks_until_patch_exists: get_bool(control, "defer_checks_until_patch_exists")
+            .or_else(|| auto_revision_no_delta.then_some(true)),
+        completion_gate: get_str(control, "completion_gate")
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                auto_revision_no_delta.then(|| "git diff --stat must be non-empty".to_string())
+            }),
+        forbidden_actions: {
+            let mut actions = get_string_array(control, "forbidden_actions");
+            if auto_revision_no_delta {
+                for action in ["ask questions", "run tests before editing"] {
+                    if !actions.iter().any(|item| item == action) {
+                        actions.push(action.to_string());
+                    }
+                }
+            }
+            actions
+        },
+    }
 }
 
 pub(crate) fn get_u64(value: &Value, key: &str) -> Option<u64> {
