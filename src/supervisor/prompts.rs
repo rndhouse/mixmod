@@ -92,7 +92,7 @@ pub(crate) fn supervisor_worker_brief_repair_prompt(
     Ok(format!(
         r#"You are repairing a Mixmod supervisor handoff before the worker sees it.
 Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
-The previous handoff is too broad for this selected worker because it did not use worker_turn_shape=small_patch_slice.
+The previous handoff is too broad for this selected worker because it either omitted worker_turn_shape=small_patch_slice or used a small_patch_slice that still bundled too much work.
 {worker_guidance}
 Return a corrected expected-patch handoff with:
 - "handoff":"guided"
@@ -100,13 +100,14 @@ Return a corrected expected-patch handoff with:
 - "worker_turn_shape":"small_patch_slice"
 - one turn_goal for the first patch slice only
 - <=2 concrete repo file paths when possible
-- <=3 exact_edits that are immediately executable
+- exactly one source exact_edits item, plus no test edit in exact_edits
 - no checks unless listed in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate:"git diff --stat must be non-empty"
 - forbidden_actions including "ask questions" and "run tests before editing"
-Choose one behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice.
-If file details are uncertain, pick the smallest public API/test seed patch; do not ask the worker to investigate broadly.
+Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
+Include a concrete symbol and a literal nearby code anchor when possible, such as `near the line containing "..."`.
+If file details are uncertain, pick the smallest public API source seed patch; do not ask the worker to investigate broadly.
 Working repo: {work_dir}
 
 Task JSON:

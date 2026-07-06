@@ -212,7 +212,7 @@ pub(crate) fn run_supervisor_brief_turn(
             .is_some_and(|brief| !worker_brief_needs_small_slice_repair(brief, worker_guidance));
         repair_record = Some(json!({
             "label": "worker-brief-repair",
-            "trigger": "expected-patch handoff for selected worker omitted small_patch_slice",
+            "trigger": "expected-patch handoff for selected worker was missing or broad small_patch_slice",
             "accepted": repair_accepted,
             "codex_exit_status": repair.exit_status,
             "supervisor_model": repair.model.clone(),
@@ -296,7 +296,23 @@ fn worker_brief_needs_small_slice_repair(
         .worker_turn_shape
         .as_deref()
         .is_some_and(|shape| shape.trim() == "small_patch_slice");
-    expect_patch && !small_patch_slice
+    if !expect_patch {
+        return false;
+    }
+    if !small_patch_slice {
+        return true;
+    }
+    if typed.exact_edits.len() > 2 {
+        return true;
+    }
+    let Some(first_edit) = typed
+        .exact_edits
+        .iter()
+        .find(|edit| !edit.trim().is_empty())
+    else {
+        return true;
+    };
+    first_revision_edit_is_too_broad(first_edit)
 }
 
 fn supervisor_feedback_needs_revision_slice_repair(
@@ -604,6 +620,26 @@ mod tests {
             "expect_patch": true,
             "worker_turn_shape": "default",
             "message_to_worker": "Implement the feature."
+        });
+
+        assert!(worker_brief_needs_small_slice_repair(
+            &brief,
+            &small_slice_guidance()
+        ));
+    }
+
+    #[test]
+    fn broad_small_slice_worker_brief_still_needs_repair() {
+        let brief = json!({
+            "handoff": "guided",
+            "expect_patch": true,
+            "worker_turn_shape": "small_patch_slice",
+            "exact_edits": [
+                "In builder.py add flatten option helpers for flatten_prefix and flatten_rename validation.",
+                "In builder.py add pack support.",
+                "In builder.py add unpack support.",
+                "Add tests for prefix and rename."
+            ]
         });
 
         assert!(worker_brief_needs_small_slice_repair(
