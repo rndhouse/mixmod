@@ -783,10 +783,11 @@ impl LocalVerificationRun<'_> {
             );
         }
         if backend_activity_observed {
-            notes.push("Backend command showed the configured Qwen model active.".to_string());
+            notes.push("Backend command showed the configured worker model active.".to_string());
         } else {
-            notes
-                .push("Backend command did not show the configured Qwen model active.".to_string());
+            notes.push(
+                "Backend command did not show the configured worker model active.".to_string(),
+            );
         }
         if before_gpu.is_none() && verification_config.enabled {
             notes.push(format!(

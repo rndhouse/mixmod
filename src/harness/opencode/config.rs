@@ -1,10 +1,11 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, anyhow, bail};
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
-use crate::{OpenCodeConfig, get_str, is_cloud_opencode_provider, state_layout};
+use crate::{OpenCodeConfig, atomic_write, get_str, is_cloud_opencode_provider, state_layout};
 
 #[derive(Debug, Clone)]
 pub(crate) struct OpenCodeModelSelection {
@@ -21,6 +22,7 @@ pub(super) fn resolve_opencode_model(
     require_local_override: bool,
 ) -> Result<OpenCodeModelSelection> {
     let require_local = require_local_override || config.require_local;
+    ensure_selected_local_model_in_opencode_config(root, config)?;
     let models = opencode_command(command, root)
         .arg("models")
         .stdout(Stdio::piped())
@@ -65,7 +67,7 @@ pub(super) fn resolve_opencode_model(
             .iter()
             .any(|alias| selected.contains(alias) || model == *alias)
         {
-            bail!("selected model `{selected}` does not match configured local Qwen 3.6 aliases");
+            bail!("selected model `{selected}` does not match configured local model aliases");
         }
     }
 
@@ -75,6 +77,58 @@ pub(super) fn resolve_opencode_model(
         model_arg: selected,
         require_local,
     })
+}
+
+fn ensure_selected_local_model_in_opencode_config(
+    root: &Path,
+    config: &OpenCodeConfig,
+) -> Result<()> {
+    if is_cloud_opencode_provider(&config.provider) {
+        return Ok(());
+    }
+    if config.model.trim().is_empty() {
+        return Ok(());
+    }
+    let path = opencode_config_path(root);
+    if !path.exists() {
+        return Ok(());
+    }
+    let text =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut value: Value = serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    let Some(providers) = value.get_mut("provider").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    let Some(provider) = providers.get_mut(&config.provider) else {
+        return Ok(());
+    };
+    let Some(provider) = provider.as_object_mut() else {
+        return Ok(());
+    };
+    let models = provider
+        .entry("models".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    let Some(models) = models.as_object_mut() else {
+        return Ok(());
+    };
+    if models.contains_key(&config.model) {
+        return Ok(());
+    }
+    models.insert(
+        config.model.clone(),
+        json!({
+            "name": local_model_display_name(&config.model),
+        }),
+    );
+    let bytes =
+        serde_json::to_vec_pretty(&value).context("failed to serialize updated OpenCode config")?;
+    atomic_write(&path, &bytes).with_context(|| format!("failed to update {}", path.display()))?;
+    Ok(())
+}
+
+fn local_model_display_name(model: &str) -> String {
+    format!("{model} (local)")
 }
 
 fn model_aliases(config: &OpenCodeConfig) -> Vec<String> {
@@ -190,6 +244,80 @@ mod tests {
             std::fs::set_permissions(&command, perms).unwrap();
         }
         command
+    }
+
+    #[test]
+    fn local_worker_override_is_added_to_opencode_config_before_lookup() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let opencode_config = opencode_config_path(root);
+        std::fs::create_dir_all(opencode_config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &opencode_config,
+            serde_json::to_string_pretty(&json!({
+                "$schema": "https://opencode.ai/config.json",
+                "model": "mixmod-local-ollama/qwen3.6:27b",
+                "provider": {
+                    "mixmod-local-ollama": {
+                        "name": "Ollama (Mixmod local)",
+                        "npm": "@ai-sdk/openai-compatible",
+                        "options": {
+                            "baseURL": "http://127.0.0.1:11434/v1"
+                        },
+                        "models": {
+                            "qwen3.6:27b": {
+                                "name": "Qwen 3.6 27B (local)"
+                            }
+                        }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let command = root.join("fake-opencode.sh");
+        let script = r#"#!/bin/sh
+if [ "$1" = "models" ]; then
+  if grep -q 'glm-4.7-flash:Q4_K_M' "$OPENCODE_CONFIG"; then
+    echo 'mixmod-local-ollama/glm-4.7-flash:Q4_K_M'
+  else
+    echo 'mixmod-local-ollama/qwen3.6:27b'
+  fi
+  exit 0
+fi
+exit 1
+"#;
+        std::fs::write(&command, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&command).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&command, perms).unwrap();
+        }
+        let mut config = MixmodConfig::default();
+        ModelOverrides::new(
+            None,
+            Some("mixmod-local-ollama/glm-4.7-flash:Q4_K_M".to_string()),
+        )
+        .apply_to_config(&mut config)
+        .unwrap();
+
+        let selection =
+            resolve_opencode_model(command.to_str().unwrap(), root, &config.opencode, false)
+                .unwrap();
+
+        assert_eq!(selection.provider, "mixmod-local-ollama");
+        assert_eq!(selection.model, "glm-4.7-flash:Q4_K_M");
+        assert_eq!(
+            selection.model_arg,
+            "mixmod-local-ollama/glm-4.7-flash:Q4_K_M"
+        );
+        assert!(
+            std::fs::read_to_string(opencode_config)
+                .unwrap()
+                .contains("glm-4.7-flash:Q4_K_M")
+        );
     }
 
     #[test]

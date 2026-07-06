@@ -425,9 +425,9 @@ fn ensure_local_run_verified(
             root,
             default_dir,
             receipt,
-            "local Qwen 3.6 inference could not be verified under --require-local",
+            "local worker inference could not be verified under --require-local",
         )?;
-        bail!("local Qwen 3.6 inference could not be verified under --require-local");
+        bail!("local worker inference could not be verified under --require-local");
     }
     Ok(())
 }
