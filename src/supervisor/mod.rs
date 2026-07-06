@@ -207,9 +207,14 @@ pub(crate) fn run_supervisor_brief_turn(
             CodexSandbox::ReadOnly,
         )?;
         let repaired_brief = parse_feedback_json(&repair.last_message);
-        let repair_accepted = repaired_brief
-            .as_ref()
-            .is_some_and(|brief| !worker_brief_needs_small_slice_repair(brief, worker_guidance));
+        let repair_accepted = repaired_brief.as_ref().is_some_and(|brief| {
+            !worker_brief_needs_small_slice_repair(brief, worker_guidance)
+                && small_slice_edit_anchor_matches_file(
+                    work_dir,
+                    brief,
+                    &["files", "focus_files", "target_files"],
+                )
+        });
         repair_record = Some(json!({
             "label": "worker-brief-repair",
             "trigger": "expected-patch handoff for selected worker was missing or broad small_patch_slice",
@@ -456,6 +461,11 @@ pub(crate) fn run_supervisor_feedback_turn(
         let repair_accepted = repaired_feedback.as_ref().is_some_and(|feedback| {
             !supervisor_feedback_needs_revision_slice_repair(feedback, worker_guidance)
                 && revision_repair_preserves_focus(&parsed_feedback, feedback)
+                && small_slice_edit_anchor_matches_file(
+                    work_dir,
+                    feedback,
+                    &["focus_files", "files"],
+                )
         });
         repair_record = Some(json!({
             "label": format!("{label}-repair"),
@@ -560,6 +570,69 @@ fn revision_repair_preserves_focus(previous: &Value, repaired: &Value) -> bool {
             .exact_edits
             .iter()
             .any(|edit| edit.contains(target))
+}
+
+fn small_slice_edit_anchor_matches_file(
+    work_dir: &Path,
+    value: &Value,
+    file_keys: &[&str],
+) -> bool {
+    if !get_str(value, "worker_turn_shape").is_some_and(|shape| shape == "small_patch_slice") {
+        return true;
+    }
+    let Some(first_edit) = get_string_array(value, "exact_edits")
+        .into_iter()
+        .find(|edit| !edit.trim().is_empty())
+    else {
+        return true;
+    };
+    let anchors = line_containing_anchors(&first_edit);
+    if anchors.is_empty() {
+        return true;
+    }
+    let files = first_non_empty_string_array(value, file_keys);
+    let target_file = match files.as_slice() {
+        [file] => file.as_str(),
+        _ => files
+            .iter()
+            .find(|file| first_edit.contains(file.as_str()))
+            .map(String::as_str)
+            .unwrap_or(""),
+    };
+    if target_file.is_empty() {
+        return true;
+    }
+    let path = work_dir.join(target_file);
+    if !path.is_file() {
+        return false;
+    }
+    let Ok(text) = fs::read_to_string(&path) else {
+        return false;
+    };
+    anchors.iter().any(|anchor| text.contains(anchor))
+}
+
+fn line_containing_anchors(edit: &str) -> Vec<String> {
+    let mut anchors = Vec::new();
+    for (marker, end) in [
+        ("line containing \"", '"'),
+        ("line containing `", '`'),
+        ("line containing '", '\''),
+    ] {
+        let mut search_start = 0;
+        while let Some(relative_index) = edit[search_start..].find(marker) {
+            let start = search_start + relative_index + marker.len();
+            let Some(relative_end) = edit[start..].find(end) else {
+                break;
+            };
+            let anchor = edit[start..start + relative_end].trim();
+            if !anchor.is_empty() {
+                anchors.push(anchor.to_string());
+            }
+            search_start = start + relative_end + end.len_utf8();
+        }
+    }
+    anchors
 }
 
 pub(crate) fn run_codex_app_server_turn(
@@ -733,6 +806,7 @@ pub(crate) fn aggregate_supervisor_usage(turns: &[SupervisorUsageSample]) -> Sup
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     fn small_slice_guidance() -> WorkerSupervisorGuidance {
         WorkerSupervisorGuidance {
@@ -947,6 +1021,60 @@ mod tests {
         });
 
         assert!(revision_repair_preserves_focus(&previous, &repaired));
+    }
+
+    #[test]
+    fn small_slice_repair_rejects_missing_file_anchor() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("mashumaro")).unwrap();
+        atomic_write(
+            &root.join("mashumaro/config.py"),
+            b"class BaseConfig:\n    pass\n",
+        )
+        .unwrap();
+        let brief = json!({
+            "handoff": "guided",
+            "expect_patch": true,
+            "worker_turn_shape": "small_patch_slice",
+            "files": ["mashumaro/config.py"],
+            "exact_edits": [
+                "In mashumaro/config.py, update field_options near the line containing \"def field_options(\" to add flatten."
+            ]
+        });
+
+        assert!(!small_slice_edit_anchor_matches_file(
+            root,
+            &brief,
+            &["files"]
+        ));
+    }
+
+    #[test]
+    fn small_slice_repair_accepts_matching_file_anchor() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("mashumaro")).unwrap();
+        atomic_write(
+            &root.join("mashumaro/helper.py"),
+            b"def field_options(\n    **kwargs,\n):\n    return kwargs\n",
+        )
+        .unwrap();
+        let brief = json!({
+            "handoff": "guided",
+            "expect_patch": true,
+            "worker_turn_shape": "small_patch_slice",
+            "files": ["mashumaro/helper.py"],
+            "exact_edits": [
+                "In mashumaro/helper.py, update field_options near the line containing \"def field_options(\" to add flatten."
+            ]
+        });
+
+        assert!(small_slice_edit_anchor_matches_file(
+            root,
+            &brief,
+            &["files"]
+        ));
     }
 
     #[test]
