@@ -59,11 +59,11 @@ pub(crate) struct VerifiedCommandOutput {
     pub(crate) verification_notes: Vec<String>,
 }
 
-const DEFAULT_REVISION_NO_DELTA_INTERRUPT_SECONDS: u64 = 90;
-const DEFAULT_REVISION_NO_DELTA_MAX_INTERRUPTS: u64 = 1;
+const DEFAULT_SMALL_PATCH_NO_DELTA_INTERRUPT_SECONDS: u64 = 90;
+const DEFAULT_SMALL_PATCH_NO_DELTA_MAX_INTERRUPTS: u64 = 1;
 
 #[derive(Debug)]
-struct RevisionNoDeltaIntervention {
+struct SmallPatchNoDeltaIntervention {
     threshold: Duration,
     baseline_diff: String,
     interrupt_control: Value,
@@ -73,15 +73,31 @@ struct RevisionNoDeltaIntervention {
     stopped: bool,
 }
 
-impl RevisionNoDeltaIntervention {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SmallPatchNoDeltaKind {
+    Initial,
+    Revision,
+}
+
+#[derive(Debug)]
+struct SmallPatchNoDeltaTarget {
+    kind: SmallPatchNoDeltaKind,
+    focus_files: Vec<String>,
+    exact_edits: Vec<String>,
+    message_to_worker: String,
+}
+
+impl SmallPatchNoDeltaIntervention {
     fn from_request(request: &AgentRequest) -> Option<Self> {
-        let threshold_seconds = env_u64("MIXMOD_REVISION_NO_DELTA_INTERRUPT_SECONDS")
-            .unwrap_or(DEFAULT_REVISION_NO_DELTA_INTERRUPT_SECONDS);
+        let threshold_seconds = env_u64("MIXMOD_SMALL_PATCH_NO_DELTA_INTERRUPT_SECONDS")
+            .or_else(|| env_u64("MIXMOD_REVISION_NO_DELTA_INTERRUPT_SECONDS"))
+            .unwrap_or(DEFAULT_SMALL_PATCH_NO_DELTA_INTERRUPT_SECONDS);
         if threshold_seconds == 0 {
             return None;
         }
-        let max_interrupts = env_u64("MIXMOD_REVISION_NO_DELTA_MAX_INTERRUPTS")
-            .unwrap_or(DEFAULT_REVISION_NO_DELTA_MAX_INTERRUPTS);
+        let max_interrupts = env_u64("MIXMOD_SMALL_PATCH_NO_DELTA_MAX_INTERRUPTS")
+            .or_else(|| env_u64("MIXMOD_REVISION_NO_DELTA_MAX_INTERRUPTS"))
+            .unwrap_or(DEFAULT_SMALL_PATCH_NO_DELTA_MAX_INTERRUPTS);
         let task = fs::read_to_string(&request.task_path)
             .ok()
             .and_then(|text| serde_json::from_str::<Value>(&text).ok())?;
@@ -98,21 +114,12 @@ impl RevisionNoDeltaIntervention {
         if threshold_seconds == 0 {
             return None;
         }
-        let revision = task.get("context")?.get("revision")?;
-        let delta_expected = get_bool(revision, "delta_expected").unwrap_or_else(|| {
-            let patch_decision = get_str(revision, "patch_decision").unwrap_or("");
-            matches!(patch_decision, "revise_current" | "revise_previous")
-        });
-        let small_patch_slice = get_str(revision, "worker_turn_shape")
-            .is_some_and(|shape| shape.trim() == "small_patch_slice");
-        if !delta_expected || !small_patch_slice {
-            return None;
-        }
+        let target = small_patch_no_delta_target_from_task(task)?;
         Some(Self {
             threshold: Duration::from_secs(threshold_seconds),
             baseline_diff,
-            interrupt_control: revision_no_delta_interrupt_control(revision),
-            stop_control: revision_no_delta_stop_control(revision),
+            interrupt_control: small_patch_no_delta_interrupt_control(&target),
+            stop_control: small_patch_no_delta_stop_control(&target),
             interrupt_count: 0,
             max_interrupts,
             stopped: false,
@@ -141,25 +148,99 @@ impl RevisionNoDeltaIntervention {
     }
 }
 
-fn revision_no_delta_interrupt_control(revision: &Value) -> Value {
-    let exact_edits = get_string_array(revision, "exact_edits");
-    let focus_files = get_string_array(revision, "focus_files");
-    let first_edit = exact_edits
+fn small_patch_no_delta_target_from_task(task: &Value) -> Option<SmallPatchNoDeltaTarget> {
+    let context = task.get("context")?;
+    if let Some(revision) = context.get("revision") {
+        let delta_expected = get_bool(revision, "delta_expected").unwrap_or_else(|| {
+            let patch_decision = get_str(revision, "patch_decision").unwrap_or("");
+            matches!(patch_decision, "revise_current" | "revise_previous")
+        });
+        let small_patch_slice = get_str(revision, "worker_turn_shape")
+            .is_some_and(|shape| shape.trim() == "small_patch_slice");
+        if delta_expected && small_patch_slice {
+            return Some(SmallPatchNoDeltaTarget {
+                kind: SmallPatchNoDeltaKind::Revision,
+                focus_files: get_string_array(revision, "focus_files"),
+                exact_edits: get_string_array(revision, "exact_edits"),
+                message_to_worker: get_str(revision, "message_to_worker")
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            });
+        }
+    }
+
+    let brief = context.get("worker_brief")?;
+    let expect_patch = get_bool(task, "expect_patch")
+        .or_else(|| get_bool(context, "expect_patch"))
+        .or_else(|| get_bool(brief, "expect_patch"))
+        .unwrap_or(true);
+    let small_patch_slice = get_str(brief, "worker_turn_shape")
+        .is_some_and(|shape| shape.trim() == "small_patch_slice");
+    if !expect_patch || !small_patch_slice {
+        return None;
+    }
+    let mut focus_files = first_non_empty_string_array(
+        brief,
+        &["focus_files", "files", "target_files", "repo_focus_files"],
+    );
+    if focus_files.is_empty() {
+        focus_files = get_string_array(task, "files");
+    }
+    let exact_edits =
+        first_non_empty_string_array(brief, &["exact_edits", "edit_plan", "implementation_steps"]);
+    Some(SmallPatchNoDeltaTarget {
+        kind: SmallPatchNoDeltaKind::Initial,
+        focus_files,
+        exact_edits,
+        message_to_worker: get_str(brief, "message_to_worker")
+            .or_else(|| get_str(brief, "message"))
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    })
+}
+
+fn first_non_empty_string_array(value: &Value, keys: &[&str]) -> Vec<String> {
+    keys.iter()
+        .map(|key| get_string_array(value, key))
+        .find(|items| !items.is_empty())
+        .unwrap_or_default()
+}
+
+fn small_patch_no_delta_interrupt_control(target: &SmallPatchNoDeltaTarget) -> Value {
+    let first_edit = target
+        .exact_edits
         .first()
         .map(String::as_str)
         .filter(|edit| !edit.trim().is_empty())
-        .or_else(|| get_str(revision, "message_to_worker"))
+        .or_else(|| {
+            (!target.message_to_worker.is_empty()).then_some(target.message_to_worker.as_str())
+        })
         .unwrap_or("Apply the next requested source edit.")
         .trim();
-    let first_file = focus_files
+    let first_file = target
+        .focus_files
         .first()
         .map(String::as_str)
         .filter(|file| !file.trim().is_empty())
         .unwrap_or("the focused source file");
+    let (source, phase, risk) = match target.kind {
+        SmallPatchNoDeltaKind::Initial => (
+            "auto_initial_no_delta",
+            "first worker turn",
+            "initial small-patch worker made no repository delta before the no-delta guard fired",
+        ),
+        SmallPatchNoDeltaKind::Revision => (
+            "auto_revision_no_delta",
+            "revision",
+            "revision made no new repository delta before the no-delta guard fired",
+        ),
+    };
     json!({
         "action": "interrupt_continue",
         "worker_mode": "continue",
-        "source": "auto_revision_no_delta",
+        "source": source,
         "worker_turn_shape": "small_patch_slice",
         "turn_goal": "make the first no-delta recovery edit",
         "exact_edits": [first_edit],
@@ -167,32 +248,37 @@ fn revision_no_delta_interrupt_control(revision: &Value) -> Value {
         "completion_gate": "git diff --stat must be non-empty",
         "forbidden_actions": ["ask questions", "run tests before editing"],
         "message_to_worker": format!(
-            "You have not modified files in this revision. Make only this edit now in {first_file}: {first_edit} Then run git diff --stat and stop with Diff non-empty: yes/no. Do not run tests."
+            "You have not modified files in this {phase}. Make only this edit now in {first_file}: {first_edit} Then run git diff --stat and stop with Diff non-empty: yes/no. Do not run tests."
         ),
-        "focus_files": focus_files,
+        "focus_files": target.focus_files.clone(),
         "required_checks": [],
-        "risk": "revision made no new repository delta before the no-delta guard fired"
+        "risk": risk
     })
 }
 
-fn revision_no_delta_stop_control(revision: &Value) -> Value {
-    let focus_files = get_string_array(revision, "focus_files");
-    let exact_edits = get_string_array(revision, "exact_edits");
-    let first_edit = exact_edits
+fn small_patch_no_delta_stop_control(target: &SmallPatchNoDeltaTarget) -> Value {
+    let first_edit = target
+        .exact_edits
         .first()
         .map(String::as_str)
         .filter(|edit| !edit.trim().is_empty())
-        .or_else(|| get_str(revision, "message_to_worker"))
-        .unwrap_or("the requested revision edit")
+        .or_else(|| {
+            (!target.message_to_worker.is_empty()).then_some(target.message_to_worker.as_str())
+        })
+        .unwrap_or("the requested small-patch edit")
         .trim();
+    let source = match target.kind {
+        SmallPatchNoDeltaKind::Initial => "auto_initial_no_delta_stop",
+        SmallPatchNoDeltaKind::Revision => "auto_revision_no_delta_stop",
+    };
     json!({
         "action": "stop",
         "worker_mode": "continue",
-        "source": "auto_revision_no_delta_stop",
+        "source": source,
         "message_to_worker": format!(
             "Worker made no repository delta after no-delta recovery. Stopping after failing to apply: {first_edit}"
         ),
-        "focus_files": focus_files,
+        "focus_files": target.focus_files.clone(),
         "required_checks": [],
         "risk": "worker_stalled_no_delta"
     })
@@ -265,7 +351,8 @@ impl LocalVerificationRun<'_> {
         let stdout_bytes = Arc::new(AtomicU64::new(0));
         let stderr_bytes = Arc::new(AtomicU64::new(0));
         let last_output_at = Arc::new(AtomicU64::new(now_millis()));
-        let mut revision_no_delta_intervention = RevisionNoDeltaIntervention::from_request(request);
+        let mut small_patch_no_delta_intervention =
+            SmallPatchNoDeltaIntervention::from_request(request);
 
         let start = Instant::now();
         let heartbeat_seconds = env_u64("MIXMOD_OPENCODE_HEARTBEAT_SECONDS")
@@ -443,7 +530,7 @@ impl LocalVerificationRun<'_> {
 
                 if !supervisor_control_path.exists() {
                     if let Some(control) =
-                        revision_no_delta_intervention
+                        small_patch_no_delta_intervention
                             .as_mut()
                             .and_then(|intervention| {
                                 intervention.maybe_control(root, segment_started_instant.elapsed())
@@ -847,10 +934,26 @@ mod tests {
         })
     }
 
+    fn initial_slice_task() -> Value {
+        json!({
+            "expect_patch": true,
+            "files": ["helper.py", "test_helper.py"],
+            "context": {
+                "worker_brief": {
+                    "expect_patch": true,
+                    "worker_turn_shape": "small_patch_slice",
+                    "message_to_worker": "Add flatten metadata.",
+                    "files": ["helper.py", "test_helper.py"],
+                    "exact_edits": ["Add only the flatten metadata field."]
+                }
+            }
+        })
+    }
+
     #[test]
-    fn revision_no_delta_guard_interrupts_then_stops_after_thresholds() {
+    fn small_patch_no_delta_guard_interrupts_then_stops_after_thresholds() {
         let mut guard =
-            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 2, 1)
+            SmallPatchNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 2, 1)
                 .unwrap();
 
         assert!(
@@ -889,9 +992,9 @@ mod tests {
     }
 
     #[test]
-    fn revision_no_delta_guard_ignores_existing_new_delta() {
+    fn small_patch_no_delta_guard_ignores_existing_new_delta() {
         let mut guard =
-            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1, 1)
+            SmallPatchNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1, 1)
                 .unwrap();
         let current_diff = "\
 diff --git a/builder.py b/builder.py
@@ -910,9 +1013,9 @@ diff --git a/builder.py b/builder.py
     }
 
     #[test]
-    fn revision_no_delta_guard_does_not_stop_after_recovery_delta() {
+    fn small_patch_no_delta_guard_does_not_stop_after_recovery_delta() {
         let mut guard =
-            RevisionNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1, 1)
+            SmallPatchNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1, 1)
                 .unwrap();
         assert!(
             guard
@@ -936,7 +1039,35 @@ diff --git a/builder.py b/builder.py
     }
 
     #[test]
-    fn revision_no_delta_guard_requires_revision_small_patch_slice() {
+    fn small_patch_no_delta_guard_handles_initial_worker_brief() {
+        let mut guard =
+            SmallPatchNoDeltaIntervention::from_task(&initial_slice_task(), String::new(), 1, 1)
+                .unwrap();
+
+        let interrupt = guard
+            .maybe_control_for_diff("", Duration::from_secs(1))
+            .unwrap();
+
+        assert_eq!(get_str(&interrupt, "action"), Some("interrupt_continue"));
+        assert_eq!(get_str(&interrupt, "source"), Some("auto_initial_no_delta"));
+        assert!(
+            get_str(&interrupt, "message_to_worker")
+                .unwrap()
+                .contains("first worker turn")
+        );
+        assert!(
+            get_str(&interrupt, "message_to_worker")
+                .unwrap()
+                .contains("Add only the flatten metadata field.")
+        );
+        assert_eq!(
+            get_string_array(&interrupt, "focus_files"),
+            vec!["helper.py", "test_helper.py"]
+        );
+    }
+
+    #[test]
+    fn small_patch_no_delta_guard_requires_small_patch_slice() {
         let task = json!({
             "context": {
                 "revision": {
@@ -946,6 +1077,6 @@ diff --git a/builder.py b/builder.py
             }
         });
 
-        assert!(RevisionNoDeltaIntervention::from_task(&task, String::new(), 1, 1).is_none());
+        assert!(SmallPatchNoDeltaIntervention::from_task(&task, String::new(), 1, 1).is_none());
     }
 }
