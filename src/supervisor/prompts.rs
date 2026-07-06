@@ -197,6 +197,60 @@ Instruction: {instruction}
     ))
 }
 
+pub(crate) fn supervisor_feedback_repair_prompt(
+    work_dir: &Path,
+    artifact_paths: &[PathBuf],
+    worker_guidance: &WorkerSupervisorGuidance,
+    previous_feedback: &Value,
+) -> Result<String> {
+    let mut artifacts = String::new();
+    for path in artifact_paths {
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or("artifact");
+        let text = fs::read_to_string(path).unwrap_or_else(|error| format!("missing: {error}"));
+        artifacts.push_str(&format!(
+            "\n## {name}\n\n```text\n{}\n```\n",
+            truncate_for_report(&text, 4000)
+        ));
+    }
+    let previous = serde_json::to_string_pretty(previous_feedback)
+        .context("failed to serialize previous supervisor feedback for repair prompt")?;
+    let worker_guidance = render_worker_guidance(worker_guidance);
+    Ok(format!(
+        r#"You are repairing a Mixmod supervisor revision decision before the worker sees it.
+Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
+The selected worker needs a smaller revision slice than the previous feedback provided.
+{worker_guidance}
+Return a corrected revise decision with:
+- "action":"revise"
+- "worker_mode":"continue" unless the previous feedback required context_focus
+- "patch_decision":"revise_current" unless the previous feedback required revise_previous
+- "worker_turn_shape":"small_patch_slice"
+- exactly one exact_edits item
+- one source file in focus_files, plus at most one already-written focused test file
+- no required_checks; put checks in deferred_checks
+- defer_checks_until_patch_exists:true
+- completion_gate mentioning git diff --stat
+- forbidden_actions including "ask questions" and "run tests before editing"
+The one exact edit must be atomic: one function or branch, one direction, one source behavior. If the previous edit bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
+Include an exact symbol and a literal nearby code anchor when possible, for example `near the line containing "..."`.
+Do not include a test edit in exact_edits. Tests belong in deferred_checks or a later revision.
+Working repo: {work_dir}
+
+Previous feedback:
+```json
+{previous}
+```
+
+Artifacts:
+{artifacts}
+"#,
+        work_dir = work_dir.display(),
+    ))
+}
+
 fn render_worker_guidance(worker_guidance: &WorkerSupervisorGuidance) -> String {
     if worker_guidance.is_empty() {
         return String::new();
