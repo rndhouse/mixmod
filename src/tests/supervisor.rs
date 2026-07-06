@@ -75,6 +75,7 @@ fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
     assert!(prompt.contains("Treat useful accumulated worktree.patch changes as context to keep"));
     assert!(prompt.contains("If previous feedback named one focus file"));
     assert!(prompt.contains("exact_edits must be an array with exactly one string item"));
+    assert!(prompt.contains("Do not invent a different file/symbol pair"));
 }
 
 #[test]

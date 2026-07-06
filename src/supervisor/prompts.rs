@@ -108,6 +108,7 @@ Return a corrected expected-patch handoff with:
 - forbidden_actions including "ask questions" and "run tests before editing"
 Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
 Include a concrete symbol and a literal nearby code anchor when possible, such as `near the line containing "..."`.
+Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
 If file details are uncertain, pick the smallest public API source seed patch; do not ask the worker to investigate broadly.
 Working repo: {work_dir}
 
@@ -119,6 +120,62 @@ Task JSON:
 Rejected previous handoff:
 ```json
 {previous}
+```
+"#,
+        work_dir = work_dir.display(),
+    ))
+}
+
+pub(crate) fn supervisor_worker_brief_repair_retry_prompt(
+    work_dir: &Path,
+    task_path: &Path,
+    worker_guidance: &WorkerSupervisorGuidance,
+    previous_brief: &Value,
+    rejected_repair: &Value,
+    rejection_reason: &str,
+) -> Result<String> {
+    let task_value = read_json_file(task_path)?;
+    let visible_task = agent_visible_task_value(&task_value);
+    let task = serde_json::to_string_pretty(&visible_task)
+        .context("failed to serialize agent-visible task for worker brief repair retry prompt")?;
+    let previous = serde_json::to_string_pretty(previous_brief)
+        .context("failed to serialize previous worker brief for repair retry prompt")?;
+    let rejected = serde_json::to_string_pretty(rejected_repair)
+        .context("failed to serialize rejected worker brief repair")?;
+    let worker_guidance = render_worker_guidance(worker_guidance);
+    Ok(format!(
+        r#"You are retrying a Mixmod supervisor handoff repair.
+Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
+The previous repair was rejected for this structural reason: {rejection_reason}
+{worker_guidance}
+Return one corrected expected-patch handoff with:
+- "handoff":"guided"
+- "expect_patch":true
+- "worker_turn_shape":"small_patch_slice"
+- one turn_goal for the first patch slice only
+- <=2 concrete repo file paths when possible
+- exact_edits as an array with exactly one string item; do not use objects
+- no required checks; put checks in deferred_checks
+- defer_checks_until_patch_exists:true
+- completion_gate:"git diff --stat must be non-empty"
+- forbidden_actions including "ask questions" and "run tests before editing"
+Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice.
+Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
+Working repo: {work_dir}
+
+Task JSON:
+```json
+{task}
+```
+
+Original broad handoff:
+```json
+{previous}
+```
+
+Rejected repair:
+```json
+{rejected}
 ```
 "#,
         work_dir = work_dir.display(),
@@ -242,12 +299,76 @@ Preserve the previous feedback's intended target behavior and source file unless
 Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
 If previous feedback named one focus file, keep that same repo source file in focus_files and exact_edits while making the edit smaller.
 Include an exact symbol and a literal nearby code anchor when possible, for example `near the line containing "..."`.
+Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
 Do not include a test edit in exact_edits. Tests belong in deferred_checks or a later revision.
 Working repo: {work_dir}
 
 Previous feedback:
 ```json
 {previous}
+```
+
+Artifacts:
+{artifacts}
+"#,
+        work_dir = work_dir.display(),
+    ))
+}
+
+pub(crate) fn supervisor_feedback_repair_retry_prompt(
+    work_dir: &Path,
+    artifact_paths: &[PathBuf],
+    worker_guidance: &WorkerSupervisorGuidance,
+    previous_feedback: &Value,
+    rejected_repair: &Value,
+    rejection_reason: &str,
+) -> Result<String> {
+    let mut artifacts = String::new();
+    for path in artifact_paths {
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or("artifact");
+        let text = fs::read_to_string(path).unwrap_or_else(|error| format!("missing: {error}"));
+        artifacts.push_str(&format!(
+            "\n## {name}\n\n```text\n{}\n```\n",
+            truncate_for_report(&text, 4000)
+        ));
+    }
+    let previous = serde_json::to_string_pretty(previous_feedback)
+        .context("failed to serialize previous supervisor feedback for repair retry prompt")?;
+    let rejected = serde_json::to_string_pretty(rejected_repair)
+        .context("failed to serialize rejected supervisor feedback repair")?;
+    let worker_guidance = render_worker_guidance(worker_guidance);
+    Ok(format!(
+        r#"You are retrying a Mixmod supervisor revision repair.
+Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
+The previous repair was rejected for this structural reason: {rejection_reason}
+{worker_guidance}
+Return one corrected revise decision with:
+- "action":"revise"
+- "worker_mode":"continue" unless the previous feedback required context_focus
+- "patch_decision":"revise_current" unless the previous feedback required revise_previous
+- "worker_turn_shape":"small_patch_slice"
+- exact_edits as an array with exactly one string item; do not use objects
+- one source file in focus_files, plus at most one already-written focused test file
+- no required_checks; put checks in deferred_checks
+- defer_checks_until_patch_exists:true
+- completion_gate mentioning git diff --stat
+- forbidden_actions including "ask questions" and "run tests before editing"
+Repair the size/shape of the previous requested next slice. Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong.
+Do not rewind to an earlier completed slice. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
+Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
+Working repo: {work_dir}
+
+Previous feedback:
+```json
+{previous}
+```
+
+Rejected repair:
+```json
+{rejected}
 ```
 
 Artifacts:

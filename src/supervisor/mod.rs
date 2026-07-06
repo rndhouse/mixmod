@@ -7,7 +7,8 @@ mod prompts;
 
 pub(crate) use prompts::{
     codex_only_prompt, supervisor_feedback_prompt, supervisor_feedback_repair_prompt,
-    supervisor_worker_brief_prompt, supervisor_worker_brief_repair_prompt,
+    supervisor_feedback_repair_retry_prompt, supervisor_worker_brief_prompt,
+    supervisor_worker_brief_repair_prompt, supervisor_worker_brief_repair_retry_prompt,
 };
 
 pub(crate) struct SupervisorFeedbackTurn {
@@ -206,19 +207,74 @@ pub(crate) fn run_supervisor_brief_turn(
             supervisor,
             CodexSandbox::ReadOnly,
         )?;
-        let repaired_brief = parse_feedback_json(&repair.last_message);
-        let repair_accepted = repaired_brief.as_ref().is_some_and(|brief| {
-            !worker_brief_needs_small_slice_repair(brief, worker_guidance)
-                && small_slice_edit_anchor_matches_file(
-                    work_dir,
-                    brief,
-                    &["files", "focus_files", "target_files"],
-                )
-        });
+        let mut repaired_brief = parse_feedback_json(&repair.last_message);
+        let mut repair_accepted =
+            repaired_brief_is_accepted(repaired_brief.as_ref(), worker_guidance);
+        let mut retry_record = None;
+        if !repair_accepted {
+            let rejection_reason =
+                worker_brief_repair_rejection_reason(repaired_brief.as_ref(), worker_guidance);
+            let rejected_repair = repaired_brief.clone().unwrap_or_else(|| {
+                json!({
+                    "unparseable": truncate_for_report(&repair.last_message, 240)
+                })
+            });
+            let retry_prompt = supervisor_worker_brief_repair_retry_prompt(
+                work_dir,
+                task_path,
+                worker_guidance,
+                &final_brief,
+                &rejected_repair,
+                &rejection_reason,
+            )?;
+            let retry = run_codex_app_server_turn(
+                work_dir,
+                default_dir,
+                "worker-brief-repair-2",
+                &retry_prompt,
+                supervisor,
+                CodexSandbox::ReadOnly,
+            )?;
+            let retry_brief = parse_feedback_json(&retry.last_message);
+            let retry_accepted = repaired_brief_is_accepted(retry_brief.as_ref(), worker_guidance);
+            retry_record = Some(json!({
+                "label": "worker-brief-repair-2",
+                "trigger": "previous worker-brief repair was rejected",
+                "rejection_reason": rejection_reason,
+                "accepted": retry_accepted,
+                "codex_exit_status": retry.exit_status,
+                "supervisor_model": retry.model.clone(),
+                "supervisor_reasoning_effort": retry.reasoning_effort.clone(),
+                "supervisor_input_tokens": retry.usage.input_tokens,
+                "supervisor_output_tokens": retry.usage.output_tokens,
+                "supervisor_reasoning_tokens": retry.usage.reasoning_tokens,
+                "supervisor_total_tokens": retry.usage.total_tokens,
+                "supervisor_cached_input_tokens": retry.usage.cached_input_tokens,
+                "input_bytes": retry.input_bytes,
+                "output_bytes": retry.output_bytes,
+                "codex_app_server_thread_id": retry.thread_id.clone(),
+                "codex_app_server_turn_id": retry.turn_id.clone(),
+            }));
+            if retry_accepted {
+                repaired_brief = retry_brief;
+                repair_accepted = true;
+            }
+            input_tokens += retry.usage.input_tokens;
+            output_tokens += retry.usage.output_tokens;
+            reasoning_tokens += retry.usage.reasoning_tokens;
+            total_tokens += retry.usage.total_tokens;
+            cached_input_tokens += retry.usage.cached_input_tokens;
+            input_bytes += retry.input_bytes;
+            output_bytes += retry.output_bytes;
+            thread_id = retry.thread_id;
+            turn_id = retry.turn_id;
+        }
+        let retry_ran = retry_record.is_some();
         repair_record = Some(json!({
             "label": "worker-brief-repair",
             "trigger": "expected-patch handoff for selected worker was missing or broad small_patch_slice",
             "accepted": repair_accepted,
+            "retry": retry_record,
             "codex_exit_status": repair.exit_status,
             "supervisor_model": repair.model.clone(),
             "supervisor_reasoning_effort": repair.reasoning_effort.clone(),
@@ -242,8 +298,10 @@ pub(crate) fn run_supervisor_brief_turn(
         cached_input_tokens += repair.usage.cached_input_tokens;
         input_bytes += repair.input_bytes;
         output_bytes += repair.output_bytes;
-        thread_id = repair.thread_id;
-        turn_id = repair.turn_id;
+        if !retry_ran {
+            thread_id = repair.thread_id;
+            turn_id = repair.turn_id;
+        }
     }
     let record = json!({
         "label": "worker-brief",
@@ -456,21 +514,86 @@ pub(crate) fn run_supervisor_feedback_turn(
             supervisor,
             CodexSandbox::ReadOnly,
         )?;
-        let repaired_feedback = parse_feedback_json(&repair.last_message)
+        let mut repaired_feedback = parse_feedback_json(&repair.last_message)
             .map(|feedback| normalize_feedback_value(feedback).0);
-        let repair_accepted = repaired_feedback.as_ref().is_some_and(|feedback| {
-            !supervisor_feedback_needs_revision_slice_repair(feedback, worker_guidance)
-                && revision_repair_preserves_focus(&parsed_feedback, feedback)
-                && small_slice_edit_anchor_matches_file(
-                    work_dir,
-                    feedback,
-                    &["focus_files", "files"],
-                )
-        });
+        let mut repair_accepted = repaired_feedback_is_accepted(
+            &parsed_feedback,
+            repaired_feedback.as_ref(),
+            worker_guidance,
+        );
+        let mut retry_record = None;
+        if !repair_accepted {
+            let rejection_reason = supervisor_feedback_repair_rejection_reason(
+                &parsed_feedback,
+                repaired_feedback.as_ref(),
+                worker_guidance,
+            );
+            let rejected_repair = repaired_feedback.clone().unwrap_or_else(|| {
+                json!({
+                    "unparseable": truncate_for_report(&repair.last_message, 240)
+                })
+            });
+            let retry_prompt = supervisor_feedback_repair_retry_prompt(
+                work_dir,
+                artifact_paths,
+                worker_guidance,
+                &parsed_feedback,
+                &rejected_repair,
+                &rejection_reason,
+            )?;
+            let retry = run_codex_app_server_turn(
+                work_dir,
+                budgeted_dir,
+                &format!("{label}-repair-2"),
+                &retry_prompt,
+                supervisor,
+                CodexSandbox::ReadOnly,
+            )?;
+            let retry_feedback = parse_feedback_json(&retry.last_message)
+                .map(|feedback| normalize_feedback_value(feedback).0);
+            let retry_accepted = repaired_feedback_is_accepted(
+                &parsed_feedback,
+                retry_feedback.as_ref(),
+                worker_guidance,
+            );
+            retry_record = Some(json!({
+                "label": format!("{label}-repair-2"),
+                "trigger": "previous revision repair was rejected",
+                "rejection_reason": rejection_reason,
+                "accepted": retry_accepted,
+                "codex_exit_status": retry.exit_status,
+                "supervisor_model": retry.model.clone(),
+                "supervisor_reasoning_effort": retry.reasoning_effort.clone(),
+                "supervisor_input_tokens": retry.usage.input_tokens,
+                "supervisor_output_tokens": retry.usage.output_tokens,
+                "supervisor_reasoning_tokens": retry.usage.reasoning_tokens,
+                "supervisor_total_tokens": retry.usage.total_tokens,
+                "supervisor_cached_input_tokens": retry.usage.cached_input_tokens,
+                "input_bytes": retry.input_bytes,
+                "output_bytes": retry.output_bytes,
+                "codex_app_server_thread_id": retry.thread_id.clone(),
+                "codex_app_server_turn_id": retry.turn_id.clone(),
+            }));
+            if retry_accepted {
+                repaired_feedback = retry_feedback;
+                repair_accepted = true;
+            }
+            input_tokens += retry.usage.input_tokens;
+            output_tokens += retry.usage.output_tokens;
+            reasoning_tokens += retry.usage.reasoning_tokens;
+            total_tokens += retry.usage.total_tokens;
+            cached_input_tokens += retry.usage.cached_input_tokens;
+            input_bytes += retry.input_bytes;
+            output_bytes += retry.output_bytes;
+            thread_id = retry.thread_id;
+            turn_id = retry.turn_id;
+        }
+        let retry_ran = retry_record.is_some();
         repair_record = Some(json!({
             "label": format!("{label}-repair"),
             "trigger": "revision small_patch_slice first exact edit was too broad",
             "accepted": repair_accepted,
+            "retry": retry_record,
             "codex_exit_status": repair.exit_status,
             "supervisor_model": repair.model.clone(),
             "supervisor_reasoning_effort": repair.reasoning_effort.clone(),
@@ -494,8 +617,10 @@ pub(crate) fn run_supervisor_feedback_turn(
         cached_input_tokens += repair.usage.cached_input_tokens;
         input_bytes += repair.input_bytes;
         output_bytes += repair.output_bytes;
-        thread_id = repair.thread_id;
-        turn_id = repair.turn_id;
+        if !retry_ran {
+            thread_id = repair.thread_id;
+            turn_id = repair.turn_id;
+        }
     }
     let (mut parsed_feedback, verdict) = normalize_feedback_value(parsed_feedback);
     let typed_feedback = SupervisorFeedback::from_value(&parsed_feedback);
@@ -572,67 +697,55 @@ fn revision_repair_preserves_focus(previous: &Value, repaired: &Value) -> bool {
             .any(|edit| edit.contains(target))
 }
 
-fn small_slice_edit_anchor_matches_file(
-    work_dir: &Path,
-    value: &Value,
-    file_keys: &[&str],
+fn repaired_brief_is_accepted(
+    repaired_brief: Option<&Value>,
+    worker_guidance: &WorkerSupervisorGuidance,
 ) -> bool {
-    if !get_str(value, "worker_turn_shape").is_some_and(|shape| shape == "small_patch_slice") {
-        return true;
-    }
-    let Some(first_edit) = get_string_array(value, "exact_edits")
-        .into_iter()
-        .find(|edit| !edit.trim().is_empty())
-    else {
-        return true;
-    };
-    let anchors = line_containing_anchors(&first_edit);
-    if anchors.is_empty() {
-        return true;
-    }
-    let files = first_non_empty_string_array(value, file_keys);
-    let target_file = match files.as_slice() {
-        [file] => file.as_str(),
-        _ => files
-            .iter()
-            .find(|file| first_edit.contains(file.as_str()))
-            .map(String::as_str)
-            .unwrap_or(""),
-    };
-    if target_file.is_empty() {
-        return true;
-    }
-    let path = work_dir.join(target_file);
-    if !path.is_file() {
-        return false;
-    }
-    let Ok(text) = fs::read_to_string(&path) else {
-        return false;
-    };
-    anchors.iter().any(|anchor| text.contains(anchor))
+    repaired_brief
+        .is_some_and(|brief| !worker_brief_needs_small_slice_repair(brief, worker_guidance))
 }
 
-fn line_containing_anchors(edit: &str) -> Vec<String> {
-    let mut anchors = Vec::new();
-    for (marker, end) in [
-        ("line containing \"", '"'),
-        ("line containing `", '`'),
-        ("line containing '", '\''),
-    ] {
-        let mut search_start = 0;
-        while let Some(relative_index) = edit[search_start..].find(marker) {
-            let start = search_start + relative_index + marker.len();
-            let Some(relative_end) = edit[start..].find(end) else {
-                break;
-            };
-            let anchor = edit[start..start + relative_end].trim();
-            if !anchor.is_empty() {
-                anchors.push(anchor.to_string());
-            }
-            search_start = start + relative_end + end.len_utf8();
+fn worker_brief_repair_rejection_reason(
+    repaired_brief: Option<&Value>,
+    worker_guidance: &WorkerSupervisorGuidance,
+) -> String {
+    match repaired_brief {
+        None => "The repaired handoff was not parseable JSON.".to_string(),
+        Some(brief) if worker_brief_needs_small_slice_repair(brief, worker_guidance) => {
+            "The repaired handoff still does not satisfy the expected small_patch_slice shape: use one concrete source edit as a string exact_edits item.".to_string()
         }
+        Some(_) => "The repaired handoff was rejected by structural repair checks.".to_string(),
     }
-    anchors
+}
+
+fn repaired_feedback_is_accepted(
+    previous_feedback: &Value,
+    repaired_feedback: Option<&Value>,
+    worker_guidance: &WorkerSupervisorGuidance,
+) -> bool {
+    repaired_feedback.is_some_and(|feedback| {
+        !supervisor_feedback_needs_revision_slice_repair(feedback, worker_guidance)
+            && revision_repair_preserves_focus(previous_feedback, feedback)
+    })
+}
+
+fn supervisor_feedback_repair_rejection_reason(
+    previous_feedback: &Value,
+    repaired_feedback: Option<&Value>,
+    worker_guidance: &WorkerSupervisorGuidance,
+) -> String {
+    match repaired_feedback {
+        None => "The repaired revision decision was not parseable JSON.".to_string(),
+        Some(feedback)
+            if supervisor_feedback_needs_revision_slice_repair(feedback, worker_guidance) =>
+        {
+            "The repaired revision still does not satisfy the expected small_patch_slice shape: use one concrete source edit as a string exact_edits item.".to_string()
+        }
+        Some(feedback) if !revision_repair_preserves_focus(previous_feedback, feedback) => {
+            "The repaired revision changed away from the previous single focus file; preserve that target unless the artifacts prove it is wrong.".to_string()
+        }
+        Some(_) => "The repaired revision was rejected by structural repair checks.".to_string(),
+    }
 }
 
 pub(crate) fn run_codex_app_server_turn(
@@ -806,7 +919,6 @@ pub(crate) fn aggregate_supervisor_usage(turns: &[SupervisorUsageSample]) -> Sup
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     fn small_slice_guidance() -> WorkerSupervisorGuidance {
         WorkerSupervisorGuidance {
@@ -1024,57 +1136,42 @@ mod tests {
     }
 
     #[test]
-    fn small_slice_repair_rejects_missing_file_anchor() {
-        let temp = TempDir::new().unwrap();
-        let root = temp.path();
-        fs::create_dir_all(root.join("mashumaro")).unwrap();
-        atomic_write(
-            &root.join("mashumaro/config.py"),
-            b"class BaseConfig:\n    pass\n",
-        )
-        .unwrap();
+    fn broad_worker_brief_repair_gets_structural_rejection_reason() {
         let brief = json!({
             "handoff": "guided",
             "expect_patch": true,
-            "worker_turn_shape": "small_patch_slice",
-            "files": ["mashumaro/config.py"],
-            "exact_edits": [
-                "In mashumaro/config.py, update field_options near the line containing \"def field_options(\" to add flatten."
-            ]
+            "worker_turn_shape": "default",
+            "message_to_worker": "Implement the feature."
         });
 
-        assert!(!small_slice_edit_anchor_matches_file(
-            root,
-            &brief,
-            &["files"]
-        ));
+        let reason = worker_brief_repair_rejection_reason(Some(&brief), &small_slice_guidance());
+
+        assert!(reason.contains("small_patch_slice shape"));
+        assert!(reason.contains("one concrete source edit"));
     }
 
     #[test]
-    fn small_slice_repair_accepts_matching_file_anchor() {
-        let temp = TempDir::new().unwrap();
-        let root = temp.path();
-        fs::create_dir_all(root.join("mashumaro")).unwrap();
-        atomic_write(
-            &root.join("mashumaro/helper.py"),
-            b"def field_options(\n    **kwargs,\n):\n    return kwargs\n",
-        )
-        .unwrap();
-        let brief = json!({
-            "handoff": "guided",
-            "expect_patch": true,
+    fn changed_focus_revision_repair_gets_structural_rejection_reason() {
+        let previous = json!({
+            "action": "revise",
             "worker_turn_shape": "small_patch_slice",
-            "files": ["mashumaro/helper.py"],
-            "exact_edits": [
-                "In mashumaro/helper.py, update field_options near the line containing \"def field_options(\" to add flatten."
-            ]
+            "focus_files": ["src/builder.rs"],
+            "exact_edits": ["In src/builder.rs, make one serialization edit."]
+        });
+        let repaired = json!({
+            "action": "revise",
+            "worker_turn_shape": "small_patch_slice",
+            "focus_files": ["src/helper.rs"],
+            "exact_edits": ["In src/helper.rs, make one helper edit."]
         });
 
-        assert!(small_slice_edit_anchor_matches_file(
-            root,
-            &brief,
-            &["files"]
-        ));
+        let reason = supervisor_feedback_repair_rejection_reason(
+            &previous,
+            Some(&repaired),
+            &small_slice_guidance(),
+        );
+
+        assert!(reason.contains("changed away from the previous single focus file"));
     }
 
     #[test]
