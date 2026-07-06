@@ -100,6 +100,7 @@ Return a corrected expected-patch handoff with:
 - "worker_turn_shape":"small_patch_slice"
 - one turn_goal for the first patch slice only
 - <=2 concrete repo file paths when possible
+- exact_edits must be an array with exactly one string item; do not use objects
 - exactly one source exact_edits item, plus no test edit in exact_edits
 - no checks unless listed in deferred_checks
 - defer_checks_until_patch_exists:true
@@ -229,6 +230,7 @@ Return a corrected revise decision with:
 - "worker_mode":"continue" unless the previous feedback required context_focus
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
 - "worker_turn_shape":"small_patch_slice"
+- exact_edits must be an array with exactly one string item; do not use objects
 - exactly one exact_edits item
 - one source file in focus_files, plus at most one already-written focused test file
 - no required_checks; put checks in deferred_checks

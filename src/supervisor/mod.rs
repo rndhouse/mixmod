@@ -576,11 +576,87 @@ pub(crate) fn run_codex_app_server_turn(
 
 fn parse_feedback_json(text: &str) -> Option<Value> {
     if let Ok(value) = serde_json::from_str::<Value>(text.trim()) {
-        return Some(value);
+        return Some(normalize_supervisor_json_value(value));
     }
     let start = text.find('{')?;
     let end = text.rfind('}')?;
-    serde_json::from_str(&text[start..=end]).ok()
+    serde_json::from_str(&text[start..=end])
+        .ok()
+        .map(normalize_supervisor_json_value)
+}
+
+fn normalize_supervisor_json_value(mut value: Value) -> Value {
+    for key in ["exact_edits", "edit_plan", "implementation_steps"] {
+        normalize_mixed_instruction_array(&mut value, key);
+    }
+    value
+}
+
+fn normalize_mixed_instruction_array(value: &mut Value, key: &str) {
+    let Some(field) = value.get_mut(key) else {
+        return;
+    };
+    let normalized = match &*field {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(mixed_instruction_item_to_string)
+            .collect::<Vec<_>>(),
+        other => mixed_instruction_item_to_string(other)
+            .into_iter()
+            .collect(),
+    };
+    if !normalized.is_empty() {
+        *field = json!(normalized);
+    }
+}
+
+fn mixed_instruction_item_to_string(value: &Value) -> Option<String> {
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        return Some(text.to_string());
+    }
+
+    let object = value.as_object()?;
+    let instruction = first_object_string(
+        object,
+        &["instruction", "edit", "description", "message", "action"],
+    );
+    let file = first_object_string(object, &["file", "path", "target_file"]);
+    let symbol = first_object_string(object, &["symbol", "function", "method", "target"]);
+
+    match (file, symbol, instruction) {
+        (Some(file), Some(symbol), Some(instruction)) => Some(format!(
+            "In {file}, update {symbol}: {instruction}",
+            file = file.trim(),
+            symbol = symbol.trim(),
+            instruction = instruction.trim()
+        )),
+        (Some(file), None, Some(instruction)) => Some(format!(
+            "In {file}: {instruction}",
+            file = file.trim(),
+            instruction = instruction.trim()
+        )),
+        (None, Some(symbol), Some(instruction)) => Some(format!(
+            "Update {symbol}: {instruction}",
+            symbol = symbol.trim(),
+            instruction = instruction.trim()
+        )),
+        (None, None, Some(instruction)) => Some(instruction.trim().to_string()),
+        _ => serde_json::to_string(value).ok(),
+    }
+}
+
+fn first_object_string<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<&'a str> {
+    keys.iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|value| !value.is_empty())
 }
 
 pub(crate) fn normalize_feedback_value(mut value: Value) -> (Value, String) {
@@ -714,6 +790,56 @@ mod tests {
 
         assert!(!worker_brief_needs_small_slice_repair(
             &brief,
+            &small_slice_guidance()
+        ));
+    }
+
+    #[test]
+    fn parse_feedback_json_normalizes_object_exact_edits() {
+        let parsed = parse_feedback_json(
+            r#"{
+                "handoff":"guided",
+                "expect_patch":true,
+                "worker_turn_shape":"small_patch_slice",
+                "exact_edits":[
+                    {
+                        "file":"src/lib.rs",
+                        "symbol":"configure",
+                        "instruction":"Add the new option to the returned metadata."
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            get_string_array(&parsed, "exact_edits"),
+            vec!["In src/lib.rs, update configure: Add the new option to the returned metadata."]
+        );
+    }
+
+    #[test]
+    fn object_style_initial_metadata_seed_does_not_need_repair() {
+        let parsed = parse_feedback_json(
+            r#"{
+                "handoff":"guided",
+                "expect_patch":true,
+                "worker_turn_shape":"small_patch_slice",
+                "turn_goal":"add public field metadata options",
+                "files":["src/helper.py"],
+                "exact_edits":[
+                    {
+                        "file":"src/helper.py",
+                        "symbol":"field_options",
+                        "instruction":"Near the line containing \"def field_options(\", add keyword parameters for one metadata seed and store their values in the returned metadata/options dict. Do not implement validation, packing, unpacking, aliases, prefix behavior, rename behavior, serialization, deserialization, or tests in this slice."
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        assert!(!worker_brief_needs_small_slice_repair(
+            &parsed,
             &small_slice_guidance()
         ));
     }
