@@ -31,7 +31,10 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("set worker_turn_shape=small_patch_slice with the next narrow"));
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("Make the next slice one behavior only"));
-    assert!(prompt.contains("exact symbols or nearby code anchors"));
+    assert!(prompt.contains("Treat exact_edits as a queue"));
+    assert!(prompt.contains("put one source edit first"));
+    assert!(prompt.contains("exact symbols plus a literal nearby code anchor"));
+    assert!(prompt.contains("literal nearby code anchor"));
     assert!(prompt.contains("Stop does not permit direct supervisor editing."));
 }
 
@@ -66,6 +69,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("repository diff"));
     assert!(brief_prompt.contains("worker_turn_shape=small_patch_slice"));
     assert!(brief_prompt.contains("no tests before editing"));
+    assert!(brief_prompt.contains("one immediate source edit before any test edit"));
+    assert!(brief_prompt.contains("literal nearby code anchor"));
     assert!(brief_prompt.contains("Select only relevant points"));
 }
 

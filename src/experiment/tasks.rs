@@ -548,10 +548,16 @@ fn small_patch_slice_revision_instructions(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(fallback_goal)
         .trim();
-    let mut exact_edits = decision.revision_handoff.exact_edits.clone();
-    if exact_edits.is_empty() {
-        exact_edits.push(turn_goal.to_string());
-    }
+    let all_exact_edits = decision.revision_handoff.exact_edits.clone();
+    let exact_edits = immediate_revision_exact_edits(&all_exact_edits, turn_goal);
+    let deferred_edit_note = if all_exact_edits.len() > exact_edits.len() {
+        format!(
+            "The supervisor supplied {} additional edit(s); Mixmod is intentionally deferring them to later turns. Do not do them now.\n",
+            all_exact_edits.len() - exact_edits.len()
+        )
+    } else {
+        String::new()
+    };
     let mut hard_rules = vec![
         "Do not ask questions.".to_string(),
         "Do not stop after reading files.".to_string(),
@@ -609,6 +615,7 @@ Patch slice goal: {turn_goal}
 
 Make exactly this next small patch:
 {exact_edits}
+{deferred_edit_note}
 
 Relevant files:
 {file_list}
@@ -629,7 +636,21 @@ Diff non-empty: yes/no
 "#,
         hard_rules = bullet_list(&hard_rules),
         exact_edits = numbered_list(&exact_edits),
+        deferred_edit_note = deferred_edit_note,
     )
+}
+
+fn immediate_revision_exact_edits(all_exact_edits: &[String], turn_goal: &str) -> Vec<String> {
+    all_exact_edits
+        .iter()
+        .find(|edit| !edit.trim().is_empty())
+        .cloned()
+        .or_else(|| {
+            let turn_goal = turn_goal.trim();
+            (!turn_goal.is_empty()).then(|| turn_goal.to_string())
+        })
+        .into_iter()
+        .collect()
 }
 
 fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {

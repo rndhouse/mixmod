@@ -873,6 +873,9 @@ fn small_patch_slice_revision_task_uses_noninteractive_delta_gate() {
     );
     assert!(instructions.contains("Make exactly this next small patch"));
     assert!(instructions.contains("nested item discount branch"));
+    assert!(!instructions.contains("add one assertion for a nested discounted item"));
+    assert!(instructions.contains("additional edit(s)"));
+    assert!(instructions.contains("Do not do them now."));
     assert!(instructions.contains("Do not run broad tests before editing."));
     assert!(instructions.contains("After editing, run exactly: git diff --stat"));
     assert_eq!(
