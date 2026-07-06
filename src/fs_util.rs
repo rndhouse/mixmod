@@ -62,6 +62,14 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         return Ok(None);
     };
     let action = get_str(event, "action").unwrap_or("wait");
+    let run_interrupted = get_bool(&metrics, "interrupted_by_supervisor").unwrap_or(false);
+    if !run_interrupted
+        && matches!(action, "interrupt_continue" | "interrupt_context_focus")
+        && (get_u64(&metrics, "changed_file_count").unwrap_or(0) > 0
+            || get_u64(&metrics, "patch_bytes").unwrap_or(0) > 0)
+    {
+        return Ok(None);
+    }
     let verdict = if action == "stop" { "stop" } else { "revise" };
     let control = event.get("control").unwrap_or(event);
     let auto_revision_no_delta = get_str(control, "source")

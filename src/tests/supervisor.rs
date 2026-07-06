@@ -226,6 +226,36 @@ fn supervisor_control_metrics_become_revision_decision() {
 }
 
 #[test]
+fn nonterminal_supervisor_control_with_patch_waits_for_review() {
+    let temp = TempDir::new().unwrap();
+    let run_dir = temp.path().join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    atomic_write(
+        &run_dir.join("metrics.json"),
+        serde_json::to_vec_pretty(&json!({
+            "interrupted_by_supervisor": false,
+            "changed_file_count": 1,
+            "patch_bytes": 128,
+            "supervisor_control_events": [{
+                "action": "interrupt_continue",
+                "worker_mode": "continue",
+                "message_to_worker": "Make only this edit now.",
+                "focus_files": ["helper.py"],
+                "required_checks": [],
+                "risk": "initial no delta"
+            }]
+        }))
+        .unwrap()
+        .as_slice(),
+    )
+    .unwrap();
+
+    let decision = supervisor_control_decision_from_metrics(&run_dir).unwrap();
+
+    assert!(decision.is_none());
+}
+
+#[test]
 fn auto_no_delta_control_preserves_small_patch_slice_revision_shape() {
     let temp = TempDir::new().unwrap();
     let run_dir = temp.path().join("run");
