@@ -347,8 +347,9 @@ fn supervisor_feedback_needs_revision_slice_repair(
 }
 
 fn first_revision_edit_is_too_broad(edit: &str) -> bool {
-    let trimmed = edit.trim();
-    if trimmed.len() > 240 {
+    let actionable = actionable_revision_edit_text(edit);
+    let trimmed = actionable.trim();
+    if trimmed.len() > 320 {
         return true;
     }
     let lower = trimmed.to_ascii_lowercase();
@@ -363,6 +364,23 @@ fn first_revision_edit_is_too_broad(edit: &str) -> bool {
     broad_pairs
         .iter()
         .any(|(left, right)| lower.contains(left) && lower.contains(right))
+}
+
+fn actionable_revision_edit_text(edit: &str) -> String {
+    edit.replace(". Do not ", "; Do not ")
+        .replace(". do not ", "; do not ")
+        .split(';')
+        .map(str::trim)
+        .filter(|clause| {
+            let lower = clause.to_ascii_lowercase();
+            !lower.starts_with("do not ")
+                && !lower.starts_with("don't ")
+                && !lower.starts_with("no ")
+                && !lower.starts_with("avoid ")
+                && !lower.starts_with("without ")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 pub(crate) fn run_supervisor_feedback_turn(
@@ -686,6 +704,22 @@ mod tests {
             "worker_turn_shape": "small_patch_slice",
             "exact_edits": [
                 "In builder.py, near the line containing `for field in fields`, collect flatten=True field names into flattened_fields."
+            ]
+        });
+
+        assert!(!supervisor_feedback_needs_revision_slice_repair(
+            &feedback,
+            &small_slice_guidance()
+        ));
+    }
+
+    #[test]
+    fn anchored_revision_edit_with_negative_limits_does_not_need_repair() {
+        let feedback = json!({
+            "action": "revise",
+            "worker_turn_shape": "small_patch_slice",
+            "exact_edits": [
+                "In mashumaro/core/meta/code/builder.py, in symbol _add_pack_method_lines near the line containing \"packers = {}\", handle only metadata.get(\"flatten\") in the packing/kwargs-building branch: for a flattened field, update kwargs with the packed child dict instead of assigning kwargs[fname]; do not add unpacking, validation, prefix, rename, alias-collision, or test edits in this turn."
             ]
         });
 
