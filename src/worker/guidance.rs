@@ -63,6 +63,7 @@ pub(crate) fn default_worker_model_profiles() -> Vec<WorkerModelProfile> {
             ],
             supervisor_guidance: vec![
                 "This worker can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.".to_string(),
+                "This worker can struggle with large effective context before an explicit overflow occurs; keep initial handoffs compact, split broad tasks into smaller coherent slices, and avoid asking it to reread many files at once.".to_string(),
                 "For broad expected-patch tasks, prefer worker_turn_shape=bounded_feature_slice: one coherent feature chunk, usually one to three source files, related serialization/deserialization or API/test edits together, and a compile or focused test check after the patch exists.".to_string(),
                 "For revisions, prefer worker_mode=continue only while the worker context remains useful. If artifacts show context overflow, repeated summary updates, or no new delta after a focused revision, prefer worker_mode=context_focus with a smaller concrete source slice.".to_string(),
                 "When tests fail to start because dependencies are missing, keep it focused on repo-level evidence and allowed commands instead of global environment repair.".to_string(),

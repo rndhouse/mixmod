@@ -113,6 +113,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
             .unwrap();
     assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
     assert!(brief_prompt.contains("reasoning before editing"));
+    assert!(brief_prompt.contains("large effective context"));
+    assert!(brief_prompt.contains("split broad tasks into smaller coherent slices"));
     assert!(brief_prompt.contains("worker_turn_shape=bounded_feature_slice"));
     assert!(brief_prompt.contains("one coherent feature chunk"));
     assert!(brief_prompt.contains("context overflow"));
