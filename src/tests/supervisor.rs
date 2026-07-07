@@ -24,6 +24,9 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("previous worker context is discarded"));
     assert!(prompt.contains("Do not implement code. Do not edit files."));
     assert!(prompt.contains("Do not ask the user for approval."));
+    assert!(prompt.contains("worker-model guidance as part of the supervisor decision contract"));
+    assert!(prompt.contains("a broad revise is the wrong decision"));
+    assert!(prompt.contains("use stop with a clear risk instead of sending a broad revision"));
     assert!(
         prompt.contains(
             "Prefer revise after failed, empty, distracted, or incomplete worker attempts"
@@ -95,6 +98,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
 
     assert!(feedback_prompt.contains("Supervisor-only worker-model guidance"));
     assert!(feedback_prompt.contains("Do not copy every bullet to the worker"));
+    assert!(feedback_prompt.contains("Treat applicable bullets as binding"));
     assert!(feedback_prompt.contains("global environments"));
 
     let task = root.join("task.json");
@@ -120,6 +124,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("context overflow"));
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("Select only relevant points"));
+    assert!(brief_prompt.contains("worker-model guidance as handoff constraints"));
 }
 
 #[test]

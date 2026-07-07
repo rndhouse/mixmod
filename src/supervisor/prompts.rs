@@ -50,7 +50,8 @@ pub(crate) fn supervisor_worker_brief_prompt(
 The worker receives the original task JSON and can inspect, edit, and test the repo.
 Use supervisor reasoning freely, but minimize supervisor output.
 {worker_guidance}
-If the worker-model guidance names a preferred worker_turn_shape, follow it for the initial expected-patch handoff unless the task is already a trivial one-file edit or no patch is needed.
+Treat applicable worker-model guidance as handoff constraints, not optional background. If the guidance names a preferred worker_turn_shape or known failure mode, adapt the handoff shape to that worker unless no patch is needed.
+If the remaining task is broad, choose the first executable slice for this worker. Do not choose a broader worker_turn_shape merely because the full task spans multiple source paths.
 Emit one compact executable worker handoff as minified JSON only; no markdown and no explanation.
 Do not restate the original task. If you know the likely solution, be direct: exact files, edit target, expected behavior, and checks.
 Required field: "handoff" = "as_given" | "focused" | "guided" | "blocked".
@@ -94,9 +95,10 @@ pub(crate) fn supervisor_worker_brief_repair_prompt(
         .context("failed to serialize previous worker brief for repair prompt")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
-        r#"You are repairing a Mixmod supervisor handoff before the worker sees it.
+        r#"You are revising your Mixmod supervisor handoff before the worker sees it.
 Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
-The previous handoff is too broad for this selected worker because it either omitted worker_turn_shape=small_patch_slice or used a small_patch_slice that still bundled too much work.
+Your previous handoff did not fit the selected worker profile because it either omitted worker_turn_shape=small_patch_slice or used a small_patch_slice that still bundled too much work.
+Mixmod is not designing a replacement slice for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
 {worker_guidance}
 Return a corrected expected-patch handoff with:
 - "handoff":"guided"
@@ -150,9 +152,10 @@ pub(crate) fn supervisor_worker_brief_repair_retry_prompt(
         .context("failed to serialize rejected worker brief repair")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
-        r#"You are retrying a Mixmod supervisor handoff repair.
+        r#"You are retrying your Mixmod supervisor handoff revision.
 Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
-The previous repair was rejected for this structural reason: {rejection_reason}
+The previous repair still did not fit the selected worker profile: {rejection_reason}
+Mixmod is not designing a replacement slice for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
 {worker_guidance}
 Return one corrected expected-patch handoff with:
 - "handoff":"guided"
@@ -248,14 +251,15 @@ Return only JSON matching this schema:
 {{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Use approve when no more local worker attempts are needed because the accumulated worktree.patch appears to satisfy the original task, not merely because the latest worker turn created a non-empty diff.
 Prefer revise after failed, empty, distracted, or incomplete worker attempts, and put the next worker instruction in message_to_worker.
+Treat applicable worker-model guidance as part of the supervisor decision contract. If the selected worker guidance says to prefer small_patch_slice, a broad revise is the wrong decision even when the remaining feature is broad. Split the remaining work into the next immediately executable worker slice; if you cannot identify a concrete slice from artifacts or read-only inspection, use stop with a clear risk instead of sending a broad revision.
 Use worker_mode=continue to keep the same worker session and let the worker continue with its existing context. Prefer continue for complex tasks because the worker needs accumulated file context.
 Use worker_mode=context_focus to start a new worker session on the same worktree; previous worker context is discarded unless you repeat it in message_to_worker. Use context_focus only when the previous worker context is clearly harmful, confused, or stale.
 If the report or metrics show worker context overflow, treat the worker session as context-saturated. When overflow is paired with no new delta, repeated summary updates, or broad rereading, prefer worker_mode=context_focus, preserve the current worktree patch, and repeat only the essential task state in the next handoff.
-Before choosing the next worker_turn_shape, judge whether the previous worker slice was too much, too little, or about right. If the worker produced a coherent non-destructive delta and the reasoning/report stayed on target, keep or enlarge the next slice as bounded_feature_slice. If the worker wandered, produced no new delta after exit, damaged unrelated code, or misunderstood the target, shrink to small_patch_slice for one recovery turn. If the worker solved the task, approve.
+Before choosing the next worker_turn_shape, judge whether the previous worker slice was too much, too little, or about right for the selected worker model. If the worker produced a coherent non-destructive delta, the reasoning/report stayed on target, and the selected worker guidance allows broad slices, keep or enlarge the next slice as bounded_feature_slice. If the worker guidance prefers small_patch_slice, keep revisions patch-first and narrow until the worker demonstrates it can handle a larger coherent slice. If the worker wandered, produced no new delta after exit, damaged unrelated code, or misunderstood the target, shrink to small_patch_slice for one recovery turn. If the worker solved the task, approve.
 If context overflow appears, also judge whether the previous slice was too large for the worker. Prefer a smaller worker_turn_shape for the next attempt: one concrete source edit, one focused code anchor, and at most one focused test/check after the edit exists.
 If worker-brief.json used worker_turn_shape=bounded_feature_slice, treat a useful incomplete patch as progress. When more work is needed, return action=revise, patch_decision=revise_current, worker_mode=continue, and set worker_turn_shape=bounded_feature_slice with the next coherent behavior, not one mechanical edit.
 If worker-brief.json used worker_turn_shape=small_patch_slice, treat the first non-empty patch as a starter slice. Approve only after comparing worktree.patch to task.json and deciding the original acceptance criteria appear satisfied. If the slice is useful but incomplete, return action=revise, patch_decision=revise_current, usually worker_mode=continue, and set worker_turn_shape=small_patch_slice with the next narrow source/test slice.
-For revision bounded_feature_slice, ask for a complete coherent behavior in one turn: related source edits plus a focused test or compile check when appropriate, usually one to three source files. Use exact_edits or edit_plan as a concise ordered plan. Avoid splitting tightly coupled pairs such as serialization/deserialization, prefix/rename, or API/source/test when doing them together is the clearer next unit.
+For revision bounded_feature_slice, ask for a complete coherent behavior in one turn: related source edits plus a focused test or compile check when appropriate, usually one to three source files. Use this only when it fits the selected worker guidance and observed worker behavior. Use exact_edits or edit_plan as a concise ordered plan. Avoid splitting tightly coupled pairs such as serialization/deserialization, prefix/rename, or API/source/test when doing them together is the clearer next unit.
 For revision small_patch_slice, make exact_edits immediately executable and concrete; use focus_files for repo source/test paths, defer checks until after another non-empty diff, and include a completion_gate such as "git diff --stat must be non-empty". Treat exact_edits as a queue: the next worker turn executes only the first item, so put one source edit first and leave tests or follow-up edits for later turns. Make the next slice one behavior only: one source file plus at most one focused test file, no validation matrix, no bundled prefix+rename+deserialization work, and no broad "implement the feature" instruction.
 For source edits inside large functions or code-generation paths, include structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
 When a revision needs source details, inspect repo files read-only before returning JSON and name exact symbols plus a literal nearby code anchor when possible, such as `near the line containing "..."`
@@ -287,6 +291,7 @@ Do not edit files. Do not run tests. Do not ask the user for approval.
 {worker_guidance}
 Return only JSON matching this schema:
 {{"action":"wait|interrupt_continue|interrupt_context_focus|stop","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+Treat applicable worker-model guidance as process-control constraints. If the selected worker guidance prefers small_patch_slice and the current turn shows no delta, context overflow, or repeated broad reading, any interrupt should be patch-first: one repo file, one concrete source edit, deferred checks, and no broad feature instruction.
 Use wait when the worker is making useful progress or when the evidence is ambiguous.
 Use interrupt_continue to stop the current worker process and resume the same worker session with a sharper instruction.
 Use interrupt_context_focus to stop the current worker process and start a fresh worker session on the same worktree. Prefer this after context overflow, repeated no-delta rereading, or stale/harmful worker context.
@@ -333,9 +338,10 @@ pub(crate) fn supervisor_feedback_repair_prompt(
         .context("failed to serialize previous supervisor feedback for repair prompt")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
-        r#"You are repairing a Mixmod supervisor revision decision before the worker sees it.
+        r#"You are revising your Mixmod supervisor revision decision before the worker sees it.
 Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
-The selected worker needs a smaller revision slice than the previous feedback provided.
+Your previous revision decision did not fit the selected worker profile. The selected worker needs a smaller, patch-first revision slice than the previous feedback provided.
+Mixmod is not designing a replacement slice for you. You are responsible for adapting the decision to the worker-model guidance below.
 {worker_guidance}
 Return a corrected revise decision with:
 - "action":"revise"
@@ -397,9 +403,10 @@ pub(crate) fn supervisor_feedback_repair_retry_prompt(
         .context("failed to serialize rejected supervisor feedback repair")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
-        r#"You are retrying a Mixmod supervisor revision repair.
+        r#"You are retrying your Mixmod supervisor revision decision.
 Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
-The previous repair was rejected for this structural reason: {rejection_reason}
+The previous repair still did not fit the selected worker profile: {rejection_reason}
+Mixmod is not designing a replacement slice for you. You are responsible for adapting the decision to the worker-model guidance below.
 {worker_guidance}
 Return one corrected revise decision with:
 - "action":"revise"
@@ -440,7 +447,7 @@ fn render_worker_guidance(worker_guidance: &WorkerSupervisorGuidance) -> String 
         return String::new();
     }
     let mut rendered = format!(
-        "Supervisor-only worker-model guidance for {}:\nThese are historical pitfalls for the selected worker model. Treat them as priors when planning the worker handoff or critique. Do not copy every bullet to the worker. Select only relevant points and convert them into short, concrete worker instructions.\n",
+        "Supervisor-only worker-model guidance for {}:\nThese are historical pitfalls and handling constraints for the selected worker model. Treat applicable bullets as binding when planning the worker handoff, critique, or live intervention. Do not copy every bullet to the worker. Select only relevant points and convert them into short, concrete worker instructions.\n",
         worker_guidance.model
     );
     for item in &worker_guidance.guidance {
