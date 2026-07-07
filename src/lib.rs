@@ -87,8 +87,8 @@ pub(crate) use harness::codex::CodexSandbox;
 pub(crate) use harness::codex::codex_home_for_work_dir;
 #[cfg(test)]
 pub(crate) use harness::opencode::{
-    OpenCodeModelSelection, opencode_config_path, prepare_opencode_args,
-    prepare_opencode_control_args, run_with_local_verification,
+    OpenCodeModelSelection, effective_backend_command_for_base_url, opencode_config_path,
+    prepare_opencode_args, prepare_opencode_control_args, run_with_local_verification,
 };
 pub(crate) use harness::opencode::{
     normalize_supervisor_control_action, normalize_supervisor_control_worker_mode, tail_text,

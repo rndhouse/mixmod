@@ -1,3 +1,4 @@
+use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::{collections::BTreeSet, env};
 
@@ -244,7 +245,9 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
         };
         let label = format!("live-control-{check_index}");
         let sandbox = supervisor_codex_sandbox_from_env()?;
-        let mut bounded_snapshot = snapshot.clone();
+        let mut bounded_snapshot = snapshot_for_live_supervisor_prompt(snapshot);
+        bounded_snapshot.live_control_check_index = check_index;
+        bounded_snapshot.live_control_check_limit = self.config.max_checks_per_worker;
         bounded_snapshot.stdout_tail =
             truncate_for_report(&bounded_snapshot.stdout_tail, self.config.stdout_tail_bytes);
         bounded_snapshot.stderr_tail =
@@ -262,30 +265,44 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             &self.supervisor,
             sandbox,
         )?;
-        let parsed = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
+        let raw_parsed = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
             json!({
                 "action": "wait",
                 "risk": "live supervisor response was not parseable JSON"
             })
         });
+        let mut parsed = raw_parsed.clone();
         let action = normalize_supervisor_control_action(
             get_str(&parsed, "action").or_else(|| get_str(&parsed, "verdict")),
         );
         let worker_mode =
             normalize_supervisor_control_worker_mode(&action, get_str(&parsed, "worker_mode"));
-        let message_to_worker = get_str(&parsed, "message_to_worker")
+        let raw_message_to_worker = get_str(&parsed, "message_to_worker")
             .or_else(|| get_str(&parsed, "message"))
             .or_else(|| get_str(&parsed, "hint"))
             .unwrap_or("")
             .trim()
             .to_string();
+        let focus_files = normalize_live_control_focus_files(
+            &self.work_dir,
+            get_string_array(&parsed, "focus_files"),
+        );
+        let message_to_worker = sanitize_live_control_message(&raw_message_to_worker, &focus_files);
+        let required_checks = get_string_array(&parsed, "required_checks");
+        if let Some(object) = parsed.as_object_mut() {
+            object.insert(
+                "message_to_worker".to_string(),
+                json!(message_to_worker.clone()),
+            );
+            object.insert("focus_files".to_string(), json!(focus_files.clone()));
+        }
         let risk = get_str(&parsed, "risk").unwrap_or("").trim().to_string();
         let feedback_record = json!({
             "label": label,
             "timestamp": Utc::now().to_rfc3339(),
             "live_control": parsed,
+            "raw_live_control": raw_parsed,
             "snapshot": {
-                "out_dir": bounded_snapshot.out_dir,
                 "elapsed_ms": bounded_snapshot.elapsed_ms,
                 "segment_elapsed_ms": bounded_snapshot.segment_elapsed_ms,
                 "stdout_bytes": bounded_snapshot.stdout_bytes,
@@ -296,6 +313,8 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
                 "context_overflow_count": bounded_snapshot.context_overflow_count,
                 "repeated_read_signature": bounded_snapshot.repeated_read_signature,
                 "repeated_read_count": bounded_snapshot.repeated_read_count,
+                "live_control_check_index": bounded_snapshot.live_control_check_index,
+                "live_control_check_limit": bounded_snapshot.live_control_check_limit,
                 "recent_tool_events": bounded_snapshot.recent_tool_events,
             },
             "codex_exit_status": result.exit_status,
@@ -338,14 +357,104 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             action,
             worker_mode,
             message_to_worker,
-            focus_files: get_string_array(&feedback_record["live_control"], "focus_files"),
-            required_checks: get_string_array(&feedback_record["live_control"], "required_checks"),
+            focus_files,
+            required_checks,
             risk,
             source: "codex_live_supervisor".to_string(),
         };
         serde_json::to_value(control)
             .map(Some)
             .context("failed to serialize live supervisor control")
+    }
+}
+
+fn snapshot_for_live_supervisor_prompt(snapshot: &LiveWorkerSnapshot) -> LiveWorkerSnapshot {
+    let mut snapshot = snapshot.clone();
+    snapshot.out_dir = "[redacted: Mixmod artifact directory]".to_string();
+    snapshot.task_path = "[redacted: Mixmod worker task artifact]".to_string();
+    snapshot
+}
+
+fn normalize_live_control_focus_files(root: &Path, focus_files: Vec<String>) -> Vec<String> {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let mut normalized = Vec::new();
+    let mut seen = BTreeSet::new();
+    for focus_file in focus_files {
+        let Some(path) = normalize_live_control_focus_file(&root, &focus_file) else {
+            continue;
+        };
+        if seen.insert(path.clone()) {
+            normalized.push(path);
+        }
+    }
+    normalized
+}
+
+fn normalize_live_control_focus_file(root: &Path, focus_file: &str) -> Option<String> {
+    let trimmed = focus_file.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = Path::new(trimmed);
+    let relative = if path.is_absolute() {
+        let absolute = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        absolute.strip_prefix(root).ok()?.to_path_buf()
+    } else {
+        repo_relative_path(path)?
+    };
+    if relative.as_os_str().is_empty() {
+        return None;
+    }
+    Some(relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn repo_relative_path(path: &Path) -> Option<PathBuf> {
+    let mut relative = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => relative.push(part),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(relative)
+}
+
+fn sanitize_live_control_message(message: &str, focus_files: &[String]) -> String {
+    let message = message.trim();
+    if message.is_empty() || live_control_message_mentions_mixmod_artifact(message) {
+        return fallback_live_control_message(focus_files);
+    }
+    message.to_string()
+}
+
+fn live_control_message_mentions_mixmod_artifact(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    [
+        "worker-task.json",
+        "revision-task.json",
+        "/tmp/mixmod",
+        "/tmp/mixmod-state",
+        "mixmod-state",
+        "opencode-instructions.md",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn fallback_live_control_message(focus_files: &[String]) -> String {
+    if focus_files.is_empty() {
+        "Continue from the current repo state. Make one focused source edit for the requested behavior, then verify git diff --stat is non-empty before checks."
+            .to_string()
+    } else {
+        let mut displayed_files = focus_files.iter().take(3).cloned().collect::<Vec<_>>();
+        if focus_files.len() > displayed_files.len() {
+            displayed_files.push("...".to_string());
+        }
+        format!(
+            "Focus on {}. Make one focused source edit for the requested behavior, then verify git diff --stat is non-empty before checks.",
+            displayed_files.join(", ")
+        )
     }
 }
 
@@ -1340,6 +1449,65 @@ mod tests {
             &snapshot,
             &LiveSupervisionConfig::default()
         ));
+    }
+
+    #[test]
+    fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
+        let snapshot = LiveWorkerSnapshot {
+            out_dir: "/tmp/mixmod-state/projects/app/runs/run-1/worker-runs/proposal".to_string(),
+            task_path: "/tmp/mixmod-state/projects/app/runs/run-1/worker-task.json".to_string(),
+            worker_instruction_excerpt:
+                "Original task instructions: Add a flatten option to field_options.".to_string(),
+            live_control_check_index: 3,
+            live_control_check_limit: 3,
+            elapsed_ms: 130_000,
+            context_overflow_count: 1,
+            ..LiveWorkerSnapshot::default()
+        };
+        let prompt = supervisor_live_control_prompt(
+            Path::new("/app"),
+            &snapshot_for_live_supervisor_prompt(&snapshot),
+            &WorkerSupervisorGuidance::default(),
+        )
+        .unwrap();
+
+        assert!(prompt.contains("It cannot read Mixmod task, state, log, or artifact paths"));
+        assert!(prompt.contains("Original task instructions: Add a flatten option"));
+        assert!(prompt.contains("Do not invent a different cleanup, bug, or objective"));
+        assert!(prompt.contains("live_control_check_index equals live_control_check_limit"));
+        assert!(!prompt.contains("/tmp/mixmod-state/projects/app/runs/run-1"));
+        assert!(prompt.contains("[redacted: Mixmod artifact directory]"));
+        assert!(prompt.contains("[redacted: Mixmod worker task artifact]"));
+    }
+
+    #[test]
+    fn live_control_focus_files_stay_repo_relative() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path();
+        let files = normalize_live_control_focus_files(
+            root,
+            vec![
+                root.join("src/lib.rs").to_string_lossy().to_string(),
+                "tests/test_lib.rs".to_string(),
+                "/tmp/mixmod-state/projects/app/worker-task.json".to_string(),
+                "../escape.rs".to_string(),
+                "./src/lib.rs".to_string(),
+            ],
+        );
+
+        assert_eq!(files, vec!["src/lib.rs", "tests/test_lib.rs"]);
+    }
+
+    #[test]
+    fn live_control_message_drops_mixmod_task_reference() {
+        let message = sanitize_live_control_message(
+            "Context overflow with no diff yet. Start from worker-task.json, then edit src/lib.rs.",
+            &["src/lib.rs".to_string()],
+        );
+
+        assert!(!message.contains("worker-task.json"));
+        assert!(message.contains("src/lib.rs"));
+        assert!(message.contains("git diff --stat"));
     }
 
     #[test]

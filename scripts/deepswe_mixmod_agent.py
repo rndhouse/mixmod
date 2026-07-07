@@ -46,6 +46,23 @@ PATH_SETUP = (
 LOCAL_MIXMOD_COMMAND = PurePosixPath("/tmp/mixmod-local/mixmod")
 
 
+def csv_env_values_for_url(extra_url: str | None) -> list[str]:
+    values = ["localhost", "127.0.0.1"]
+    if extra_url:
+        parsed = urlparse(extra_url)
+        if parsed.hostname:
+            values.append(parsed.hostname)
+    return values
+
+
+def merge_csv_env(env: dict[str, str], key: str, values: list[str]) -> None:
+    parts = [part.strip() for part in env.get(key, "").split(",") if part.strip()]
+    for value in values:
+        if value and value not in parts:
+            parts.append(value)
+    env[key] = ",".join(parts)
+
+
 class MixmodAgent(BaseInstalledAgent):
     """Run Mixmod with a GPT supervisor and OpenCode/Qwen worker inside Pier."""
 
@@ -168,6 +185,9 @@ class MixmodAgent(BaseInstalledAgent):
         )
         if self.worker_base_url:
             env["MIXMOD_OPENCODE_BASE_URL"] = self.worker_base_url
+            no_proxy_values = csv_env_values_for_url(self.worker_base_url)
+            merge_csv_env(env, "NO_PROXY", no_proxy_values)
+            merge_csv_env(env, "no_proxy", no_proxy_values)
 
         command = self._run_command(task_path, state_dir, summary_path)
         await self.exec_as_agent(
@@ -230,7 +250,10 @@ if base_url:
                 options["baseURL"] = base_url
         path.write_text(json.dumps(data, indent=2) + "\\n")
 PY
+set +e
 {quoted_run_default} 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod.txt").as_posix())}
+mixmod_exit="${{PIPESTATUS[0]}}"
+set -e
 run_dir="$(python3 - <<'PY'
 from pathlib import Path
 
@@ -310,6 +333,9 @@ if [ -n "$(git status --porcelain)" ]; then
   git commit -m "Mixmod solution"
 else
   git commit --allow-empty -m "Mixmod empty solution"
+fi
+if [ "$mixmod_exit" -ne 0 ]; then
+  exit "$mixmod_exit"
 fi
 """
 

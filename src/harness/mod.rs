@@ -76,6 +76,12 @@ pub struct LiveWorkerSnapshot {
     pub segment_action: String,
     /// Segment worker mode such as initial, continue, or context_focus.
     pub segment_worker_mode: String,
+    /// Bounded excerpt of the instruction currently given to the worker.
+    pub worker_instruction_excerpt: String,
+    /// Current live supervisor check index within this worker run.
+    pub live_control_check_index: u64,
+    /// Maximum live supervisor checks allowed for this worker run.
+    pub live_control_check_limit: u64,
     /// Total worker-run elapsed time in milliseconds.
     pub elapsed_ms: u64,
     /// Current segment elapsed time in milliseconds.

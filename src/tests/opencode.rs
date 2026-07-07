@@ -42,6 +42,19 @@ fn default_opencode_args_pin_mixmod_worker_agent() {
     );
 }
 
+#[test]
+fn default_backend_probe_uses_configured_opencode_base_url() {
+    let command = effective_backend_command_for_base_url(
+        "curl -fsS http://127.0.0.1:8080/v1/models",
+        Some("http://192.168.1.124:8080/v1/"),
+    );
+
+    assert_eq!(
+        command,
+        "curl --noproxy '*' -fsS http://192.168.1.124:8080/v1/models"
+    );
+}
+
 fn test_opencode_request(root: &Path) -> AgentRequest {
     let out_dir = state_layout(root).runs().join("test");
     AgentRequest {
@@ -56,6 +69,70 @@ fn test_opencode_request(root: &Path) -> AgentRequest {
         require_local: false,
         supervisor_advisor: None,
     }
+}
+
+#[test]
+fn final_backend_probe_can_verify_short_local_worker_turn() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let fake_opencode = root.join("fake-opencode.sh");
+    let marker = root.join("worker-done");
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1" = "models" ]; then
+  echo "llama.cpp/qwen/qwen3.6-27b"
+  exit 0
+fi
+sleep 0.2
+touch "{}"
+echo "done"
+exit 0
+"#,
+        marker.display()
+    );
+    atomic_write(&fake_opencode, script.as_bytes()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&fake_opencode).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_opencode, perms).unwrap();
+    }
+
+    let mut request = test_opencode_request(root);
+    request.require_local = true;
+    let mut config = OpenCodeConfig::default();
+    config.local_verification.enabled = true;
+    config.local_verification.gpu_command.clear();
+    config.local_verification.backend_command = format!(
+        "test -f {} && printf 'qwen/qwen3.6-27b\\n'",
+        marker.display()
+    );
+    config.heartbeat_seconds = 60;
+    config.worker_timeout_seconds = 10;
+    config.idle_timeout_seconds = 0;
+    let selection = OpenCodeModelSelection {
+        provider: "llama.cpp".to_string(),
+        model: "qwen/qwen3.6-27b".to_string(),
+        model_arg: "llama.cpp/qwen/qwen3.6-27b".to_string(),
+        require_local: true,
+    };
+
+    let output = run_with_local_verification(
+        fake_opencode.to_str().unwrap(),
+        &["run".to_string(), "Do the task".to_string()],
+        &request,
+        &config,
+        &selection,
+    )
+    .unwrap();
+
+    assert_eq!(output.exit_status, Some(0));
+    assert!(output.backend_activity_observed);
+    assert!(output.local_inference_verified);
+    let backend_status =
+        fs::read_to_string(request.out_dir.join("logs/backend-status.txt")).unwrap();
+    assert!(backend_status.contains("--- final sample ---"));
 }
 
 #[test]

@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::Path;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant};
+use std::{env, fs};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -16,7 +16,7 @@ use crate::{
     DEFAULT_OPENCODE_LOCAL_MODEL, LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OpenCodeConfig,
     SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file,
     append_jsonl, atomic_write, diff_without_unchanged_blocks, env_u64, get_bool, get_str,
-    get_string_array, git_diff_with_untracked, patch_stats, write_pretty_json,
+    get_string_array, git_diff_with_untracked, patch_stats, truncate_for_report, write_pretty_json,
 };
 
 use super::args::{prepare_opencode_control_args, redact_runtime_opencode_arg};
@@ -332,6 +332,7 @@ impl LocalVerificationRun<'_> {
         let root = &request.root;
         let out_dir = &request.out_dir;
         let verification_config = &opencode_config.local_verification;
+        let backend_command = effective_backend_command(&verification_config.backend_command);
         let logs_dir = out_dir.join("logs");
         fs::create_dir_all(&logs_dir).with_context(|| {
             format!("failed to create OpenCode logs dir {}", logs_dir.display())
@@ -496,9 +497,7 @@ impl LocalVerificationRun<'_> {
                                 gpu_activity_observed(before_gpu.as_deref(), Some(&text));
                             gpu_sample_written = true;
                         }
-                        if let Some(text) =
-                            run_optional_command_text(&verification_config.backend_command, root)
-                        {
+                        if let Some(text) = run_optional_command_text(&backend_command, root) {
                             let sample = format!("\n--- sample {heartbeat_count} ---\n{text}");
                             append_file(&logs_dir.join("backend-status.txt"), sample.as_bytes())?;
                             backend_activity_seen |=
@@ -827,6 +826,13 @@ impl LocalVerificationRun<'_> {
         } else {
             None
         };
+        if verification_config.enabled && !backend_activity_seen {
+            if let Some(text) = run_optional_command_text(&backend_command, root) {
+                let sample = format!("\n--- final sample ---\n{text}");
+                append_file(&logs_dir.join("backend-status.txt"), sample.as_bytes())?;
+                backend_activity_seen |= backend_activity_observed(Some(&text), selection);
+            }
+        }
 
         let stdout = fs::read(&stdout_path).unwrap_or_default();
         let stderr = fs::read(&stderr_path).unwrap_or_default();
@@ -855,8 +861,8 @@ impl LocalVerificationRun<'_> {
         }
         if heartbeat_count == 0 && verification_config.enabled {
             notes.push(format!(
-                "Backend verification command `{}` was unavailable or failed.",
-                verification_config.backend_command
+                "No heartbeat backend sample was written before OpenCode exited; final probe used `{}`.",
+                backend_command
             ));
         }
         let local_inference_verified = selection.require_local
@@ -919,6 +925,47 @@ impl LocalVerificationRun<'_> {
             backend_activity_observed,
             verification_notes: notes,
         })
+    }
+}
+
+fn effective_backend_command(configured_command: &str) -> String {
+    let configured = configured_command.trim();
+    let base_url = env::var("MIXMOD_OPENCODE_BASE_URL").ok();
+    effective_backend_command_for_base_url(configured, base_url.as_deref())
+}
+
+pub(crate) fn effective_backend_command_for_base_url(
+    configured_command: &str,
+    base_url: Option<&str>,
+) -> String {
+    if let Some(base_url) = base_url
+        && !base_url.trim().is_empty()
+        && is_default_backend_command(configured_command)
+    {
+        return format!(
+            "curl --noproxy '*' -fsS {}",
+            shell_quote(&backend_models_url(base_url.trim()))
+        );
+    }
+    configured_command.to_string()
+}
+
+fn is_default_backend_command(command: &str) -> bool {
+    command == "curl -fsS http://127.0.0.1:8080/v1/models"
+}
+
+fn backend_models_url(base_url: &str) -> String {
+    format!("{}/models", base_url.trim_end_matches('/'))
+}
+
+fn shell_quote(value: &str) -> String {
+    if value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&()*+,;=%".contains(&byte))
+    {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\"'\"'"))
     }
 }
 
@@ -1012,6 +1059,9 @@ fn build_live_worker_snapshot(input: LiveWorkerSnapshotInput<'_>) -> Result<Live
         opencode_segment: input.segment_index,
         segment_action: input.segment_action.to_string(),
         segment_worker_mode: input.segment_worker_mode.to_string(),
+        worker_instruction_excerpt: truncate_for_report(&input.request.instruction, 6000),
+        live_control_check_index: 0,
+        live_control_check_limit: 0,
         elapsed_ms: millis_u64(input.start.elapsed()),
         segment_elapsed_ms: millis_u64(input.segment_started_instant.elapsed()),
         stdout_bytes: input.stdout_bytes,

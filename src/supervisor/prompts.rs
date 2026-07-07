@@ -289,8 +289,14 @@ Use interrupt_continue to stop the current worker process and resume the same wo
 Use interrupt_context_focus to stop the current worker process and start a fresh worker session on the same worktree. Prefer this after context overflow, repeated no-delta rereading, or stale/harmful worker context.
 Use stop only when the worker loop is clearly blocked and another worker turn is unlikely to help.
 Do not solve the task yourself. Your job is process control: decide whether to keep waiting or steer the worker.
+The worker can read and edit only the working repo. It cannot read Mixmod task, state, log, or artifact paths.
+Do not mention worker-task.json, revision task files, /tmp/mixmod*, /tmp/mixmod-state, or artifact/log paths in message_to_worker or focus_files.
+Put only repo source/test paths in focus_files. If you interrupt, restate the next repo edit directly instead of telling the worker to inspect a task or artifact file.
+Keep every intervention anchored to worker_instruction_excerpt, which is the current worker task.
+Use stdout_tail and recent_tool_events only to judge worker progress or confusion. Do not invent a different cleanup, bug, or objective from code snippets in stdout_tail.
 If new_delta_bytes is 0 and recent_tool_events show repeated reads/searches of the same target, prefer an interrupt over waiting unless stdout shows a concrete edit is imminent.
 If context_overflow_count is positive and no new delta exists, prefer interrupt_context_focus with a compact restatement of the exact next source edit.
+If live_control_check_index equals live_control_check_limit, opencode_segment is greater than 1, and new_delta_bytes is still 0 after earlier interventions, prefer stop unless stdout shows an edit is imminent.
 Working repo: {work_dir}
 
 Live worker snapshot:

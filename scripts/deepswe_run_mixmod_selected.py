@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 DEFAULT_SUPERVISOR_MODEL = "gpt-5.5:high"
@@ -124,11 +125,42 @@ def selected_tasks(screen_state: dict[str, Any], limit: int) -> list[str]:
     return tasks[:limit] if limit else tasks
 
 
+def add_csv_env_value(agent_env: list[str], key: str, values: list[str]) -> None:
+    unique_values = []
+    for value in values:
+        if value and value not in unique_values:
+            unique_values.append(value)
+    for index, item in enumerate(agent_env):
+        if not item.startswith(f"{key}="):
+            continue
+        existing = item.split("=", 1)[1]
+        parts = [part.strip() for part in existing.split(",") if part.strip()]
+        for value in unique_values:
+            if value and value not in parts:
+                parts.append(value)
+        agent_env[index] = f"{key}={','.join(parts)}"
+        return
+    agent_env.append(f"{key}={','.join(unique_values)}")
+
+
+def worker_no_proxy_values(worker_base_url: str | None) -> list[str]:
+    values = ["localhost", "127.0.0.1"]
+    if worker_base_url:
+        host = urlparse(worker_base_url).hostname
+        if host:
+            values.append(host)
+    return values
+
+
 def effective_agent_env(args: argparse.Namespace) -> list[str]:
     agent_env = list(args.agent_env)
     agent_env_keys = {value.split("=", 1)[0] for value in agent_env if "=" in value}
     if args.worker_base_url and "NODE_OPTIONS" not in agent_env_keys:
         agent_env.append("NODE_OPTIONS=--use-env-proxy")
+    if args.worker_base_url:
+        no_proxy_values = worker_no_proxy_values(args.worker_base_url)
+        add_csv_env_value(agent_env, "NO_PROXY", no_proxy_values)
+        add_csv_env_value(agent_env, "no_proxy", no_proxy_values)
     return agent_env
 
 
@@ -154,6 +186,16 @@ def build_pier_command(
         str(jobs_dir),
         "--job-name",
         job_name,
+    ]
+    if args.host_network:
+        cmd.extend(
+            [
+                "--environment-import-path",
+                "scripts.pier_host_network_env:HostNetworkDockerEnvironment",
+            ]
+        )
+    cmd.extend(
+        [
         "--n-concurrent",
         "1",
         "--yes",
@@ -171,7 +213,8 @@ def build_pier_command(
         f"require_local={str(args.require_local).lower()}",
         "--agent-kwarg",
         f"mixmod_timeout_sec={args.mixmod_timeout_seconds}",
-    ]
+        ]
+    )
     if local_mixmod_binary is not None:
         cmd.extend(["--agent-kwarg", f"local_mixmod_binary={local_mixmod_binary}"])
     if args.mixmod_install_command:
@@ -231,11 +274,15 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=int, default=4 * 60 * 60)
     parser.add_argument("--job-name", default="")
     parser.add_argument("--no-delete", action="store_true")
-    parser.set_defaults(require_local=True)
+    parser.add_argument("--host-network", dest="host_network", action="store_true")
+    parser.add_argument("--no-host-network", dest="host_network", action="store_false")
+    parser.set_defaults(require_local=True, host_network=None)
     args = parser.parse_args()
 
     root = args.root.resolve()
     args.deep_swe = args.deep_swe.expanduser().resolve()
+    if args.host_network is None:
+        args.host_network = bool(args.worker_base_url)
     screen_state = read_json(args.screen_state)
     args.tasks = selected_tasks(screen_state, args.limit)
     if not args.tasks:
@@ -269,6 +316,7 @@ def main() -> int:
         "supervisor_init": args.supervisor_init,
         "stop_after_first_worker": args.stop_after_first_worker,
         "require_local": args.require_local,
+        "host_network": args.host_network,
         "agent_env": args.agent_env,
         "effective_agent_env": effective_agent_env(args),
         "local_mixmod_binary": str(local_mixmod_binary) if local_mixmod_binary else None,

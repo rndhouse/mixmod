@@ -21,10 +21,12 @@ use config::{resolve_opencode_model, resolve_opencode_session_id};
 pub(crate) use control::{
     normalize_supervisor_control_action, normalize_supervisor_control_worker_mode, tail_text,
 };
-#[cfg(test)]
-pub(crate) use verification::run_with_local_verification;
 #[cfg(not(test))]
 use verification::run_with_local_verification;
+#[cfg(test)]
+pub(crate) use verification::{
+    effective_backend_command_for_base_url, run_with_local_verification,
+};
 
 pub struct ShellOpenCodeRunner {
     config: MixmodConfig,
