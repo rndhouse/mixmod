@@ -645,7 +645,7 @@ pub(crate) fn run_supervisor_brief_turn(
         let retry_ran = retry_record.is_some();
         repair_record = Some(json!({
             "label": "worker-brief-repair",
-            "trigger": "expected-patch handoff for selected worker was missing or broad small_patch_slice",
+            "trigger": "expected-patch handoff for selected worker was missing small_patch_slice shape",
             "accepted": repair_accepted,
             "retry": retry_record,
             "codex_exit_status": repair.exit_status,
@@ -718,9 +718,7 @@ fn worker_brief_needs_small_slice_repair(
     if worker_guidance_prefers_bounded_feature_slice(worker_guidance) {
         return false;
     }
-    if !worker_guidance_prefers_small_patch_slice(worker_guidance)
-        && !supervisor_value_indicates_complex_source_work(brief)
-    {
+    if !worker_guidance_prefers_small_patch_slice(worker_guidance) {
         return false;
     }
     let typed = WorkerBrief::from_value(brief);
@@ -742,14 +740,7 @@ fn worker_brief_needs_small_slice_repair(
     if typed.exact_edits.len() > 2 {
         return true;
     }
-    let Some(first_edit) = typed
-        .exact_edits
-        .iter()
-        .find(|edit| !edit.trim().is_empty())
-    else {
-        return true;
-    };
-    first_revision_edit_is_too_broad(first_edit)
+    !typed.exact_edits.iter().any(|edit| !edit.trim().is_empty())
 }
 
 fn supervisor_feedback_needs_revision_slice_repair(
@@ -765,9 +756,7 @@ fn supervisor_feedback_needs_revision_slice_repair(
     if worker_guidance_prefers_bounded_feature_slice(worker_guidance) {
         return false;
     }
-    if !worker_guidance_prefers_small_patch_slice(worker_guidance)
-        && !supervisor_value_indicates_complex_source_work(feedback)
-    {
+    if !worker_guidance_prefers_small_patch_slice(worker_guidance) {
         return false;
     }
     let typed = SupervisorFeedback::from_value(feedback);
@@ -775,14 +764,10 @@ fn supervisor_feedback_needs_revision_slice_repair(
     if !handoff.is_small_patch_slice() {
         return true;
     }
-    let Some(first_edit) = handoff
+    !handoff
         .exact_edits
         .iter()
-        .find(|edit| !edit.trim().is_empty())
-    else {
-        return true;
-    };
-    first_revision_edit_is_too_broad(first_edit)
+        .any(|edit| !edit.trim().is_empty())
 }
 
 fn worker_guidance_prefers_small_patch_slice(worker_guidance: &WorkerSupervisorGuidance) -> bool {
@@ -799,109 +784,6 @@ fn worker_guidance_prefers_bounded_feature_slice(
         .guidance
         .iter()
         .any(|item| item.contains("worker_turn_shape=bounded_feature_slice"))
-}
-
-fn supervisor_value_indicates_complex_source_work(value: &Value) -> bool {
-    let mut text = String::new();
-    collect_supervisor_value_text(value, &mut text);
-    let text = text.to_ascii_lowercase();
-    let strong_terms = [
-        "codegen",
-        "code generation",
-        "generated code",
-        "compiler",
-        "parser",
-    ];
-    if strong_terms.iter().any(|term| text.contains(term)) {
-        return true;
-    }
-    let terms = [
-        "alias",
-        "validation",
-        "collision",
-        "serializ",
-        "deserializ",
-        "pack",
-        "unpack",
-        "optional",
-        "default",
-        "nested",
-        "metadata",
-        "schema",
-        "config",
-    ];
-    let matches = terms.iter().filter(|term| text.contains(**term)).count();
-    matches >= 3
-}
-
-fn collect_supervisor_value_text(value: &Value, out: &mut String) {
-    match value {
-        Value::String(text) => {
-            out.push(' ');
-            out.push_str(text);
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_supervisor_value_text(item, out);
-            }
-        }
-        Value::Object(map) => {
-            for value in map.values() {
-                collect_supervisor_value_text(value, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn first_revision_edit_is_too_broad(edit: &str) -> bool {
-    let actionable = actionable_revision_edit_text(edit);
-    let trimmed = actionable.trim();
-    if trimmed.len() > 320 {
-        return true;
-    }
-    let lower = trimmed.to_ascii_lowercase();
-    let broad_pairs = [
-        ("pack", "unpack"),
-        ("serializ", "deserializ"),
-        ("parse", "emit"),
-        ("validate", "convert"),
-        ("prefix", "rename"),
-        ("read", "write"),
-    ];
-    broad_pairs.iter().any(|(left, right)| {
-        contains_broad_term(&lower, left) && contains_broad_term(&lower, right)
-    })
-}
-
-fn actionable_revision_edit_text(edit: &str) -> String {
-    edit.replace(". Do not ", "; Do not ")
-        .replace(". do not ", "; do not ")
-        .split(';')
-        .map(str::trim)
-        .filter(|clause| {
-            let lower = clause.to_ascii_lowercase();
-            !lower.starts_with("do not ")
-                && !lower.starts_with("don't ")
-                && !lower.starts_with("no ")
-                && !lower.starts_with("avoid ")
-                && !lower.starts_with("without ")
-        })
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-
-fn contains_broad_term(text: &str, needle: &str) -> bool {
-    let mut search_start = 0;
-    while let Some(relative_index) = text[search_start..].find(needle) {
-        let index = search_start + relative_index;
-        let before = text[..index].chars().next_back();
-        if before.is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_') {
-            return true;
-        }
-        search_start = index + needle.len();
-    }
-    false
 }
 
 pub(crate) fn run_supervisor_feedback_turn(
@@ -1031,7 +913,7 @@ pub(crate) fn run_supervisor_feedback_turn(
         let retry_ran = retry_record.is_some();
         repair_record = Some(json!({
             "label": format!("{label}-repair"),
-            "trigger": "revision small_patch_slice first exact edit was too broad",
+            "trigger": "revision feedback was missing expected small_patch_slice handoff shape",
             "accepted": repair_accepted,
             "retry": retry_record,
             "codex_exit_status": repair.exit_status,
@@ -1399,7 +1281,7 @@ mod tests {
     }
 
     #[test]
-    fn complex_unknown_worker_brief_needs_small_slice_repair() {
+    fn complex_unknown_worker_brief_does_not_need_small_slice_repair() {
         let brief = json!({
             "handoff": "guided",
             "expect_patch": true,
@@ -1411,7 +1293,7 @@ mod tests {
             ]
         });
 
-        assert!(worker_brief_needs_small_slice_repair(
+        assert!(!worker_brief_needs_small_slice_repair(
             &brief,
             &WorkerSupervisorGuidance::default()
         ));
@@ -1658,7 +1540,7 @@ mod tests {
     }
 
     #[test]
-    fn broad_small_slice_revision_feedback_needs_repair() {
+    fn broad_small_slice_revision_feedback_does_not_need_repair() {
         let feedback = json!({
             "action": "revise",
             "worker_turn_shape": "small_patch_slice",
@@ -1667,14 +1549,28 @@ mod tests {
             ]
         });
 
-        assert!(supervisor_feedback_needs_revision_slice_repair(
+        assert!(!supervisor_feedback_needs_revision_slice_repair(
             &feedback,
             &small_slice_guidance()
         ));
     }
 
     #[test]
-    fn complex_non_small_revision_feedback_needs_repair() {
+    fn complex_non_small_revision_feedback_without_worker_profile_does_not_need_repair() {
+        let feedback = json!({
+            "action": "revise",
+            "message_to_worker": "Implement generated pack/unpack alias validation for nested metadata.",
+            "focus_files": ["src/builder.py"]
+        });
+
+        assert!(!supervisor_feedback_needs_revision_slice_repair(
+            &feedback,
+            &WorkerSupervisorGuidance::default()
+        ));
+    }
+
+    #[test]
+    fn non_small_revision_feedback_for_small_slice_worker_needs_repair() {
         let feedback = json!({
             "action": "revise",
             "message_to_worker": "Implement generated pack/unpack alias validation for nested metadata.",
@@ -1683,7 +1579,7 @@ mod tests {
 
         assert!(supervisor_feedback_needs_revision_slice_repair(
             &feedback,
-            &WorkerSupervisorGuidance::default()
+            &small_slice_guidance()
         ));
     }
 
