@@ -114,9 +114,9 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
     assert!(brief_prompt.contains("reasoning before editing"));
     assert!(brief_prompt.contains("large effective context"));
-    assert!(brief_prompt.contains("split broad tasks into smaller coherent slices"));
-    assert!(brief_prompt.contains("worker_turn_shape=bounded_feature_slice"));
-    assert!(brief_prompt.contains("one coherent feature chunk"));
+    assert!(brief_prompt.contains("split broad tasks into small concrete source slices"));
+    assert!(brief_prompt.contains("worker_turn_shape=small_patch_slice"));
+    assert!(brief_prompt.contains("one immediate source edit"));
     assert!(brief_prompt.contains("context overflow"));
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("Select only relevant points"));
@@ -413,6 +413,47 @@ fn auto_no_delta_control_preserves_small_patch_slice_revision_shape() {
     assert_eq!(
         decision.revision_handoff.completion_gate.as_deref(),
         Some("git diff --stat must be non-empty")
+    );
+}
+
+#[test]
+fn live_supervisor_no_delta_control_becomes_small_patch_revision() {
+    let temp = TempDir::new().unwrap();
+    let run_dir = temp.path().join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    atomic_write(
+        &run_dir.join("metrics.json"),
+        serde_json::to_vec_pretty(&json!({
+            "changed_file_count": 0,
+            "patch_bytes": 0,
+            "supervisor_control_events": [{
+                "action": "interrupt_context_focus",
+                "worker_mode": "context_focus",
+                "message_to_worker": "In builder.py near `packers = {}`, make one source edit before tests.",
+                "focus_files": ["builder.py"],
+                "required_checks": [],
+                "risk": "context overflow",
+                "control": {
+                    "source": "codex_live_supervisor"
+                }
+            }]
+        }))
+        .unwrap()
+        .as_slice(),
+    )
+    .unwrap();
+
+    let decision = supervisor_control_decision_from_metrics(&run_dir)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(decision.verdict, "revise");
+    assert_eq!(decision.worker_mode, "context_focus");
+    assert_eq!(decision.patch_decision, "revise_current");
+    assert!(decision.revision_handoff.is_small_patch_slice());
+    assert_eq!(
+        decision.revision_handoff.exact_edits,
+        vec!["In builder.py near `packers = {}`, make one source edit before tests."]
     );
 }
 

@@ -205,6 +205,22 @@ pub struct SupervisorControlCommand {
     pub required_checks: Vec<String>,
     pub risk: String,
     pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_turn_shape: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_goal: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exact_edits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edit_plan: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deferred_checks: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub defer_checks_until_patch_exists: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion_gate: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forbidden_actions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

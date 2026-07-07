@@ -72,9 +72,16 @@ pub(crate) fn supervisor_control_decision_from_metrics(
     }
     let verdict = if action == "stop" { "stop" } else { "revise" };
     let control = event.get("control").unwrap_or(event);
-    let auto_revision_no_delta = get_str(control, "source")
-        .is_some_and(|source| source.starts_with("auto_revision_no_delta"));
-    let patch_decision = if verdict == "revise" && auto_revision_no_delta {
+    let control_source = get_str(control, "source")
+        .or_else(|| get_str(event, "source"))
+        .unwrap_or("");
+    let auto_revision_no_delta = control_source.starts_with("auto_revision_no_delta");
+    let no_repo_delta = get_u64(&metrics, "changed_file_count").unwrap_or(0) == 0
+        && get_u64(&metrics, "patch_bytes").unwrap_or(0) == 0;
+    let live_supervisor_no_delta =
+        control_source == "codex_live_supervisor" && verdict == "revise" && no_repo_delta;
+    let no_delta_recovery = auto_revision_no_delta || live_supervisor_no_delta;
+    let patch_decision = if verdict == "revise" && no_delta_recovery {
         "revise_current"
     } else {
         "accept_current"
@@ -93,7 +100,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         .trim()
         .to_string();
     let revision_handoff =
-        revision_handoff_from_supervisor_control(control, auto_revision_no_delta, &hint);
+        revision_handoff_from_supervisor_control(control, no_delta_recovery, &hint);
     let feedback = json!({
         "label": "supervisor-control",
         "timestamp": Utc::now().to_rfc3339(),

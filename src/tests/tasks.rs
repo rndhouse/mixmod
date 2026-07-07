@@ -82,7 +82,8 @@ fn as_given_worker_brief_uses_original_task_defaults() {
     .unwrap();
 
     let brief = json!({"handoff": "as_given"});
-    let worker_task_path = write_worker_brief_task(&task, &brief, &root.join("default")).unwrap();
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
     let worker_task = read_json_file(&worker_task_path).unwrap();
 
     assert_eq!(get_string_array(&worker_task, "files"), vec!["checkout.py"]);
@@ -216,7 +217,8 @@ fn worker_task_surfaces_supervisor_investigation_notes() {
         "edit_plan": ["Update calculate_total.", "Add one regression test."],
         "evidence": ["checkout.py:calculate_total has the wrong order."]
     });
-    let worker_task_path = write_worker_brief_task(&task, &brief, &root.join("default")).unwrap();
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
     let worker_task = read_json_file(&worker_task_path).unwrap();
     let instructions = get_str(&worker_task, "instructions").unwrap();
 
@@ -262,7 +264,8 @@ fn small_patch_slice_worker_task_uses_noninteractive_diff_gate() {
         "completion_gate": "git diff --stat must be non-empty",
         "forbidden_actions": ["ask questions", "run tests before editing"]
     });
-    let worker_task_path = write_worker_brief_task(&task, &brief, &root.join("default")).unwrap();
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
     let worker_task = read_json_file(&worker_task_path).unwrap();
 
     assert_eq!(
@@ -291,6 +294,8 @@ fn small_patch_slice_worker_task_uses_noninteractive_diff_gate() {
     assert!(instructions.contains("additional edit(s)"));
     assert!(instructions.contains("Do not do them now."));
     assert!(instructions.contains("Make exactly this first small patch:"));
+    assert!(instructions.contains("Worker edit packet:"));
+    assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
     assert!(
         instructions.contains("If a listed item is a directory, do not read the whole directory")
     );
@@ -299,6 +304,56 @@ fn small_patch_slice_worker_task_uses_noninteractive_diff_gate() {
     assert!(!instructions.contains("Supervisor handoff JSON"));
     assert!(!instructions.contains("python -m pytest tests/test_helper.py"));
     assert_eq!(worker_task["context"]["worker_brief"], brief);
+}
+
+#[test]
+fn small_patch_slice_worker_task_includes_anchor_source_packet() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("mashumaro")).unwrap();
+    atomic_write(
+        &root.join("mashumaro/helper.py"),
+        b"from typing import Any\n\n\ndef field_options(alias=None):\n    metadata = {}\n    if alias is not None:\n        metadata['alias'] = alias\n    return metadata\n",
+    )
+    .unwrap();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Flatten metadata",
+  "instructions": "Add flatten metadata support.",
+  "files": ["mashumaro/helper.py"],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "worker_turn_shape": "small_patch_slice",
+        "turn_goal": "Add the first flatten option to field_options.",
+        "files": ["mashumaro/helper.py"],
+        "exact_edits": [
+            "In mashumaro/helper.py near the line containing \"def field_options(\" add a flatten: bool = False parameter and return it in metadata."
+        ],
+        "edit_packet": ["field_options is the public metadata helper."],
+        "defer_checks_until_patch_exists": true
+    });
+
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+
+    assert!(instructions.contains("Supervisor packet:"));
+    assert!(instructions.contains("field_options is the public metadata helper"));
+    assert!(
+        instructions
+            .contains("Source snippet from mashumaro/helper.py around `def field_options(`")
+    );
+    assert!(instructions.contains("def field_options(alias=None):"));
+    assert!(instructions.contains("Do not read an entire large file before the first edit"));
 }
 
 #[test]
@@ -511,7 +566,8 @@ fn worker_task_does_not_link_to_unsanitized_source_task() {
     .unwrap();
 
     let brief = json!({"handoff": "as_given"});
-    let worker_task_path = write_worker_brief_task(&task, &brief, &root.join("default")).unwrap();
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
     let worker_task = read_json_file(&worker_task_path).unwrap();
     let text = serde_json::to_string(&worker_task).unwrap();
 
@@ -547,7 +603,8 @@ fn focused_worker_brief_overrides_files_and_adds_supplemental_checks() {
         "must_check": ["VIP discount after line discounts"],
         "avoid": ["broad refactor"]
     });
-    let worker_task_path = write_worker_brief_task(&task, &brief, &root.join("default")).unwrap();
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
     let worker_task = read_json_file(&worker_task_path).unwrap();
 
     assert_eq!(get_bool(&worker_task, "expect_patch"), Some(false));
@@ -591,7 +648,8 @@ fn direct_worker_message_is_preserved() {
         "files": ["checkout.py"],
         "checks": ["VIP discount after line discounts"]
     });
-    let worker_task_path = write_worker_brief_task(&task, &brief, &root.join("default")).unwrap();
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
     let worker_task = read_json_file(&worker_task_path).unwrap();
 
     assert_eq!(get_bool(&worker_task, "expect_patch"), Some(true));
@@ -671,7 +729,8 @@ fn revision_task_preserves_codex_focus_files() {
         turn_id: String::new(),
     };
 
-    let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 1).unwrap();
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 1).unwrap();
     let revision = read_json_file(&path).unwrap();
 
     assert_eq!(
@@ -738,7 +797,8 @@ fn context_focus_revision_task_uses_focused_prompt() {
         turn_id: String::new(),
     };
 
-    let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 2).unwrap();
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 2).unwrap();
     let revision = read_json_file(&path).unwrap();
 
     assert_eq!(get_str(&revision, "worker_mode"), Some("context_focus"));
@@ -786,7 +846,8 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
         turn_id: String::new(),
     };
 
-    let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 3).unwrap();
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 3).unwrap();
     let revision = read_json_file(&path).unwrap();
     let instructions = get_str(&revision, "instructions").unwrap();
 
@@ -849,7 +910,8 @@ fn small_patch_slice_revision_task_uses_noninteractive_delta_gate() {
         turn_id: String::new(),
     };
 
-    let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 1).unwrap();
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 1).unwrap();
     let revision = read_json_file(&path).unwrap();
 
     assert_eq!(
@@ -876,6 +938,8 @@ fn small_patch_slice_revision_task_uses_noninteractive_delta_gate() {
         )
     );
     assert!(instructions.contains("Make exactly this next small patch"));
+    assert!(instructions.contains("Worker edit packet:"));
+    assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
     assert!(instructions.contains("nested item discount branch"));
     assert!(!instructions.contains("add one assertion for a nested discounted item"));
     assert!(instructions.contains("additional edit(s)"));
@@ -937,7 +1001,8 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
         turn_id: String::new(),
     };
 
-    let path = write_revision_task(&task, &root.join("default"), "demo", &decision, 4).unwrap();
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 4).unwrap();
     let revision = read_json_file(&path).unwrap();
 
     assert_eq!(

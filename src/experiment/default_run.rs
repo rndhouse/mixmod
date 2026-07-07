@@ -107,7 +107,8 @@ impl DefaultExperimentRun<'_> {
         )?;
         append_jsonl(&feedback_path, &worker_brief.record)?;
 
-        let worker_task = write_worker_brief_task(&task_file, &worker_brief.brief, &default_dir)?;
+        let worker_task =
+            write_worker_brief_task(&work_dir, &task_file, &worker_brief.brief, &default_dir)?;
         let proposal_out = state_layout(&work_dir).runs().join("default-proposal");
         let proposal_receipt = run_mixmod_task_with_session_recovery_and_advisor(
             &work_dir,
@@ -185,6 +186,7 @@ impl DefaultExperimentRun<'_> {
                             None
                         };
                         let revision_task = write_revision_task(
+                            &work_dir,
                             &task_file,
                             &default_dir,
                             name,

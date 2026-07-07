@@ -102,7 +102,7 @@ impl DefaultStrategyRun<'_> {
         )?;
         append_jsonl(&feedback_path, &worker_brief.record)?;
 
-        let worker_task = write_worker_brief_task(&task_file, &worker_brief.brief, &out_dir)?;
+        let worker_task = write_worker_brief_task(root, &task_file, &worker_brief.brief, &out_dir)?;
         let worker_runs_dir = out_dir.join("worker-runs");
         let proposal_out = worker_runs_dir.join("proposal");
         let proposal_receipt = run_mixmod_task_with_session_recovery_and_advisor(
@@ -174,6 +174,7 @@ impl DefaultStrategyRun<'_> {
                             None
                         };
                         let revision_task = write_revision_task(
+                            root,
                             &task_file,
                             &out_dir,
                             "exec",

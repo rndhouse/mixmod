@@ -105,6 +105,14 @@ pub(crate) fn live_control(
         required_checks: required_checks.to_vec(),
         risk: risk.unwrap_or("").to_string(),
         source: "mixmod control send".to_string(),
+        worker_turn_shape: None,
+        turn_goal: None,
+        exact_edits: Vec::new(),
+        edit_plan: Vec::new(),
+        deferred_checks: Vec::new(),
+        defer_checks_until_patch_exists: None,
+        completion_gate: None,
+        forbidden_actions: Vec::new(),
     };
     let control_path = run_dir.join(SUPERVISOR_CONTROL_FILE);
     write_pretty_json(&control_path, &control, "supervisor control")?;

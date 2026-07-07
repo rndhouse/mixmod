@@ -389,7 +389,7 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("worker_turn_shape=bounded_feature_slice"))
+            .any(|item| item.contains("worker_turn_shape=small_patch_slice"))
     );
 
     ModelOverrides::new(None, Some("llama.cpp/qwen/qwen3.6-27b".to_string()))

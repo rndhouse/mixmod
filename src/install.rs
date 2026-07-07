@@ -193,8 +193,10 @@ model = "{default_model}"
 aliases = ["{default_model}", "{local_model}", "{opencode_provider}/{local_model}"]
 supervisor_guidance = [
   "This worker can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.",
-  "For broad expected-patch tasks, prefer worker_turn_shape=bounded_feature_slice: one coherent feature chunk, usually one to three source files, related serialization/deserialization or API/test edits together, and a compile or focused test check after the patch exists.",
-  "For revisions, keep worker_mode=continue and ask for the next coherent incomplete behavior instead of one mechanical edit. Use small_patch_slice only after a broad turn produced a confused, destructive, or empty patch.",
+  "This worker can struggle with large effective context before an explicit overflow occurs; keep initial handoffs compact, split broad tasks into small concrete source slices, and avoid asking it to reread many files at once.",
+  "For broad expected-patch tasks, prefer worker_turn_shape=small_patch_slice with one immediate source edit, one focused source file, a literal nearby anchor when available, no tests before a diff exists, and a compact edit packet/snippet so the worker can patch before broad exploration.",
+  "When giving a small_patch_slice, tell it to use the provided edit packet first, avoid reading whole large files before the first edit, and verify git diff --stat is non-empty before finalizing.",
+  "For revisions, prefer worker_mode=continue only while the worker context remains useful. If artifacts show context overflow, repeated summary updates, or no new delta after a focused revision, prefer worker_mode=context_focus with a smaller concrete source slice.",
   "When tests fail to start because dependencies are missing, keep it focused on repo-level evidence and allowed commands instead of global environment repair.",
   "It can create broad or malformed tests when fixture semantics are unclear; ask for the narrowest regression test that matches existing test style.",
   "It may try to mutate user or global environments while installing dependencies; prefer existing project commands and avoid global installs unless the task explicitly requires them.",

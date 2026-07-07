@@ -272,10 +272,10 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             })
         });
         let mut parsed = raw_parsed.clone();
-        let action = normalize_supervisor_control_action(
+        let mut action = normalize_supervisor_control_action(
             get_str(&parsed, "action").or_else(|| get_str(&parsed, "verdict")),
         );
-        let worker_mode =
+        let mut worker_mode =
             normalize_supervisor_control_worker_mode(&action, get_str(&parsed, "worker_mode"));
         let raw_message_to_worker = get_str(&parsed, "message_to_worker")
             .or_else(|| get_str(&parsed, "message"))
@@ -283,20 +283,52 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             .unwrap_or("")
             .trim()
             .to_string();
+        let forced_final_no_delta_stop =
+            should_force_final_no_delta_live_stop(&bounded_snapshot, &action);
+        if forced_final_no_delta_stop {
+            action = "stop".to_string();
+            worker_mode =
+                normalize_supervisor_control_worker_mode(&action, Some(worker_mode.as_str()));
+        }
         let focus_files = normalize_live_control_focus_files(
             &self.work_dir,
             get_string_array(&parsed, "focus_files"),
         );
-        let message_to_worker = sanitize_live_control_message(&raw_message_to_worker, &focus_files);
+        let message_to_worker = if forced_final_no_delta_stop {
+            "Stopping: final live check reached with no repository delta after prior interventions."
+                .to_string()
+        } else {
+            sanitize_live_control_message(&raw_message_to_worker, &focus_files)
+        };
         let required_checks = get_string_array(&parsed, "required_checks");
+        let worker_turn_shape = get_str(&parsed, "worker_turn_shape").map(ToOwned::to_owned);
+        let turn_goal = get_str(&parsed, "turn_goal").map(ToOwned::to_owned);
+        let exact_edits = get_string_array(&parsed, "exact_edits");
+        let edit_plan = get_string_array(&parsed, "edit_plan");
+        let deferred_checks = get_string_array(&parsed, "deferred_checks");
+        let defer_checks_until_patch_exists = get_bool(&parsed, "defer_checks_until_patch_exists");
+        let completion_gate = get_str(&parsed, "completion_gate").map(ToOwned::to_owned);
+        let forbidden_actions = get_string_array(&parsed, "forbidden_actions");
         if let Some(object) = parsed.as_object_mut() {
+            object.insert("action".to_string(), json!(action.clone()));
+            object.insert("worker_mode".to_string(), json!(worker_mode.clone()));
             object.insert(
                 "message_to_worker".to_string(),
                 json!(message_to_worker.clone()),
             );
             object.insert("focus_files".to_string(), json!(focus_files.clone()));
+            if forced_final_no_delta_stop {
+                object.insert(
+                    "enforced_action".to_string(),
+                    json!("final_no_delta_live_stop"),
+                );
+            }
         }
-        let risk = get_str(&parsed, "risk").unwrap_or("").trim().to_string();
+        let risk = if forced_final_no_delta_stop {
+            "worker_stalled_no_delta".to_string()
+        } else {
+            get_str(&parsed, "risk").unwrap_or("").trim().to_string()
+        };
         let feedback_record = json!({
             "label": label,
             "timestamp": Utc::now().to_rfc3339(),
@@ -361,6 +393,14 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             required_checks,
             risk,
             source: "codex_live_supervisor".to_string(),
+            worker_turn_shape,
+            turn_goal,
+            exact_edits,
+            edit_plan,
+            deferred_checks,
+            defer_checks_until_patch_exists,
+            completion_gate,
+            forbidden_actions,
         };
         serde_json::to_value(control)
             .map(Some)
@@ -479,6 +519,14 @@ fn live_supervision_snapshot_should_check(
     }
     snapshot.last_output_age_ms >= config.stale_after_seconds.saturating_mul(1000)
         && snapshot.stdout_bytes > 0
+}
+
+fn should_force_final_no_delta_live_stop(snapshot: &LiveWorkerSnapshot, action: &str) -> bool {
+    action != "stop"
+        && snapshot.live_control_check_limit > 0
+        && snapshot.live_control_check_index >= snapshot.live_control_check_limit
+        && snapshot.opencode_segment > 1
+        && snapshot.new_delta_bytes == 0
 }
 
 pub(crate) fn run_supervisor_brief_turn(
@@ -1448,6 +1496,38 @@ mod tests {
         assert!(live_supervision_snapshot_should_check(
             &snapshot,
             &LiveSupervisionConfig::default()
+        ));
+    }
+
+    #[test]
+    fn final_live_no_delta_check_forces_stop_after_prior_segment() {
+        let snapshot = LiveWorkerSnapshot {
+            live_control_check_index: 3,
+            live_control_check_limit: 3,
+            opencode_segment: 2,
+            new_delta_bytes: 0,
+            ..LiveWorkerSnapshot::default()
+        };
+
+        assert!(should_force_final_no_delta_live_stop(
+            &snapshot,
+            "interrupt_continue"
+        ));
+    }
+
+    #[test]
+    fn final_live_no_delta_stop_guard_ignores_first_segment() {
+        let snapshot = LiveWorkerSnapshot {
+            live_control_check_index: 3,
+            live_control_check_limit: 3,
+            opencode_segment: 1,
+            new_delta_bytes: 0,
+            ..LiveWorkerSnapshot::default()
+        };
+
+        assert!(!should_force_final_no_delta_live_stop(
+            &snapshot,
+            "interrupt_continue"
         ));
     }
 

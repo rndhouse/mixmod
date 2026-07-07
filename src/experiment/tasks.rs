@@ -1,5 +1,7 @@
 use crate::*;
 
+use std::path::Component;
+
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -63,6 +65,7 @@ struct RevisionTaskDetails<'a> {
 }
 
 pub(crate) fn write_worker_brief_task(
+    work_dir: &Path,
     task_path: &Path,
     brief: &Value,
     default_dir: &Path,
@@ -167,6 +170,7 @@ pub(crate) fn write_worker_brief_task(
     };
     let instructions = if small_patch_slice {
         small_patch_slice_instructions(
+            work_dir,
             &original,
             brief,
             &target_files,
@@ -207,6 +211,7 @@ pub(crate) fn write_worker_brief_task(
 }
 
 fn small_patch_slice_instructions(
+    work_dir: &Path,
     original: &Value,
     brief: &Value,
     target_files: &[String],
@@ -257,6 +262,13 @@ fn small_patch_slice_instructions(
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let edit_packet = small_patch_edit_packet_from_value(
+        work_dir,
+        target_files,
+        &exact_edits,
+        brief,
+        &["edit_packet", "source_snippets", "anchors", "evidence"],
+    );
 
     format!(
         r#"Noninteractive coding task. This is the full instruction. No user will answer questions.
@@ -274,10 +286,15 @@ Make exactly this first small patch:
 {exact_edits}
 {deferred_edit_note}
 
+Worker edit packet:
+{edit_packet}
+
 Relevant files:
 {file_list}
 
+Use the Worker edit packet before reading whole files. If the packet contains the needed anchor, edit from that context first.
 Use concrete files from this list. If a listed item is a directory, do not read the whole directory; choose the one file required by the exact edits.
+Do not read an entire large file before the first edit unless the exact edit cannot be applied from the packet and focused anchor searches.
 Do not expand beyond this first patch slice unless one of the exact edits requires it.
 If a listed file is missing, continue with the remaining exact edits; create a missing file only when an exact edit requires it.
 Checks are intentionally deferred until after a non-empty patch exists.
@@ -379,6 +396,210 @@ Supervisor handoff JSON:
     )
 }
 
+fn small_patch_edit_packet_from_value(
+    work_dir: &Path,
+    focus_files: &[String],
+    exact_edits: &[String],
+    value: &Value,
+    packet_keys: &[&str],
+) -> String {
+    let mut parts = Vec::new();
+    append_edit_packet_items(
+        &mut parts,
+        "Supervisor packet",
+        &merged_string_arrays(value, packet_keys),
+    );
+    parts.extend(source_snippets_for_edit_packet(
+        work_dir,
+        focus_files,
+        exact_edits,
+    ));
+    finalize_edit_packet(parts)
+}
+
+fn small_patch_edit_packet_from_decision(
+    work_dir: &Path,
+    focus_files: &[String],
+    exact_edits: &[String],
+    decision: &SupervisorFeedbackTurn,
+) -> String {
+    let mut parts = Vec::new();
+    let packet_keys = ["edit_packet", "source_snippets", "anchors", "evidence"];
+    append_edit_packet_items(
+        &mut parts,
+        "Supervisor packet",
+        &merged_string_arrays(&decision.feedback, &packet_keys),
+    );
+    if let Some(nested) = decision.feedback.get("feedback") {
+        append_edit_packet_items(
+            &mut parts,
+            "Supervisor packet",
+            &merged_string_arrays(nested, &packet_keys),
+        );
+        if let Some(control) = nested.get("control") {
+            append_edit_packet_items(
+                &mut parts,
+                "Supervisor packet",
+                &merged_string_arrays(control, &packet_keys),
+            );
+        }
+    }
+    parts.extend(source_snippets_for_edit_packet(
+        work_dir,
+        focus_files,
+        exact_edits,
+    ));
+    finalize_edit_packet(parts)
+}
+
+fn append_edit_packet_items(parts: &mut Vec<String>, label: &str, items: &[String]) {
+    let items = items
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(|item| format!("- {item}"))
+        .collect::<Vec<_>>();
+    if !items.is_empty() {
+        parts.push(format!("{label}:\n{}", items.join("\n")));
+    }
+}
+
+fn source_snippets_for_edit_packet(
+    work_dir: &Path,
+    focus_files: &[String],
+    exact_edits: &[String],
+) -> Vec<String> {
+    let anchors = edit_packet_anchors(exact_edits);
+    let mut snippets = Vec::new();
+    let mut seen_ranges = Vec::<String>::new();
+    for file in focus_files.iter().take(4) {
+        let Some(path) = repo_source_file_path(work_dir, file) else {
+            continue;
+        };
+        let Ok(metadata) = fs::metadata(&path) else {
+            continue;
+        };
+        if metadata.len() > 512_000 {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if anchors.is_empty() {
+            if text.len() <= 2600 {
+                snippets.push(format!(
+                    "Source snippet from {file}:\n```text\n{}\n```",
+                    line_numbered_text(&text, 1, text.lines().count())
+                ));
+            }
+            continue;
+        }
+        let lines = text.lines().collect::<Vec<_>>();
+        for anchor in &anchors {
+            let Some(line_index) = lines.iter().position(|line| line.contains(anchor)) else {
+                continue;
+            };
+            let start = line_index.saturating_sub(8);
+            let end = lines.len().min(line_index + 9);
+            let range_key = format!("{file}:{start}:{end}");
+            if seen_ranges.contains(&range_key) {
+                continue;
+            }
+            seen_ranges.push(range_key);
+            snippets.push(format!(
+                "Source snippet from {file} around `{anchor}`:\n```text\n{}\n```",
+                lines[start..end]
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, line)| format!("{:>4}: {}", start + offset + 1, line))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
+            if snippets.len() >= 4 {
+                return snippets;
+            }
+        }
+    }
+    snippets
+}
+
+fn edit_packet_anchors(exact_edits: &[String]) -> Vec<String> {
+    let mut anchors = Vec::new();
+    for edit in exact_edits {
+        for delimiter in ['"', '`'] {
+            for fragment in delimited_fragments(edit, delimiter) {
+                if fragment.len() >= 3
+                    && fragment.len() <= 160
+                    && !fragment.contains('\n')
+                    && !anchors.contains(&fragment)
+                {
+                    anchors.push(fragment);
+                }
+            }
+        }
+    }
+    anchors
+}
+
+fn delimited_fragments(text: &str, delimiter: char) -> Vec<String> {
+    let mut fragments = Vec::new();
+    let mut start = None;
+    for (index, character) in text.char_indices() {
+        if character != delimiter {
+            continue;
+        }
+        if let Some(start_index) = start.take() {
+            let fragment = text[start_index..index].trim();
+            if !fragment.is_empty() {
+                fragments.push(fragment.to_string());
+            }
+        } else {
+            start = Some(index + character.len_utf8());
+        }
+    }
+    fragments
+}
+
+fn repo_source_file_path(work_dir: &Path, raw: &str) -> Option<PathBuf> {
+    let trimmed = raw.trim().trim_start_matches("./");
+    if trimmed.is_empty() {
+        return None;
+    }
+    let raw_path = Path::new(trimmed);
+    let relative = if raw_path.is_absolute() {
+        raw_path.strip_prefix(work_dir).ok()?.to_path_buf()
+    } else {
+        let mut relative = PathBuf::new();
+        for component in raw_path.components() {
+            match component {
+                Component::Normal(part) => relative.push(part),
+                Component::CurDir => {}
+                Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+            }
+        }
+        relative
+    };
+    let path = work_dir.join(relative);
+    path.is_file().then_some(path)
+}
+
+fn line_numbered_text(text: &str, start_line: usize, line_count: usize) -> String {
+    text.lines()
+        .take(line_count)
+        .enumerate()
+        .map(|(index, line)| format!("{:>4}: {}", start_line + index, line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn finalize_edit_packet(parts: Vec<String>) -> String {
+    if parts.is_empty() {
+        "- none provided; use focused anchor searches in the relevant files.".to_string()
+    } else {
+        truncate_for_report(&parts.join("\n\n"), 4200)
+    }
+}
+
 fn hard_rule_from_forbidden_action(action: &str) -> String {
     let action = action.trim().trim_end_matches('.');
     if action.is_empty() {
@@ -472,6 +693,7 @@ fn codex_message_to_worker(brief: &Value, handoff: &str) -> String {
 }
 
 pub(crate) fn write_revision_task(
+    work_dir: &Path,
     task_path: &Path,
     default_dir: &Path,
     experiment_name: &str,
@@ -480,7 +702,6 @@ pub(crate) fn write_revision_task(
 ) -> Result<PathBuf> {
     let task_value = read_json_file(task_path)?;
     let task_value = agent_visible_task_value(&task_value);
-    let work_dir = task_path.parent().unwrap_or_else(|| Path::new("."));
     let (repo_focus_files, artifact_focus_files) =
         split_worker_focus_files(work_dir, default_dir, &decision.focus_files);
     let focus_files = non_empty_or(
@@ -560,6 +781,7 @@ pub(crate) fn write_revision_task(
     };
     let instructions = if small_patch_slice {
         small_patch_slice_revision_instructions(
+            work_dir,
             &task_value,
             decision,
             &focus_files,
@@ -648,6 +870,7 @@ pub(crate) fn write_revision_task(
 }
 
 fn small_patch_slice_revision_instructions(
+    work_dir: &Path,
     original: &Value,
     decision: &SupervisorFeedbackTurn,
     focus_files: &[String],
@@ -719,6 +942,8 @@ fn small_patch_slice_revision_instructions(
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let edit_packet =
+        small_patch_edit_packet_from_decision(work_dir, focus_files, &exact_edits, decision);
     let checks = non_empty_or(
         decision.revision_handoff.deferred_checks.clone(),
         decision.required_checks.clone(),
@@ -750,11 +975,16 @@ Make exactly this next small patch:
 {exact_edits}
 {deferred_edit_note}
 
+Worker edit packet:
+{edit_packet}
+
 Relevant files:
 {file_list}
 
 {focus_note}
+Use the Worker edit packet before reading whole files. If the packet contains the needed anchor, edit from that context first.
 Use concrete files from the relevant file list. If a listed item is a directory, do not read the whole directory; choose the one file required by the exact edits.
+Do not read an entire large file before the first edit unless the exact edit cannot be applied from the packet and focused anchor searches.
 Do not expand beyond this patch slice unless one of the exact edits requires it.
 If a listed file is missing, continue with the remaining exact edits; create a missing file only when an exact edit requires it.
 {checks_note}
@@ -978,6 +1208,10 @@ fn brief_has_legacy_guidance(brief: &Value) -> bool {
         || !get_string_array(brief, "implementation_steps").is_empty()
         || !get_string_array(brief, "edit_plan").is_empty()
         || !get_string_array(brief, "exact_edits").is_empty()
+        || !get_string_array(brief, "edit_packet").is_empty()
+        || !get_string_array(brief, "source_snippets").is_empty()
+        || !get_string_array(brief, "anchors").is_empty()
+        || !get_string_array(brief, "evidence").is_empty()
         || !get_string_array(brief, "forbidden_actions").is_empty()
         || !get_string_array(brief, "deferred_checks").is_empty()
         || !get_string_array(brief, "acceptance_checks").is_empty()
