@@ -485,6 +485,13 @@ impl MixmodRun<'_> {
                 context_overflow.context_overflow_count
             ));
         }
+        let worker_session_token_peak = worker_session_token_peak(&output.stdout);
+        if worker_session_token_peak.is_some_and(|tokens| tokens >= 24_000) {
+            notes.push(
+                "Worker session token peak was high; prefer a smaller next slice or worker_mode=context_focus if another revision is needed."
+                    .to_string(),
+            );
+        }
 
         let session = build_session_jsonl(&start_timestamp, &end_timestamp, &output)?;
         atomic_write(&out_dir.join(SESSION_JSONL), session.as_bytes())?;
@@ -513,6 +520,7 @@ impl MixmodRun<'_> {
             stats: &stats,
             worktree_stats: &worktree_stats,
             context_overflow: &context_overflow,
+            worker_session_token_peak,
             notes: &notes,
             root,
             out_dir: &out_dir,
@@ -572,6 +580,7 @@ impl MixmodRun<'_> {
             stderr_bytes: output.stderr.len() as u64,
             context_overflow_count: context_overflow.context_overflow_count,
             context_overflow_last_message: context_overflow.context_overflow_last_message.clone(),
+            worker_session_token_peak,
             reasoning_trace_bytes,
             reasoning_trace_event_count,
             report_bytes,
@@ -765,6 +774,25 @@ pub(crate) fn worker_context_signals(stdout: &[u8]) -> WorkerContextSignals {
         signals.context_overflow_last_message = Some(extract_context_overflow_message(trimmed));
     }
     signals
+}
+
+pub(crate) fn worker_session_token_peak(stdout: &[u8]) -> Option<u64> {
+    let mut peak = None;
+    let stdout = String::from_utf8_lossy(stdout);
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(event) = serde_json::from_str::<Value>(trimmed) else {
+            continue;
+        };
+        let Some(total) = event.pointer("/part/tokens/total").and_then(Value::as_u64) else {
+            continue;
+        };
+        peak = Some(peak.map_or(total, |current: u64| current.max(total)));
+    }
+    peak
 }
 
 fn is_context_overflow_line(line: &str) -> bool {

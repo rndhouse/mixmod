@@ -82,6 +82,28 @@ plain backend line: request (34808 tokens) exceeds the available context size (3
 }
 
 #[test]
+fn worker_session_token_peak_reads_open_code_step_tokens() {
+    let stdout = br#"
+not json
+{"type":"step_finish","part":{"tokens":{"total":1200,"input":10}}}
+{"type":"reasoning","part":{"text":"ignore"}}
+{"type":"step_finish","part":{"tokens":{"total":25730}}}
+"#;
+
+    assert_eq!(worker_session_token_peak(stdout), Some(25730));
+}
+
+#[test]
+fn worker_session_token_peak_ignores_stdout_without_token_events() {
+    let stdout = br#"
+{"type":"reasoning","part":{"text":"still thinking"}}
+plain backend line
+"#;
+
+    assert_eq!(worker_session_token_peak(stdout), None);
+}
+
+#[test]
 fn supervise_args_launch_background_run_with_resume() {
     let args = supervise_run_args(
         DelegationMode::Patch,

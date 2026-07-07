@@ -194,6 +194,7 @@ aliases = ["{default_model}", "{local_model}", "{opencode_provider}/{local_model
 supervisor_guidance = [
   "This worker can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.",
   "This worker can struggle with large effective context before an explicit overflow occurs; keep initial handoffs compact, split broad tasks into small concrete source slices, and avoid asking it to reread many files at once.",
+  "When worker_session_token_peak is high for the configured context window, treat the current worker session as context-pressured; shrink the next revision or use worker_mode=context_focus if the next edit would require broad rereading.",
   "For broad expected-patch tasks, prefer worker_turn_shape=small_patch_slice with one immediate source edit, one focused source file, a literal nearby anchor when available, no tests before a diff exists, and a compact edit packet/snippet so the worker can patch before broad exploration.",
   "When giving a small_patch_slice, tell it to use the provided edit packet first, avoid reading whole large files before the first edit, and verify git diff --stat is non-empty before finalizing.",
   "For revisions, prefer worker_mode=continue only while the worker context remains useful. If artifacts show context overflow, repeated summary updates, or no new delta after a focused revision, prefer worker_mode=context_focus with a smaller concrete source slice.",

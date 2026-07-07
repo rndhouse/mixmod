@@ -104,6 +104,8 @@ pub struct LiveWorkerSnapshot {
     pub new_delta_changed_line_count: usize,
     /// Number of context-overflow events seen in current worker stdout.
     pub context_overflow_count: u64,
+    /// Peak total-token count reported by structured worker stdout.
+    pub worker_session_token_peak: Option<u64>,
     /// Most repeated read/search-like tool signature observed in this segment.
     pub repeated_read_signature: Option<String>,
     /// Count for the most repeated read/search-like tool signature.

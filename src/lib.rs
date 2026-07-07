@@ -111,6 +111,7 @@ pub(crate) use run::{
 };
 pub(crate) use run::{
     run_mixmod_task_with_session, run_mixmod_task_with_session_recovery_and_advisor, shell_command,
+    worker_session_token_peak,
 };
 pub(crate) use state::state_layout;
 pub(crate) use supervisor::{

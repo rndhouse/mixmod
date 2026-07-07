@@ -343,6 +343,7 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
                 "new_delta_bytes": bounded_snapshot.new_delta_bytes,
                 "new_delta_files": bounded_snapshot.new_delta_files,
                 "context_overflow_count": bounded_snapshot.context_overflow_count,
+                "worker_session_token_peak": bounded_snapshot.worker_session_token_peak,
                 "repeated_read_signature": bounded_snapshot.repeated_read_signature,
                 "repeated_read_count": bounded_snapshot.repeated_read_count,
                 "live_control_check_index": bounded_snapshot.live_control_check_index,

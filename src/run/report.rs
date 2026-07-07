@@ -60,6 +60,7 @@ pub(super) struct RunReportInput<'a> {
     pub(super) stats: &'a PatchStats,
     pub(super) worktree_stats: &'a PatchStats,
     pub(super) context_overflow: &'a WorkerContextSignals,
+    pub(super) worker_session_token_peak: Option<u64>,
     pub(super) notes: &'a [String],
     pub(super) root: &'a Path,
     pub(super) out_dir: &'a Path,
@@ -75,6 +76,7 @@ pub(super) fn build_run_report(input: RunReportInput<'_>) -> String {
         stats,
         worktree_stats,
         context_overflow,
+        worker_session_token_peak,
         notes,
         root,
         out_dir,
@@ -134,6 +136,7 @@ pub(super) fn build_run_report(input: RunReportInput<'_>) -> String {
 - Heartbeats: {heartbeat_count}
 - Worker context overflow events: {context_overflow_count}
 - Last context overflow: {context_overflow_last}
+- Worker session token peak: {worker_session_token_peak}
 
 ## Changed Files
 
@@ -217,6 +220,9 @@ Heartbeat log: `{heartbeat}`
             .context_overflow_last_message
             .as_deref()
             .unwrap_or("none"),
+        worker_session_token_peak = worker_session_token_peak
+            .map(|tokens| tokens.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
         files = files,
         changed_lines = stats.changed_line_count,
         added = stats.added_lines,

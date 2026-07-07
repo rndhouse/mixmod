@@ -16,7 +16,8 @@ use crate::{
     DEFAULT_OPENCODE_LOCAL_MODEL, LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OpenCodeConfig,
     SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file,
     append_jsonl, atomic_write, diff_without_unchanged_blocks, env_u64, get_bool, get_str,
-    get_string_array, git_diff_with_untracked, patch_stats, truncate_for_report, write_pretty_json,
+    get_string_array, git_diff_with_untracked, patch_stats, truncate_for_report,
+    worker_session_token_peak, write_pretty_json,
 };
 
 use super::args::{prepare_opencode_control_args, redact_runtime_opencode_arg};
@@ -1073,6 +1074,7 @@ fn build_live_worker_snapshot(input: LiveWorkerSnapshotInput<'_>) -> Result<Live
         new_delta_files: stats.files,
         new_delta_changed_line_count: stats.changed_line_count,
         context_overflow_count: count_context_overflow(segment_stdout),
+        worker_session_token_peak: worker_session_token_peak(segment_stdout),
         repeated_read_signature: tool_activity.repeated_read_signature,
         repeated_read_count: tool_activity.repeated_read_count,
         recent_tool_events: tool_activity.recent_tool_events,
