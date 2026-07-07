@@ -270,6 +270,38 @@ Instruction: {instruction}
     ))
 }
 
+pub(crate) fn supervisor_live_control_prompt(
+    work_dir: &Path,
+    snapshot: &LiveWorkerSnapshot,
+    worker_guidance: &WorkerSupervisorGuidance,
+) -> Result<String> {
+    let snapshot_json = serde_json::to_string_pretty(snapshot)
+        .context("failed to serialize live worker snapshot")?;
+    let worker_guidance = render_worker_guidance(worker_guidance);
+    Ok(format!(
+        r#"You are the Mixmod supervisor inspecting a worker turn while it is still running.
+Do not edit files. Do not run tests. Do not ask the user for approval.
+{worker_guidance}
+Return only JSON matching this schema:
+{{"action":"wait|interrupt_continue|interrupt_context_focus|stop","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words"}}
+Use wait when the worker is making useful progress or when the evidence is ambiguous.
+Use interrupt_continue to stop the current worker process and resume the same worker session with a sharper instruction.
+Use interrupt_context_focus to stop the current worker process and start a fresh worker session on the same worktree. Prefer this after context overflow, repeated no-delta rereading, or stale/harmful worker context.
+Use stop only when the worker loop is clearly blocked and another worker turn is unlikely to help.
+Do not solve the task yourself. Your job is process control: decide whether to keep waiting or steer the worker.
+If new_delta_bytes is 0 and recent_tool_events show repeated reads/searches of the same target, prefer an interrupt over waiting unless stdout shows a concrete edit is imminent.
+If context_overflow_count is positive and no new delta exists, prefer interrupt_context_focus with a compact restatement of the exact next source edit.
+Working repo: {work_dir}
+
+Live worker snapshot:
+```json
+{snapshot_json}
+```
+"#,
+        work_dir = work_dir.display()
+    ))
+}
+
 pub(crate) fn supervisor_feedback_repair_prompt(
     work_dir: &Path,
     artifact_paths: &[PathBuf],

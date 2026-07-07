@@ -1,5 +1,6 @@
 use crate::experiment::{write_revision_task, write_worker_brief_task};
 use crate::*;
+use std::sync::Arc;
 
 /// Options for running the public Mixmod default strategy.
 pub(crate) struct DefaultStrategyOptions {
@@ -67,6 +68,7 @@ impl DefaultStrategyRun<'_> {
         let supervisor_init = options
             .supervisor_init
             .unwrap_or(config.strategy.supervisor_init);
+        let live_supervision = config.strategy.live_supervision.clone();
         let worker_guidance = config.worker_supervisor_guidance();
         let runner = worker_harness_for_config(config);
 
@@ -75,6 +77,16 @@ impl DefaultStrategyRun<'_> {
         let _ = read_task_json(&task_file)?;
 
         let feedback_path = out_dir.join(SUPERVISOR_FEEDBACK_JSONL);
+        let live_supervisor = live_supervision.enabled.then(|| {
+            Arc::new(LiveSupervisorAdvisor::new(
+                root,
+                &out_dir,
+                &feedback_path,
+                supervisor.clone(),
+                worker_guidance.clone(),
+                live_supervision.clone(),
+            ))
+        });
         let worker_brief = run_supervisor_brief_turn(
             root,
             &out_dir,
@@ -93,7 +105,7 @@ impl DefaultStrategyRun<'_> {
         let worker_task = write_worker_brief_task(&task_file, &worker_brief.brief, &out_dir)?;
         let worker_runs_dir = out_dir.join("worker-runs");
         let proposal_out = worker_runs_dir.join("proposal");
-        let proposal_receipt = run_mixmod_task_with_session_and_recovery(
+        let proposal_receipt = run_mixmod_task_with_session_recovery_and_advisor(
             root,
             DelegationMode::Patch,
             &worker_task,
@@ -102,6 +114,7 @@ impl DefaultStrategyRun<'_> {
             false,
             options.resume_session,
             !options.stop_after_first_worker,
+            live_supervisor_advisor(&live_supervisor),
         )?;
         ensure_worker_run_verified(&out_dir, &proposal_receipt, &proposal_out)?;
 
@@ -174,7 +187,7 @@ impl DefaultStrategyRun<'_> {
                         };
                         let previous_out = final_out.clone();
                         final_out = worker_runs_dir.join(revision_out_name);
-                        let revision_receipt = run_mixmod_task_with_session(
+                        let revision_receipt = run_mixmod_task_with_session_recovery_and_advisor(
                             root,
                             DelegationMode::Patch,
                             &revision_task,
@@ -182,6 +195,8 @@ impl DefaultStrategyRun<'_> {
                             runner.as_ref(),
                             false,
                             resume_session_id,
+                            true,
+                            live_supervisor_advisor(&live_supervisor),
                         )?;
                         ensure_worker_run_verified(&out_dir, &revision_receipt, &final_out)?;
                         write_patch_checkpoint_comparison(&previous_out, &final_out, &decision)?;
@@ -206,6 +221,9 @@ impl DefaultStrategyRun<'_> {
             .collect::<Result<Vec<_>>>()?;
         let patch_checkpoint_metrics = patch_checkpoint_metrics(&worker_run_dirs)?;
         let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
+        if let Some(live_supervisor) = &live_supervisor {
+            supervisor_samples.extend(live_supervisor.drain_usage_samples());
+        }
         let supervisor_usage = aggregate_supervisor_usage(&supervisor_samples);
         let local_worker_stdout = worker_metrics
             .iter()
@@ -408,6 +426,14 @@ impl DefaultStrategyRun<'_> {
         println!("patch: {}", display_path(root, &out_dir.join(FINAL_PATCH)));
         Ok(())
     }
+}
+
+fn live_supervisor_advisor(
+    advisor: &Option<Arc<LiveSupervisorAdvisor>>,
+) -> Option<Arc<dyn SupervisorAdvisor>> {
+    advisor
+        .as_ref()
+        .map(|advisor| Arc::clone(advisor) as Arc<dyn SupervisorAdvisor>)
 }
 
 fn ensure_worker_run_verified(out_dir: &Path, receipt: &Receipt, run_dir: &Path) -> Result<()> {

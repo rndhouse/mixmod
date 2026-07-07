@@ -53,8 +53,8 @@ pub(crate) use checkpoint::{
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub(crate) use config::is_cloud_opencode_provider;
 pub use config::{
-    LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig, StrategyConfig,
-    SupervisorConfig, SupervisorInitMode, WorkerBackend, WorkerConfig,
+    LiveSupervisionConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
+    StrategyConfig, SupervisorConfig, SupervisorInitMode, WorkerBackend, WorkerConfig,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
@@ -66,7 +66,8 @@ pub use harness::codex::ShellCodexRunner;
 pub use harness::opencode::ShellOpenCodeRunner;
 pub use harness::{
     AgentBackend, AgentHarness, AgentOutput, AgentRequest, AgentRole, AgentSessionMode,
-    OpenCodeOutput, OpenCodeRequest, OpenCodeRunner, worker_harness_for_config,
+    LiveWorkerSnapshot, OpenCodeOutput, OpenCodeRequest, OpenCodeRunner, SupervisorAdvisor,
+    worker_harness_for_config,
 };
 pub use install::{doctor_project, init_project, status_project};
 pub use interventions::{
@@ -102,17 +103,19 @@ pub(crate) use live::{
 };
 pub(crate) use report::budgeted_report;
 #[cfg(test)]
+pub(crate) use run::run_mixmod_task_with_session_and_recovery;
+#[cfg(test)]
 pub(crate) use run::{
     build_opencode_instruction, build_run_summary, opencode_exit_status_label,
     worker_context_signals,
 };
 pub(crate) use run::{
-    run_mixmod_task_with_session, run_mixmod_task_with_session_and_recovery, shell_command,
+    run_mixmod_task_with_session, run_mixmod_task_with_session_recovery_and_advisor, shell_command,
 };
 pub(crate) use state::state_layout;
 pub(crate) use supervisor::{
-    RevisionHandoff, SupervisorFeedbackTurn, aggregate_supervisor_usage, codex_only_prompt,
-    normalize_worker_mode, run_codex_app_server_turn, run_supervisor_brief_turn,
+    LiveSupervisorAdvisor, RevisionHandoff, SupervisorFeedbackTurn, aggregate_supervisor_usage,
+    codex_only_prompt, normalize_worker_mode, run_codex_app_server_turn, run_supervisor_brief_turn,
     run_supervisor_feedback_turn,
 };
 #[cfg(test)]

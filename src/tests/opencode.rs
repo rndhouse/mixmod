@@ -54,6 +54,7 @@ fn test_opencode_request(root: &Path) -> AgentRequest {
         session_id: "opencode-session-test".to_string(),
         resume_session_id: None,
         require_local: false,
+        supervisor_advisor: None,
     }
 }
 
@@ -129,6 +130,99 @@ fn context_focus_args_start_fresh_titled_session_with_control_message() {
     );
 }
 
+struct StaticStopAdvisor;
+
+impl SupervisorAdvisor for StaticStopAdvisor {
+    fn advise(&self, snapshot: &LiveWorkerSnapshot) -> Result<Option<Value>> {
+        assert_eq!(snapshot.new_delta_bytes, 0);
+        Ok(Some(json!({
+            "action": "stop",
+            "message_to_worker": "Stop this stalled turn.",
+            "risk": "test_stop"
+        })))
+    }
+}
+
+#[test]
+fn live_advisor_control_stops_running_opencode() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let fake_opencode = root.join("fake-opencode.sh");
+    let calls_path = root.join("calls.txt");
+    let script = format!(
+        r#"#!/bin/sh
+printf 'cmd=%s args=%s\n' "$1" "$*" >> "{}"
+if [ "$1" = "models" ]; then
+  echo "llama.cpp/qwen/qwen3.6-27b"
+  exit 0
+fi
+if [ "$1" = "db" ]; then
+  echo '[{{"id":"ses_fake"}}]'
+  exit 0
+fi
+echo "initial"
+exec sleep 30
+"#,
+        calls_path.display()
+    );
+    atomic_write(&fake_opencode, script.as_bytes()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&fake_opencode).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_opencode, perms).unwrap();
+    }
+
+    let out_dir = state_layout(root).runs().join("live-advisor-stop-test");
+    let advisor: std::sync::Arc<dyn SupervisorAdvisor> = std::sync::Arc::new(StaticStopAdvisor);
+    let request = AgentRequest {
+        root: root.to_path_buf(),
+        mode: DelegationMode::Patch,
+        task_path: root.join("task.json"),
+        out_dir: out_dir.clone(),
+        instruction_path: out_dir.join("opencode-instructions.md"),
+        instruction: "FULL ORIGINAL INSTRUCTION".to_string(),
+        session_id: "opencode-session-test".to_string(),
+        resume_session_id: None,
+        require_local: false,
+        supervisor_advisor: Some(advisor),
+    };
+    let mut config = OpenCodeConfig::default();
+    config.local_verification.enabled = false;
+    config.heartbeat_seconds = 1;
+    config.worker_timeout_seconds = 10;
+    config.idle_timeout_seconds = 0;
+    let selection = OpenCodeModelSelection {
+        provider: "llama.cpp".to_string(),
+        model: "qwen/qwen3.6-27b".to_string(),
+        model_arg: "llama.cpp/qwen/qwen3.6-27b".to_string(),
+        require_local: false,
+    };
+
+    let output = run_with_local_verification(
+        fake_opencode.to_str().unwrap(),
+        &[
+            "run".to_string(),
+            "--title".to_string(),
+            "opencode-session-test".to_string(),
+            "FULL ORIGINAL INSTRUCTION".to_string(),
+        ],
+        &request,
+        &config,
+        &selection,
+    )
+    .unwrap();
+
+    assert!(output.interrupted_by_supervisor);
+    assert_eq!(output.supervisor_control_action.as_deref(), Some("stop"));
+    assert_eq!(output.supervisor_control_events.len(), 1);
+    assert_eq!(
+        output.supervisor_control_events[0].risk.as_str(),
+        "test_stop"
+    );
+}
+
 #[test]
 fn interrupt_continue_restarts_opencode_with_same_session_inside_one_run() {
     let temp = TempDir::new().unwrap();
@@ -179,6 +273,7 @@ esac
         session_id: "opencode-session-test".to_string(),
         resume_session_id: None,
         require_local: false,
+        supervisor_advisor: None,
     };
     let mut config = OpenCodeConfig::default();
     config.local_verification.enabled = false;

@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use std::{collections::BTreeSet, env};
 
 use crate::harness::codex::{CodexAppServer, CodexSandbox, CodexTurnResult};
@@ -7,8 +8,9 @@ mod prompts;
 
 pub(crate) use prompts::{
     codex_only_prompt, supervisor_feedback_prompt, supervisor_feedback_repair_prompt,
-    supervisor_feedback_repair_retry_prompt, supervisor_worker_brief_prompt,
-    supervisor_worker_brief_repair_prompt, supervisor_worker_brief_repair_retry_prompt,
+    supervisor_feedback_repair_retry_prompt, supervisor_live_control_prompt,
+    supervisor_worker_brief_prompt, supervisor_worker_brief_repair_prompt,
+    supervisor_worker_brief_repair_retry_prompt,
 };
 
 pub(crate) struct SupervisorFeedbackTurn {
@@ -163,6 +165,211 @@ impl SupervisorUsage {
     pub(crate) fn session_reused(&self) -> bool {
         self.thread_reuse_count() > 0
     }
+}
+
+pub(crate) struct LiveSupervisorAdvisor {
+    work_dir: PathBuf,
+    artifact_dir: PathBuf,
+    feedback_path: PathBuf,
+    supervisor: SupervisorConfig,
+    worker_guidance: WorkerSupervisorGuidance,
+    config: LiveSupervisionConfig,
+    state: Mutex<LiveSupervisorAdvisorState>,
+}
+
+#[derive(Default)]
+struct LiveSupervisorAdvisorState {
+    check_count: u64,
+    last_check_elapsed_ms: Option<u64>,
+    usage_samples: Vec<SupervisorUsageSample>,
+}
+
+impl LiveSupervisorAdvisor {
+    pub(crate) fn new(
+        work_dir: &Path,
+        artifact_dir: &Path,
+        feedback_path: &Path,
+        supervisor: SupervisorConfig,
+        worker_guidance: WorkerSupervisorGuidance,
+        config: LiveSupervisionConfig,
+    ) -> Self {
+        Self {
+            work_dir: work_dir.to_path_buf(),
+            artifact_dir: artifact_dir.to_path_buf(),
+            feedback_path: feedback_path.to_path_buf(),
+            supervisor,
+            worker_guidance,
+            config,
+            state: Mutex::new(LiveSupervisorAdvisorState::default()),
+        }
+    }
+
+    pub(crate) fn drain_usage_samples(&self) -> Vec<SupervisorUsageSample> {
+        std::mem::take(
+            &mut self
+                .state
+                .lock()
+                .expect("live supervisor advisor state lock poisoned")
+                .usage_samples,
+        )
+    }
+
+    fn reserve_check(&self, snapshot: &LiveWorkerSnapshot) -> Option<u64> {
+        if !live_supervision_snapshot_should_check(snapshot, &self.config) {
+            return None;
+        }
+        let mut state = self
+            .state
+            .lock()
+            .expect("live supervisor advisor state lock poisoned");
+        if state.check_count >= self.config.max_checks_per_worker {
+            return None;
+        }
+        if let Some(last_check) = state.last_check_elapsed_ms {
+            let elapsed_since_check = snapshot.elapsed_ms.saturating_sub(last_check);
+            if elapsed_since_check < self.config.check_interval_seconds.saturating_mul(1000) {
+                return None;
+            }
+        }
+        state.check_count += 1;
+        state.last_check_elapsed_ms = Some(snapshot.elapsed_ms);
+        Some(state.check_count)
+    }
+}
+
+impl SupervisorAdvisor for LiveSupervisorAdvisor {
+    fn advise(&self, snapshot: &LiveWorkerSnapshot) -> Result<Option<Value>> {
+        let Some(check_index) = self.reserve_check(snapshot) else {
+            return Ok(None);
+        };
+        let label = format!("live-control-{check_index}");
+        let sandbox = supervisor_codex_sandbox_from_env()?;
+        let mut bounded_snapshot = snapshot.clone();
+        bounded_snapshot.stdout_tail =
+            truncate_for_report(&bounded_snapshot.stdout_tail, self.config.stdout_tail_bytes);
+        bounded_snapshot.stderr_tail =
+            truncate_for_report(&bounded_snapshot.stderr_tail, self.config.stderr_tail_bytes);
+        let prompt = supervisor_live_control_prompt(
+            &self.work_dir,
+            &bounded_snapshot,
+            &self.worker_guidance,
+        )?;
+        let result = run_codex_app_server_turn(
+            &self.work_dir,
+            &self.artifact_dir,
+            &label,
+            &prompt,
+            &self.supervisor,
+            sandbox,
+        )?;
+        let parsed = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
+            json!({
+                "action": "wait",
+                "risk": "live supervisor response was not parseable JSON"
+            })
+        });
+        let action = normalize_supervisor_control_action(
+            get_str(&parsed, "action").or_else(|| get_str(&parsed, "verdict")),
+        );
+        let worker_mode =
+            normalize_supervisor_control_worker_mode(&action, get_str(&parsed, "worker_mode"));
+        let message_to_worker = get_str(&parsed, "message_to_worker")
+            .or_else(|| get_str(&parsed, "message"))
+            .or_else(|| get_str(&parsed, "hint"))
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let risk = get_str(&parsed, "risk").unwrap_or("").trim().to_string();
+        let feedback_record = json!({
+            "label": label,
+            "timestamp": Utc::now().to_rfc3339(),
+            "live_control": parsed,
+            "snapshot": {
+                "out_dir": bounded_snapshot.out_dir,
+                "elapsed_ms": bounded_snapshot.elapsed_ms,
+                "segment_elapsed_ms": bounded_snapshot.segment_elapsed_ms,
+                "stdout_bytes": bounded_snapshot.stdout_bytes,
+                "stderr_bytes": bounded_snapshot.stderr_bytes,
+                "last_output_age_ms": bounded_snapshot.last_output_age_ms,
+                "new_delta_bytes": bounded_snapshot.new_delta_bytes,
+                "new_delta_files": bounded_snapshot.new_delta_files,
+                "context_overflow_count": bounded_snapshot.context_overflow_count,
+                "repeated_read_signature": bounded_snapshot.repeated_read_signature,
+                "repeated_read_count": bounded_snapshot.repeated_read_count,
+                "recent_tool_events": bounded_snapshot.recent_tool_events,
+            },
+            "codex_exit_status": result.exit_status,
+            "supervisor_model": result.model.clone(),
+            "supervisor_reasoning_effort": result.reasoning_effort.clone(),
+            "supervisor_input_tokens": result.usage.input_tokens,
+            "supervisor_output_tokens": result.usage.output_tokens,
+            "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
+            "supervisor_total_tokens": result.usage.total_tokens,
+            "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
+            "input_bytes": result.input_bytes,
+            "output_bytes": result.output_bytes,
+            "auth_copied_then_removed": result.auth_copied_then_removed,
+            "codex_app_server_thread_id": result.thread_id.clone(),
+            "codex_app_server_turn_id": result.turn_id.clone(),
+        });
+        append_jsonl(&self.feedback_path, &feedback_record)?;
+        self.state
+            .lock()
+            .expect("live supervisor advisor state lock poisoned")
+            .usage_samples
+            .push(SupervisorUsageSample {
+                input_tokens: result.usage.input_tokens,
+                output_tokens: result.usage.output_tokens,
+                reasoning_tokens: result.usage.reasoning_tokens,
+                total_tokens: result.usage.total_tokens,
+                cached_input_tokens: result.usage.cached_input_tokens,
+                input_bytes: result.input_bytes,
+                output_bytes: result.output_bytes,
+                thread_id: result.thread_id,
+                turn_id: result.turn_id,
+            });
+
+        if action == "wait" {
+            return Ok(None);
+        }
+
+        let control = SupervisorControlCommand {
+            timestamp: Utc::now().to_rfc3339(),
+            action,
+            worker_mode,
+            message_to_worker,
+            focus_files: get_string_array(&feedback_record["live_control"], "focus_files"),
+            required_checks: get_string_array(&feedback_record["live_control"], "required_checks"),
+            risk,
+            source: "codex_live_supervisor".to_string(),
+        };
+        serde_json::to_value(control)
+            .map(Some)
+            .context("failed to serialize live supervisor control")
+    }
+}
+
+fn live_supervision_snapshot_should_check(
+    snapshot: &LiveWorkerSnapshot,
+    config: &LiveSupervisionConfig,
+) -> bool {
+    if !config.enabled || config.max_checks_per_worker == 0 {
+        return false;
+    }
+    if snapshot.elapsed_ms < config.min_elapsed_seconds.saturating_mul(1000) {
+        return false;
+    }
+    if snapshot.new_delta_bytes > 0 {
+        return false;
+    }
+    if snapshot.context_overflow_count > 0 {
+        return true;
+    }
+    if snapshot.repeated_read_count >= config.repeated_read_threshold {
+        return true;
+    }
+    snapshot.last_output_age_ms >= config.stale_after_seconds.saturating_mul(1000)
+        && snapshot.stdout_bytes > 0
 }
 
 pub(crate) fn run_supervisor_brief_turn(
@@ -1085,6 +1292,53 @@ mod tests {
         assert!(!worker_brief_needs_small_slice_repair(
             &brief,
             &small_slice_guidance()
+        ));
+    }
+
+    #[test]
+    fn live_supervision_waits_when_worker_has_new_delta() {
+        let snapshot = LiveWorkerSnapshot {
+            elapsed_ms: 300_000,
+            new_delta_bytes: 120,
+            repeated_read_count: 12,
+            last_output_age_ms: 120_000,
+            ..LiveWorkerSnapshot::default()
+        };
+
+        assert!(!live_supervision_snapshot_should_check(
+            &snapshot,
+            &LiveSupervisionConfig::default()
+        ));
+    }
+
+    #[test]
+    fn live_supervision_checks_repeated_no_delta_reads() {
+        let snapshot = LiveWorkerSnapshot {
+            elapsed_ms: 300_000,
+            new_delta_bytes: 0,
+            repeated_read_count: 4,
+            repeated_read_signature: Some("read: src/lib.rs".to_string()),
+            ..LiveWorkerSnapshot::default()
+        };
+
+        assert!(live_supervision_snapshot_should_check(
+            &snapshot,
+            &LiveSupervisionConfig::default()
+        ));
+    }
+
+    #[test]
+    fn live_supervision_checks_no_delta_context_overflow() {
+        let snapshot = LiveWorkerSnapshot {
+            elapsed_ms: 130_000,
+            new_delta_bytes: 0,
+            context_overflow_count: 1,
+            ..LiveWorkerSnapshot::default()
+        };
+
+        assert!(live_supervision_snapshot_should_check(
+            &snapshot,
+            &LiveSupervisionConfig::default()
         ));
     }
 

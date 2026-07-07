@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{
@@ -10,12 +11,12 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use serde_json::{Value, json};
 
-use crate::harness::AgentRequest;
+use crate::harness::{AgentRequest, LiveWorkerSnapshot};
 use crate::{
     DEFAULT_OPENCODE_LOCAL_MODEL, LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OpenCodeConfig,
     SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file,
     append_jsonl, atomic_write, diff_without_unchanged_blocks, env_u64, get_bool, get_str,
-    get_string_array, git_diff_with_untracked, write_pretty_json,
+    get_string_array, git_diff_with_untracked, patch_stats, write_pretty_json,
 };
 
 use super::args::{prepare_opencode_control_args, redact_runtime_opencode_arg};
@@ -24,7 +25,7 @@ use super::config::{
 };
 use super::control::{
     LiveStatusSnapshot, live_status_json, normalize_supervisor_control_action,
-    normalize_supervisor_control_worker_mode, read_supervisor_control,
+    normalize_supervisor_control_worker_mode, read_supervisor_control, tail_text,
 };
 use super::process::{
     SpawnOpenCodeProcess, join_pipe_logger, now_millis, run_optional_command_text,
@@ -361,6 +362,7 @@ impl LocalVerificationRun<'_> {
         let stdout_bytes = Arc::new(AtomicU64::new(0));
         let stderr_bytes = Arc::new(AtomicU64::new(0));
         let last_output_at = Arc::new(AtomicU64::new(now_millis()));
+        let live_supervision_baseline_diff = git_diff_with_untracked(root).unwrap_or_default();
         let mut small_patch_no_delta_intervention =
             SmallPatchNoDeltaIntervention::from_request(request);
 
@@ -536,6 +538,48 @@ impl LocalVerificationRun<'_> {
                         }),
                     )?;
                     last_heartbeat = Instant::now();
+                }
+
+                if !supervisor_control_path.exists()
+                    && let Some(advisor) = request.supervisor_advisor.as_ref()
+                {
+                    match build_live_worker_snapshot(LiveWorkerSnapshotInput {
+                        request,
+                        out_dir,
+                        stdout_path: &stdout_path,
+                        stderr_path: &stderr_path,
+                        baseline_diff: &live_supervision_baseline_diff,
+                        segment_stdout_start,
+                        start,
+                        segment_started_instant,
+                        segment_index,
+                        segment_action: &segment_action,
+                        segment_worker_mode: &segment_worker_mode,
+                        segment_label: &segment_label,
+                        segment_resume_session_id: segment_resume_session_id.as_deref(),
+                        stdout_bytes: stdout_bytes.load(Ordering::Relaxed),
+                        stderr_bytes: stderr_bytes.load(Ordering::Relaxed),
+                        last_output_age,
+                        gpu_activity_observed: gpu_activity_seen,
+                        backend_activity_observed: backend_activity_seen,
+                    }) {
+                        Ok(snapshot) => match advisor.advise(&snapshot) {
+                            Ok(Some(control)) => {
+                                write_pretty_json(
+                                    &supervisor_control_path,
+                                    &control,
+                                    "live supervisor control",
+                                )?;
+                            }
+                            Ok(None) => {}
+                            Err(error) => notes.push(format!(
+                                "Live supervisor check failed during OpenCode heartbeat: {error}"
+                            )),
+                        },
+                        Err(error) => {
+                            notes.push(format!("Unable to build live supervisor snapshot: {error}"))
+                        }
+                    }
                 }
 
                 if !supervisor_control_path.exists() {
@@ -928,6 +972,156 @@ fn backend_activity_observed(text: Option<&str>, selection: &OpenCodeModelSelect
     lower.contains(&model)
         || lower.contains(&model_arg)
         || lower.contains(DEFAULT_OPENCODE_LOCAL_MODEL)
+}
+
+struct LiveWorkerSnapshotInput<'a> {
+    request: &'a AgentRequest,
+    out_dir: &'a Path,
+    stdout_path: &'a Path,
+    stderr_path: &'a Path,
+    baseline_diff: &'a str,
+    segment_stdout_start: u64,
+    start: Instant,
+    segment_started_instant: Instant,
+    segment_index: u64,
+    segment_action: &'a str,
+    segment_worker_mode: &'a str,
+    segment_label: &'a str,
+    segment_resume_session_id: Option<&'a str>,
+    stdout_bytes: u64,
+    stderr_bytes: u64,
+    last_output_age: u64,
+    gpu_activity_observed: bool,
+    backend_activity_observed: bool,
+}
+
+fn build_live_worker_snapshot(input: LiveWorkerSnapshotInput<'_>) -> Result<LiveWorkerSnapshot> {
+    let current_diff = git_diff_with_untracked(&input.request.root).unwrap_or_default();
+    let new_delta = diff_without_unchanged_blocks(&current_diff, input.baseline_diff);
+    let stats = patch_stats(&new_delta);
+    let stdout = fs::read(input.stdout_path).unwrap_or_default();
+    let segment_start = (input.segment_stdout_start as usize).min(stdout.len());
+    let segment_stdout = &stdout[segment_start..];
+    let tool_activity = summarize_live_tool_activity(segment_stdout);
+    Ok(LiveWorkerSnapshot {
+        out_dir: input.out_dir.to_string_lossy().to_string(),
+        mode: input.request.mode.to_string(),
+        task_path: input.request.task_path.to_string_lossy().to_string(),
+        session_label: input.segment_label.to_string(),
+        resume_session_id: input.segment_resume_session_id.map(ToOwned::to_owned),
+        opencode_segment: input.segment_index,
+        segment_action: input.segment_action.to_string(),
+        segment_worker_mode: input.segment_worker_mode.to_string(),
+        elapsed_ms: millis_u64(input.start.elapsed()),
+        segment_elapsed_ms: millis_u64(input.segment_started_instant.elapsed()),
+        stdout_bytes: input.stdout_bytes,
+        stderr_bytes: input.stderr_bytes,
+        last_output_age_ms: input.last_output_age,
+        gpu_activity_observed: input.gpu_activity_observed,
+        backend_activity_observed: input.backend_activity_observed,
+        new_delta_bytes: new_delta.len() as u64,
+        new_delta_files: stats.files,
+        new_delta_changed_line_count: stats.changed_line_count,
+        context_overflow_count: count_context_overflow(segment_stdout),
+        repeated_read_signature: tool_activity.repeated_read_signature,
+        repeated_read_count: tool_activity.repeated_read_count,
+        recent_tool_events: tool_activity.recent_tool_events,
+        stdout_tail: tail_text(input.stdout_path, 6000),
+        stderr_tail: tail_text(input.stderr_path, 2000),
+    })
+}
+
+fn millis_u64(duration: Duration) -> u64 {
+    duration.as_millis().try_into().unwrap_or(u64::MAX)
+}
+
+#[derive(Debug, Default)]
+struct LiveToolActivity {
+    repeated_read_signature: Option<String>,
+    repeated_read_count: u64,
+    recent_tool_events: Vec<String>,
+}
+
+fn summarize_live_tool_activity(stdout: &[u8]) -> LiveToolActivity {
+    let mut counts = BTreeMap::<String, u64>::new();
+    let mut recent = Vec::new();
+    let text = String::from_utf8_lossy(stdout);
+    for line in text.lines() {
+        let Ok(event) = serde_json::from_str::<Value>(line.trim()) else {
+            continue;
+        };
+        if get_str(&event, "type") != Some("tool_use") {
+            continue;
+        }
+        let tool = event
+            .pointer("/part/tool")
+            .and_then(Value::as_str)
+            .unwrap_or("?");
+        let input = tool_input_summary(&event);
+        let status = event
+            .pointer("/part/state/status")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let event_summary = if status.is_empty() {
+            format!("{tool}: {input}")
+        } else {
+            format!("{tool}: {input} => {status}")
+        };
+        recent.push(event_summary);
+        if recent.len() > 20 {
+            recent.remove(0);
+        }
+        if is_read_like_tool(tool) {
+            *counts.entry(format!("{tool}: {input}")).or_default() += 1;
+        }
+    }
+
+    let (repeated_read_signature, repeated_read_count) = counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(signature, count)| (Some(signature), count))
+        .unwrap_or((None, 0));
+
+    LiveToolActivity {
+        repeated_read_signature,
+        repeated_read_count,
+        recent_tool_events: recent,
+    }
+}
+
+fn tool_input_summary(event: &Value) -> String {
+    let value = event
+        .pointer("/part/state/input/filePath")
+        .or_else(|| event.pointer("/part/state/input/pattern"))
+        .or_else(|| event.pointer("/part/state/input/path"))
+        .or_else(|| event.pointer("/part/state/input/command"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    truncate_tool_input(value)
+}
+
+fn truncate_tool_input(value: &str) -> String {
+    let value = value.trim().replace('\n', " ");
+    if value.chars().count() <= 180 {
+        return value;
+    }
+    let mut truncated = value.chars().take(180).collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
+fn is_read_like_tool(tool: &str) -> bool {
+    matches!(tool, "read" | "grep" | "glob" | "list")
+}
+
+fn count_context_overflow(stdout: &[u8]) -> u64 {
+    let text = String::from_utf8_lossy(stdout);
+    text.lines()
+        .filter(|line| {
+            line.contains("ContextOverflowError")
+                || line.contains("exceeds the available context size")
+        })
+        .count() as u64
 }
 
 #[cfg(test)]

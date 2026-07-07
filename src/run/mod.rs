@@ -1,4 +1,5 @@
 use crate::*;
+use std::sync::Arc;
 
 mod prompts;
 mod recovery;
@@ -73,6 +74,30 @@ pub(crate) fn run_mixmod_task_with_session_and_recovery(
     resume_session_id: Option<String>,
     allow_auto_followups: bool,
 ) -> Result<Receipt> {
+    run_mixmod_task_with_session_recovery_and_advisor(
+        root,
+        mode,
+        task_arg,
+        out_arg,
+        runner,
+        require_local,
+        resume_session_id,
+        allow_auto_followups,
+        None,
+    )
+}
+
+pub(crate) fn run_mixmod_task_with_session_recovery_and_advisor(
+    root: &Path,
+    mode: DelegationMode,
+    task_arg: &Path,
+    out_arg: &Path,
+    runner: &dyn AgentHarness,
+    require_local: bool,
+    resume_session_id: Option<String>,
+    allow_auto_followups: bool,
+    supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
+) -> Result<Receipt> {
     MixmodRun {
         root,
         mode,
@@ -82,6 +107,7 @@ pub(crate) fn run_mixmod_task_with_session_and_recovery(
         require_local,
         resume_session_id,
         allow_auto_followups,
+        supervisor_advisor,
     }
     .execute()
 }
@@ -95,6 +121,7 @@ struct MixmodRun<'a> {
     require_local: bool,
     resume_session_id: Option<String>,
     allow_auto_followups: bool,
+    supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
 }
 
 impl MixmodRun<'_> {
@@ -108,6 +135,7 @@ impl MixmodRun<'_> {
             require_local,
             resume_session_id,
             allow_auto_followups,
+            supervisor_advisor,
         } = self;
         let run_id = make_run_id("run");
         let task_path = absolutize(root, task_arg);
@@ -161,6 +189,7 @@ impl MixmodRun<'_> {
             session_id,
             resume_session_id,
             require_local,
+            supervisor_advisor,
         };
 
         let start_timestamp = Utc::now();

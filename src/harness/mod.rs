@@ -5,9 +5,12 @@
 //! harness code only executes the requested backend turn and reports what
 //! happened.
 
+use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{DelegationMode, MixmodConfig, SupervisorControlEvent, WorkerBackend};
@@ -54,8 +57,66 @@ pub enum AgentSessionMode {
     ContextFocus,
 }
 
+/// Compact live state from a running worker turn.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct LiveWorkerSnapshot {
+    /// Worker run artifact directory.
+    pub out_dir: String,
+    /// Delegation mode for the current worker turn.
+    pub mode: String,
+    /// Worker task JSON path.
+    pub task_path: String,
+    /// OpenCode session label for this worker run.
+    pub session_label: String,
+    /// OpenCode session id being resumed, when any.
+    pub resume_session_id: Option<String>,
+    /// Current OpenCode segment index.
+    pub opencode_segment: u64,
+    /// Segment action such as initial, interrupt_continue, or context focus.
+    pub segment_action: String,
+    /// Segment worker mode such as initial, continue, or context_focus.
+    pub segment_worker_mode: String,
+    /// Total worker-run elapsed time in milliseconds.
+    pub elapsed_ms: u64,
+    /// Current segment elapsed time in milliseconds.
+    pub segment_elapsed_ms: u64,
+    /// Captured worker stdout byte count.
+    pub stdout_bytes: u64,
+    /// Captured worker stderr byte count.
+    pub stderr_bytes: u64,
+    /// Milliseconds since the worker last emitted stdout or stderr.
+    pub last_output_age_ms: u64,
+    /// Whether GPU activity has been observed by local verification.
+    pub gpu_activity_observed: bool,
+    /// Whether the configured backend endpoint appears active.
+    pub backend_activity_observed: bool,
+    /// Current repository diff size relative to the start of this worker run.
+    pub new_delta_bytes: u64,
+    /// Files touched by the current repository diff relative to this worker run.
+    pub new_delta_files: Vec<String>,
+    /// Changed-line count in the current diff relative to this worker run.
+    pub new_delta_changed_line_count: usize,
+    /// Number of context-overflow events seen in current worker stdout.
+    pub context_overflow_count: u64,
+    /// Most repeated read/search-like tool signature observed in this segment.
+    pub repeated_read_signature: Option<String>,
+    /// Count for the most repeated read/search-like tool signature.
+    pub repeated_read_count: u64,
+    /// Recent compact tool events from structured worker stdout.
+    pub recent_tool_events: Vec<String>,
+    /// Bounded tail of worker stdout.
+    pub stdout_tail: String,
+    /// Bounded tail of worker stderr.
+    pub stderr_tail: String,
+}
+
+/// Optional strategy hook that can steer a live worker turn.
+pub trait SupervisorAdvisor: Send + Sync {
+    /// Return a supervisor control command for the harness, or `None` to wait.
+    fn advise(&self, snapshot: &LiveWorkerSnapshot) -> Result<Option<Value>>;
+}
+
 /// Request passed from Mixmod strategy/run code to an agent harness.
-#[derive(Debug)]
 pub struct AgentRequest {
     pub root: PathBuf,
     pub mode: DelegationMode,
@@ -66,6 +127,27 @@ pub struct AgentRequest {
     pub session_id: String,
     pub resume_session_id: Option<String>,
     pub require_local: bool,
+    pub supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
+}
+
+impl fmt::Debug for AgentRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgentRequest")
+            .field("root", &self.root)
+            .field("mode", &self.mode)
+            .field("task_path", &self.task_path)
+            .field("out_dir", &self.out_dir)
+            .field("instruction_path", &self.instruction_path)
+            .field("instruction", &self.instruction)
+            .field("session_id", &self.session_id)
+            .field("resume_session_id", &self.resume_session_id)
+            .field("require_local", &self.require_local)
+            .field(
+                "supervisor_advisor",
+                &self.supervisor_advisor.as_ref().map(|_| "configured"),
+            )
+            .finish()
+    }
 }
 
 impl AgentRequest {

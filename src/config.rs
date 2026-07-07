@@ -111,12 +111,52 @@ impl SupervisorInitMode {
 pub struct StrategyConfig {
     /// Initial supervisor briefing style.
     pub supervisor_init: SupervisorInitMode,
+    /// Periodic supervisor checks while a worker turn is still running.
+    pub live_supervision: LiveSupervisionConfig,
 }
 
 impl Default for StrategyConfig {
     fn default() -> Self {
         Self {
             supervisor_init: SupervisorInitMode::Compact,
+            live_supervision: LiveSupervisionConfig::default(),
+        }
+    }
+}
+
+/// Strategy settings for live supervisor intervention during worker turns.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct LiveSupervisionConfig {
+    /// Enables Codex supervisor heartbeat checks in default strategy runs.
+    pub enabled: bool,
+    /// Minimum worker-turn age before the first live supervisor check.
+    pub min_elapsed_seconds: u64,
+    /// Cooldown between live supervisor checks within one worker run.
+    pub check_interval_seconds: u64,
+    /// Last-output age that makes a no-delta worker eligible for inspection.
+    pub stale_after_seconds: u64,
+    /// Repeated read/search count that makes a no-delta worker eligible.
+    pub repeated_read_threshold: u64,
+    /// Maximum live supervisor checks per worker run.
+    pub max_checks_per_worker: u64,
+    /// Maximum stdout bytes exposed to a live supervisor check.
+    pub stdout_tail_bytes: usize,
+    /// Maximum stderr bytes exposed to a live supervisor check.
+    pub stderr_tail_bytes: usize,
+}
+
+impl Default for LiveSupervisionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_elapsed_seconds: 120,
+            check_interval_seconds: 120,
+            stale_after_seconds: 90,
+            repeated_read_threshold: 4,
+            max_checks_per_worker: 3,
+            stdout_tail_bytes: 6000,
+            stderr_tail_bytes: 2000,
         }
     }
 }

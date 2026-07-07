@@ -206,6 +206,7 @@ pub(super) fn run_revision_noop_followup(
         session_id: original_request.session_id.clone(),
         resume_session_id: Some(resume_session_id),
         require_local,
+        supervisor_advisor: original_request.supervisor_advisor.clone(),
     };
     let followup_output = runner.run(&followup_request)?;
     Ok((followup_output, followup_dir))
@@ -286,6 +287,7 @@ pub(super) fn run_empty_patch_followup(
         session_id: original_request.session_id.clone(),
         resume_session_id: Some(resume_session_id),
         require_local,
+        supervisor_advisor: original_request.supervisor_advisor.clone(),
     };
     let followup_output = runner.run(&followup_request)?;
     Ok((followup_output, followup_dir))

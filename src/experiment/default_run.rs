@@ -1,4 +1,5 @@
 use crate::*;
+use std::sync::Arc;
 
 use super::tasks::{write_revision_task, write_worker_brief_task};
 use super::util::{
@@ -58,6 +59,7 @@ impl DefaultExperimentRun<'_> {
         let supervisor_init = options
             .supervisor_init
             .unwrap_or(config.strategy.supervisor_init);
+        let live_supervision = config.strategy.live_supervision.clone();
         let worker_guidance = config.worker_supervisor_guidance();
         let default_dir = exp_dir.join("default");
         let logs_dir = default_dir.join("logs");
@@ -80,6 +82,16 @@ impl DefaultExperimentRun<'_> {
         let _ = read_task_json(&task_file)?;
         let runner = worker_harness_for_config(config);
         let feedback_path = default_dir.join(SUPERVISOR_FEEDBACK_JSONL);
+        let live_supervisor = live_supervision.enabled.then(|| {
+            Arc::new(LiveSupervisorAdvisor::new(
+                &work_dir,
+                &default_dir,
+                &feedback_path,
+                supervisor.clone(),
+                worker_guidance.clone(),
+                live_supervision.clone(),
+            ))
+        });
         let worker_brief = run_supervisor_brief_turn(
             &work_dir,
             &default_dir,
@@ -97,7 +109,7 @@ impl DefaultExperimentRun<'_> {
 
         let worker_task = write_worker_brief_task(&task_file, &worker_brief.brief, &default_dir)?;
         let proposal_out = state_layout(&work_dir).runs().join("default-proposal");
-        let proposal_receipt = run_mixmod_task_with_session_and_recovery(
+        let proposal_receipt = run_mixmod_task_with_session_recovery_and_advisor(
             &work_dir,
             DelegationMode::Patch,
             &worker_task,
@@ -106,6 +118,7 @@ impl DefaultExperimentRun<'_> {
             options.require_local,
             None,
             !options.stop_after_first_worker,
+            live_supervisor_advisor(&live_supervisor),
         )?;
         ensure_local_run_verified(
             root,
@@ -185,7 +198,7 @@ impl DefaultExperimentRun<'_> {
                         };
                         let previous_out = final_out.clone();
                         final_out = state_layout(&work_dir).runs().join(revision_out_name);
-                        let revision_receipt = run_mixmod_task_with_session(
+                        let revision_receipt = run_mixmod_task_with_session_recovery_and_advisor(
                             &work_dir,
                             DelegationMode::Patch,
                             &revision_task,
@@ -193,6 +206,8 @@ impl DefaultExperimentRun<'_> {
                             runner.as_ref(),
                             options.require_local,
                             resume_session_id,
+                            true,
+                            live_supervisor_advisor(&live_supervisor),
                         )?;
                         ensure_local_run_verified(
                             root,
@@ -224,6 +239,9 @@ impl DefaultExperimentRun<'_> {
             .collect::<Result<Vec<_>>>()?;
         let patch_checkpoint_metrics = patch_checkpoint_metrics(&worker_run_dirs)?;
         let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
+        if let Some(live_supervisor) = &live_supervisor {
+            supervisor_samples.extend(live_supervisor.drain_usage_samples());
+        }
         let supervisor_usage = aggregate_supervisor_usage(&supervisor_samples);
         let local_worker_stdout = worker_metrics
             .iter()
@@ -417,6 +435,14 @@ impl DefaultExperimentRun<'_> {
         );
         Ok(())
     }
+}
+
+fn live_supervisor_advisor(
+    advisor: &Option<Arc<LiveSupervisorAdvisor>>,
+) -> Option<Arc<dyn SupervisorAdvisor>> {
+    advisor
+        .as_ref()
+        .map(|advisor| Arc::clone(advisor) as Arc<dyn SupervisorAdvisor>)
 }
 
 fn ensure_local_run_verified(
