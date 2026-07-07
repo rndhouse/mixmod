@@ -15,6 +15,12 @@ pub(crate) use report::build_run_summary;
 pub(crate) use report::opencode_exit_status_label;
 use report::{RunReportInput, build_run_report};
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WorkerContextSignals {
+    pub(crate) context_overflow_count: u64,
+    pub(crate) context_overflow_last_message: Option<String>,
+}
+
 pub fn run_mixmod_task(
     root: &Path,
     mode: DelegationMode,
@@ -443,6 +449,13 @@ impl MixmodRun<'_> {
             &out_dir.join(REASONING_TRACE_JSONL),
             reasoning_trace.as_bytes(),
         )?;
+        let context_overflow = worker_context_signals(&output.stdout);
+        if context_overflow.context_overflow_count > 0 {
+            notes.push(format!(
+                "Worker stdout reported {} context overflow event(s); prefer worker_mode=context_focus with a smaller next slice if another revision is needed.",
+                context_overflow.context_overflow_count
+            ));
+        }
 
         let session = build_session_jsonl(&start_timestamp, &end_timestamp, &output)?;
         atomic_write(&out_dir.join(SESSION_JSONL), session.as_bytes())?;
@@ -470,6 +483,7 @@ impl MixmodRun<'_> {
             output: &output,
             stats: &stats,
             worktree_stats: &worktree_stats,
+            context_overflow: &context_overflow,
             notes: &notes,
             root,
             out_dir: &out_dir,
@@ -527,6 +541,8 @@ impl MixmodRun<'_> {
             verification_notes: output.verification_notes.clone(),
             stdout_bytes: output.stdout.len() as u64,
             stderr_bytes: output.stderr.len() as u64,
+            context_overflow_count: context_overflow.context_overflow_count,
+            context_overflow_last_message: context_overflow.context_overflow_last_message.clone(),
             reasoning_trace_bytes,
             reasoning_trace_event_count,
             report_bytes,
@@ -706,4 +722,47 @@ fn build_reasoning_trace_jsonl(stdout: &[u8]) -> Result<(String, u64)> {
         count += 1;
     }
     Ok((trace, count))
+}
+
+pub(crate) fn worker_context_signals(stdout: &[u8]) -> WorkerContextSignals {
+    let mut signals = WorkerContextSignals::default();
+    let stdout = String::from_utf8_lossy(stdout);
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if !is_context_overflow_line(trimmed) {
+            continue;
+        }
+        signals.context_overflow_count += 1;
+        signals.context_overflow_last_message = Some(extract_context_overflow_message(trimmed));
+    }
+    signals
+}
+
+fn is_context_overflow_line(line: &str) -> bool {
+    line.contains("ContextOverflowError") || line.contains("exceeds the available context size")
+}
+
+fn extract_context_overflow_message(line: &str) -> String {
+    if let Ok(event) = serde_json::from_str::<Value>(line) {
+        let name = event
+            .pointer("/error/name")
+            .and_then(Value::as_str)
+            .unwrap_or("ContextOverflowError");
+        let message = event
+            .pointer("/error/data/message")
+            .and_then(Value::as_str)
+            .unwrap_or("context overflow");
+        return truncate_context_overflow_message(&format!("{name}: {message}"));
+    }
+    truncate_context_overflow_message(line)
+}
+
+fn truncate_context_overflow_message(value: &str) -> String {
+    const LIMIT: usize = 500;
+    if value.chars().count() <= LIMIT {
+        return value.to_string();
+    }
+    let mut truncated = value.chars().take(LIMIT).collect::<String>();
+    truncated.push_str("...");
+    truncated
 }

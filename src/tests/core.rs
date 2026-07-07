@@ -63,6 +63,25 @@ fn summary_reports_accumulated_patch_when_latest_delta_is_empty() {
 }
 
 #[test]
+fn worker_context_signals_detect_context_overflow_errors() {
+    let stdout = br#"
+{"type":"reasoning","part":{"text":"still thinking"}}
+{"type":"error","error":{"name":"ContextOverflowError","data":{"message":"request (33126 tokens) exceeds the available context size (32768 tokens), try increasing it"}}}
+plain backend line: request (34808 tokens) exceeds the available context size (32768 tokens)
+"#;
+
+    let signals = worker_context_signals(stdout);
+
+    assert_eq!(signals.context_overflow_count, 2);
+    assert_eq!(
+        signals.context_overflow_last_message.as_deref(),
+        Some(
+            "plain backend line: request (34808 tokens) exceeds the available context size (32768 tokens)"
+        )
+    );
+}
+
+#[test]
 fn supervise_args_launch_background_run_with_resume() {
     let args = supervise_run_args(
         DelegationMode::Patch,

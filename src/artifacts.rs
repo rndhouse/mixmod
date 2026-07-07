@@ -178,6 +178,8 @@ pub struct RunMetrics {
     pub verification_notes: Vec<String>,
     pub stdout_bytes: u64,
     pub stderr_bytes: u64,
+    pub context_overflow_count: u64,
+    pub context_overflow_last_message: Option<String>,
     pub reasoning_trace_bytes: u64,
     pub reasoning_trace_event_count: u64,
     pub report_bytes: u64,

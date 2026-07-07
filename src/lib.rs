@@ -102,7 +102,10 @@ pub(crate) use live::{
 };
 pub(crate) use report::budgeted_report;
 #[cfg(test)]
-pub(crate) use run::{build_opencode_instruction, build_run_summary, opencode_exit_status_label};
+pub(crate) use run::{
+    build_opencode_instruction, build_run_summary, opencode_exit_status_label,
+    worker_context_signals,
+};
 pub(crate) use run::{
     run_mixmod_task_with_session, run_mixmod_task_with_session_and_recovery, shell_command,
 };

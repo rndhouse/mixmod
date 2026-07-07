@@ -14,6 +14,9 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
 
     assert!(prompt.contains("worker_mode=continue to keep the same worker session"));
     assert!(prompt.contains("worker_mode=context_focus to start a new worker session"));
+    assert!(prompt.contains("worker session as context-saturated"));
+    assert!(prompt.contains("prefer worker_mode=context_focus"));
+    assert!(prompt.contains("one concrete source edit"));
     assert!(prompt.contains("patch_decision"));
     assert!(prompt.contains("revise_previous"));
     assert!(prompt.contains("summarize the concrete source/test edits to recover"));
@@ -112,7 +115,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("reasoning before editing"));
     assert!(brief_prompt.contains("worker_turn_shape=bounded_feature_slice"));
     assert!(brief_prompt.contains("one coherent feature chunk"));
-    assert!(brief_prompt.contains("small_patch_slice only after"));
+    assert!(brief_prompt.contains("context overflow"));
+    assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("Select only relevant points"));
 }
 

@@ -1,3 +1,4 @@
+use super::WorkerContextSignals;
 use crate::*;
 
 pub(crate) fn build_run_summary(
@@ -58,6 +59,7 @@ pub(super) struct RunReportInput<'a> {
     pub(super) output: &'a AgentOutput,
     pub(super) stats: &'a PatchStats,
     pub(super) worktree_stats: &'a PatchStats,
+    pub(super) context_overflow: &'a WorkerContextSignals,
     pub(super) notes: &'a [String],
     pub(super) root: &'a Path,
     pub(super) out_dir: &'a Path,
@@ -72,6 +74,7 @@ pub(super) fn build_run_report(input: RunReportInput<'_>) -> String {
         output,
         stats,
         worktree_stats,
+        context_overflow,
         notes,
         root,
         out_dir,
@@ -129,6 +132,8 @@ pub(super) fn build_run_report(input: RunReportInput<'_>) -> String {
 - Worker timed out: {timed_out}
 - Worker idle timed out: {idle_timed_out}
 - Heartbeats: {heartbeat_count}
+- Worker context overflow events: {context_overflow_count}
+- Last context overflow: {context_overflow_last}
 
 ## Changed Files
 
@@ -207,6 +212,11 @@ Heartbeat log: `{heartbeat}`
         timed_out = yes_no(output.timed_out),
         idle_timed_out = yes_no(output.idle_timed_out),
         heartbeat_count = output.heartbeat_count,
+        context_overflow_count = context_overflow.context_overflow_count,
+        context_overflow_last = context_overflow
+            .context_overflow_last_message
+            .as_deref()
+            .unwrap_or("none"),
         files = files,
         changed_lines = stats.changed_line_count,
         added = stats.added_lines,
