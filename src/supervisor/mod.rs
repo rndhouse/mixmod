@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, env};
 
 use crate::harness::codex::{CodexAppServer, CodexSandbox, CodexTurnResult};
 use crate::*;
@@ -165,6 +165,7 @@ pub(crate) fn run_supervisor_brief_turn(
     worker_guidance: &WorkerSupervisorGuidance,
     init_mode: SupervisorInitMode,
 ) -> Result<SupervisorBriefTurn> {
+    let sandbox = supervisor_codex_sandbox_from_env()?;
     let prompt = supervisor_worker_brief_prompt(work_dir, task_path, worker_guidance, init_mode)?;
     let result = run_codex_app_server_turn(
         work_dir,
@@ -172,7 +173,7 @@ pub(crate) fn run_supervisor_brief_turn(
         "worker-brief",
         &prompt,
         supervisor,
-        CodexSandbox::ReadOnly,
+        sandbox,
     )?;
     let parsed_brief = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
@@ -205,7 +206,7 @@ pub(crate) fn run_supervisor_brief_turn(
             "worker-brief-repair",
             &repair_prompt,
             supervisor,
-            CodexSandbox::ReadOnly,
+            sandbox,
         )?;
         let mut repaired_brief = parse_feedback_json(&repair.last_message);
         let mut repair_accepted =
@@ -233,7 +234,7 @@ pub(crate) fn run_supervisor_brief_turn(
                 "worker-brief-repair-2",
                 &retry_prompt,
                 supervisor,
-                CodexSandbox::ReadOnly,
+                sandbox,
             )?;
             let retry_brief = parse_feedback_json(&retry.last_message);
             let retry_accepted = repaired_brief_is_accepted(retry_brief.as_ref(), worker_guidance);
@@ -525,16 +526,11 @@ pub(crate) fn run_supervisor_feedback_turn(
     supervisor: &SupervisorConfig,
     worker_guidance: &WorkerSupervisorGuidance,
 ) -> Result<SupervisorFeedbackTurn> {
+    let sandbox = supervisor_codex_sandbox_from_env()?;
     let prompt =
         supervisor_feedback_prompt(work_dir, artifact_paths, instruction, worker_guidance)?;
-    let result = run_codex_app_server_turn(
-        work_dir,
-        budgeted_dir,
-        label,
-        &prompt,
-        supervisor,
-        CodexSandbox::ReadOnly,
-    )?;
+    let result =
+        run_codex_app_server_turn(work_dir, budgeted_dir, label, &prompt, supervisor, sandbox)?;
     let parsed_feedback = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
             "action": if result.exit_status == Some(0) { "approve" } else { "revise" },
@@ -569,7 +565,7 @@ pub(crate) fn run_supervisor_feedback_turn(
             &format!("{label}-repair"),
             &repair_prompt,
             supervisor,
-            CodexSandbox::ReadOnly,
+            sandbox,
         )?;
         let mut repaired_feedback = parse_feedback_json(&repair.last_message)
             .map(|feedback| normalize_feedback_value(feedback).0);
@@ -604,7 +600,7 @@ pub(crate) fn run_supervisor_feedback_turn(
                 &format!("{label}-repair-2"),
                 &retry_prompt,
                 supervisor,
-                CodexSandbox::ReadOnly,
+                sandbox,
             )?;
             let retry_feedback = parse_feedback_json(&retry.last_message)
                 .map(|feedback| normalize_feedback_value(feedback).0);
@@ -815,6 +811,19 @@ pub(crate) fn run_codex_app_server_turn(
 ) -> Result<CodexTurnResult> {
     let mut server = CodexAppServer::start(work_dir, supervisor, sandbox)?;
     server.run_turn(artifact_dir, label, prompt)
+}
+
+fn supervisor_codex_sandbox_from_env() -> Result<CodexSandbox> {
+    match env::var("MIXMOD_CODEX_SUPERVISOR_SANDBOX") {
+        Ok(value) if value == "read-only" => Ok(CodexSandbox::ReadOnly),
+        Ok(value) if value == "workspace-write" => Ok(CodexSandbox::WorkspaceWrite),
+        Ok(value) if value == "danger-full-access" => Ok(CodexSandbox::DangerFullAccess),
+        Ok(value) => bail!(
+            "unsupported MIXMOD_CODEX_SUPERVISOR_SANDBOX value `{value}`; expected read-only, workspace-write, or danger-full-access"
+        ),
+        Err(env::VarError::NotPresent) => Ok(CodexSandbox::ReadOnly),
+        Err(error) => Err(error).context("failed to read MIXMOD_CODEX_SUPERVISOR_SANDBOX"),
+    }
 }
 
 fn parse_feedback_json(text: &str) -> Option<Value> {

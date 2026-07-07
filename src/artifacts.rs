@@ -43,11 +43,14 @@ pub const PREVIOUS_WORKTREE_PATCH: &str = "previous-worktree.patch";
 pub const INTERVENTIONS_JSONL: &str = "interventions.jsonl";
 /// Supervisor control event log artifact.
 pub const SUPERVISOR_CONTROL_LOG: &str = "supervisor-control.jsonl";
+/// Extracted worker reasoning events from structured OpenCode output.
+pub const REASONING_TRACE_JSONL: &str = "reasoning-trace.jsonl";
 
 /// Compact artifacts that a supervisor can review for a single worker run.
 pub const RUN_COMPACT_ARTIFACTS: &[&str] = &[
     RECEIPT_JSON,
     REPORT_MD,
+    REASONING_TRACE_JSONL,
     WORKTREE_PATCH,
     CHANGES_PATCH,
     INTERVENTIONS_JSONL,
@@ -77,6 +80,7 @@ pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
     REPORT_MD,
     WORKTREE_PATCH,
     CHANGES_PATCH,
+    REASONING_TRACE_JSONL,
     INTERVENTIONS_JSONL,
     METRICS_JSON,
     PATCH_COMPARISON,
@@ -92,6 +96,7 @@ pub const WORKER_RUN_ARTIFACTS: &[&str] = &[
     OPENCODE_INSTRUCTIONS_MD,
     REPORT_MD,
     SESSION_JSONL,
+    REASONING_TRACE_JSONL,
     WORKTREE_PATCH,
     CHANGES_PATCH,
     INTERVENTIONS_JSONL,
@@ -173,6 +178,8 @@ pub struct RunMetrics {
     pub verification_notes: Vec<String>,
     pub stdout_bytes: u64,
     pub stderr_bytes: u64,
+    pub reasoning_trace_bytes: u64,
+    pub reasoning_trace_event_count: u64,
     pub report_bytes: u64,
     pub patch_bytes: u64,
     pub worktree_patch_bytes: u64,

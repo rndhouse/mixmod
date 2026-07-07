@@ -78,6 +78,12 @@ pub(super) fn build_run_report(input: RunReportInput<'_>) -> String {
     } = input;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let reasoning_trace_path = out_dir.join(REASONING_TRACE_JSONL);
+    let reasoning_trace = fs::read_to_string(&reasoning_trace_path).unwrap_or_default();
+    let reasoning_event_count = reasoning_trace
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
     let files = if stats.files.is_empty() {
         "- none captured".to_string()
     } else {
@@ -146,6 +152,15 @@ Worker-facing check guidance from task metadata:
 
 {worker_check_guidance}
 
+## Worker Reasoning Trace
+
+- Events: {reasoning_event_count}
+- Artifact: `{reasoning_trace_artifact}`
+
+```jsonl
+{reasoning_trace_excerpt}
+```
+
 ## Worker Stdout Excerpt
 
 ```text
@@ -201,6 +216,9 @@ Heartbeat log: `{heartbeat}`
         worktree_added = worktree_stats.added_lines,
         worktree_removed = worktree_stats.removed_lines,
         worker_check_guidance = worker_check_guidance,
+        reasoning_event_count = reasoning_event_count,
+        reasoning_trace_artifact = display_path(root, &reasoning_trace_path),
+        reasoning_trace_excerpt = truncate_for_report(&reasoning_trace, 6000),
         stdout_excerpt = truncate_for_report(&stdout, 4000),
         stderr_excerpt = truncate_for_report(&stderr, 4000),
         receipt = display_path(root, &out_dir.join(RECEIPT_JSON)),

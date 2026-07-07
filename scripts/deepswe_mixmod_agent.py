@@ -160,6 +160,7 @@ class MixmodAgent(BaseInstalledAgent):
         env = self.build_process_env()
         env.update(
             {
+                "MIXMOD_CODEX_SUPERVISOR_SANDBOX": "danger-full-access",
                 "MIXMOD_DEBUG_COMMANDS": "1",
                 "MIXMOD_STATE_DIR": state_dir.as_posix(),
             }
@@ -241,6 +242,44 @@ PY
 )"
 cp "$run_dir/metrics.json" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-metrics.json").as_posix())} || true
 cp "$run_dir/final.patch" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-final.patch").as_posix())} || true
+cp "$run_dir/report.md" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-report.md").as_posix())} || true
+cp "$run_dir/supervisor-feedback.jsonl" {shlex.quote((EnvironmentPaths.agent_dir / "supervisor-feedback.jsonl").as_posix())} || true
+RUN_DIR="$run_dir" python3 - <<'PY'
+import os
+import shutil
+from pathlib import Path
+
+agent_dir = Path({EnvironmentPaths.agent_dir.as_posix()!r})
+run_dir = Path(os.environ["RUN_DIR"])
+worker_root = run_dir / "worker-runs"
+if worker_root.exists():
+    for worker_dir in sorted(path for path in worker_root.iterdir() if path.is_dir()):
+        target = agent_dir / "worker-runs" / worker_dir.relative_to(worker_root)
+        target.mkdir(parents=True, exist_ok=True)
+        for name in [
+            "reasoning-trace.jsonl",
+            "report.md",
+            "metrics.json",
+            "changes.patch",
+            "worktree.patch",
+            "supervisor-control.jsonl",
+        ]:
+            source = worker_dir / name
+            if source.exists():
+                shutil.copy2(source, target / name)
+        logs = worker_dir / "logs"
+        if logs.exists():
+            target_logs = target / "logs"
+            target_logs.mkdir(parents=True, exist_ok=True)
+            for name in [
+                "opencode.stdout.txt",
+                "opencode.stderr.txt",
+                "heartbeat.jsonl",
+            ]:
+                source = logs / name
+                if source.exists():
+                    shutil.copy2(source, target_logs / name)
+PY
 python3 - <<'PY'
 import json
 from pathlib import Path
@@ -260,6 +299,8 @@ summary = {{
     "final_verdict": metrics.get("final_verdict"),
     "local_inference_verified": metrics.get("local_inference_verified"),
     "gpu_activity_observed": metrics.get("gpu_activity_observed"),
+    "local_worker_reasoning_trace_bytes": metrics.get("local_worker_reasoning_trace_bytes"),
+    "local_worker_reasoning_trace_event_count": metrics.get("local_worker_reasoning_trace_event_count"),
 }}
 Path({summary_path.as_posix()!r}).write_text(json.dumps(summary, indent=2) + "\\n")
 PY

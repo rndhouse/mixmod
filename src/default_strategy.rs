@@ -215,6 +215,14 @@ impl DefaultStrategyRun<'_> {
             .iter()
             .map(|metrics| get_u64(metrics, "stderr_bytes").unwrap_or(0))
             .sum::<u64>();
+        let local_worker_reasoning_trace = worker_metrics
+            .iter()
+            .map(|metrics| get_u64(metrics, "reasoning_trace_bytes").unwrap_or(0))
+            .sum::<u64>();
+        let local_worker_reasoning_events = worker_metrics
+            .iter()
+            .map(|metrics| get_u64(metrics, "reasoning_trace_event_count").unwrap_or(0))
+            .sum::<u64>();
         let opencode_session_ids = worker_metrics
             .iter()
             .filter_map(|metrics| get_str(metrics, "opencode_session_id").map(ToOwned::to_owned))
@@ -363,6 +371,8 @@ impl DefaultStrategyRun<'_> {
             "local_worker_stdout_bytes": local_worker_stdout,
             "local_worker_stderr_bytes": local_worker_stderr,
             "local_worker_text_bytes": local_worker_stdout + local_worker_stderr,
+            "local_worker_reasoning_trace_bytes": local_worker_reasoning_trace,
+            "local_worker_reasoning_trace_event_count": local_worker_reasoning_events,
             "artifact_byte_sizes": artifact_byte_sizes(&out_dir)?,
             "patch_bytes": final_patch.len() as u64,
             "changed_files": stats.files,

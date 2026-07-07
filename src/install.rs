@@ -162,7 +162,7 @@ command = "opencode"
 # - {{model_arg}}: explicit provider/model argument passed to OpenCode
 # - {{session_id}}: Mixmod-generated OpenCode session label
 # - {{resume_session_id}}: real OpenCode session id used for worker_mode=continue
-args = ["run", "--agent", "{mixmod_agent}", "--dangerously-skip-permissions", "--model", "{{model_arg}}", "--title", "{{session_id}}", "{{instruction}}"]
+args = ["run", "--agent", "{mixmod_agent}", "--dangerously-skip-permissions", "--format", "json", "--thinking", "--model", "{{model_arg}}", "--title", "{{session_id}}", "{{instruction}}"]
 
 heartbeat_seconds = 10
 worker_timeout_seconds = 600
@@ -255,7 +255,8 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
     models.insert(
         DEFAULT_OPENCODE_OLLAMA_MODEL.to_string(),
         json!({
-            "name": "Qwen 3.6 27B (local)"
+            "name": "Qwen 3.6 27B (local)",
+            "reasoning": true
         }),
     );
     let mut providers = Map::new();

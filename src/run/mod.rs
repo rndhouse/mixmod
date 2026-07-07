@@ -437,6 +437,13 @@ impl MixmodRun<'_> {
         let stats = patch_stats(&patch);
         let worktree_stats = patch_stats(&worktree_patch);
 
+        let (reasoning_trace, reasoning_trace_event_count) =
+            build_reasoning_trace_jsonl(&output.stdout)?;
+        atomic_write(
+            &out_dir.join(REASONING_TRACE_JSONL),
+            reasoning_trace.as_bytes(),
+        )?;
+
         let session = build_session_jsonl(&start_timestamp, &end_timestamp, &output)?;
         atomic_write(&out_dir.join(SESSION_JSONL), session.as_bytes())?;
 
@@ -475,6 +482,7 @@ impl MixmodRun<'_> {
         let patch_bytes = file_len(&out_dir.join(CHANGES_PATCH))?;
         let worktree_patch_bytes = file_len(&out_dir.join(WORKTREE_PATCH))?;
         let session_bytes = file_len(&out_dir.join(SESSION_JSONL))?;
+        let reasoning_trace_bytes = file_len(&out_dir.join(REASONING_TRACE_JSONL))?;
         let mut metrics = RunMetrics {
             start_timestamp: start_timestamp.to_rfc3339(),
             end_timestamp: end_timestamp.to_rfc3339(),
@@ -519,6 +527,8 @@ impl MixmodRun<'_> {
             verification_notes: output.verification_notes.clone(),
             stdout_bytes: output.stdout.len() as u64,
             stderr_bytes: output.stderr.len() as u64,
+            reasoning_trace_bytes,
+            reasoning_trace_event_count,
             report_bytes,
             patch_bytes,
             worktree_patch_bytes,
@@ -672,4 +682,28 @@ fn build_session_jsonl(
         session.push('\n');
     }
     Ok(session)
+}
+
+fn build_reasoning_trace_jsonl(stdout: &[u8]) -> Result<(String, u64)> {
+    let mut trace = String::new();
+    let mut count = 0_u64;
+    let stdout = String::from_utf8_lossy(stdout);
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(event) = serde_json::from_str::<Value>(trimmed) else {
+            continue;
+        };
+        if get_str(&event, "type") != Some("reasoning") {
+            continue;
+        }
+        trace.push_str(
+            &serde_json::to_string(&event).context("failed to serialize reasoning trace event")?,
+        );
+        trace.push('\n');
+        count += 1;
+    }
+    Ok((trace, count))
 }
