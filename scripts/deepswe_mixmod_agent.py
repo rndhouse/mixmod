@@ -55,7 +55,7 @@ class MixmodAgent(BaseInstalledAgent):
         self,
         *args: Any,
         supervisor_model: str = "gpt-5.5:high",
-        worker_model: str = "mixmod-local-ollama/qwen3.6:27b",
+        worker_model: str = "llama.cpp/qwen/qwen3.6-27b",
         worker_backend: str = "opencode",
         supervisor_init: str = "compact",
         stop_after_first_worker: bool | str = False,
@@ -63,6 +63,7 @@ class MixmodAgent(BaseInstalledAgent):
         mixmod_command: str = "mixmod",
         mixmod_install_command: str | None = None,
         local_mixmod_binary: str | None = None,
+        worker_base_url: str | None = None,
         ollama_base_url: str | None = None,
         mixmod_timeout_sec: int | str | None = None,
         **kwargs: Any,
@@ -86,7 +87,7 @@ class MixmodAgent(BaseInstalledAgent):
             if self.local_mixmod_binary
             else self.mixmod_command
         )
-        self.ollama_base_url = ollama_base_url
+        self.worker_base_url = worker_base_url or ollama_base_url
         self.mixmod_timeout_sec = (
             int(mixmod_timeout_sec) if mixmod_timeout_sec not in (None, "") else None
         )
@@ -110,7 +111,7 @@ class MixmodAgent(BaseInstalledAgent):
         )
 
     def network_allowlist(self) -> NetworkAllowlist:
-        return mixmod_network_allowlist(self.ollama_base_url)
+        return mixmod_network_allowlist(self.worker_base_url)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         return None
@@ -165,8 +166,8 @@ class MixmodAgent(BaseInstalledAgent):
                 "MIXMOD_STATE_DIR": state_dir.as_posix(),
             }
         )
-        if self.ollama_base_url:
-            env["MIXMOD_OPENCODE_BASE_URL"] = self.ollama_base_url
+        if self.worker_base_url:
+            env["MIXMOD_OPENCODE_BASE_URL"] = self.worker_base_url
 
         command = self._run_command(task_path, state_dir, summary_path)
         await self.exec_as_agent(

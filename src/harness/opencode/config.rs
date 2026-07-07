@@ -256,17 +256,17 @@ mod tests {
             &opencode_config,
             serde_json::to_string_pretty(&json!({
                 "$schema": "https://opencode.ai/config.json",
-                "model": "mixmod-local-ollama/qwen3.6:27b",
+                "model": "llama.cpp/qwen/qwen3.6-27b",
                 "provider": {
-                    "mixmod-local-ollama": {
-                        "name": "Ollama (Mixmod local)",
+                    "llama.cpp": {
+                        "name": "llama.cpp (Mixmod local)",
                         "npm": "@ai-sdk/openai-compatible",
                         "options": {
-                            "baseURL": "http://127.0.0.1:11434/v1"
+                            "baseURL": "http://127.0.0.1:8080/v1"
                         },
                         "models": {
-                            "qwen3.6:27b": {
-                                "name": "Qwen 3.6 27B (local)"
+                            "qwen/qwen3.6-27b": {
+                                "name": "Qwen 3.6 27B (llama.cpp)"
                             }
                         }
                     }
@@ -279,9 +279,9 @@ mod tests {
         let script = r#"#!/bin/sh
 if [ "$1" = "models" ]; then
   if grep -q 'glm-4.7-flash:Q4_K_M' "$OPENCODE_CONFIG"; then
-    echo 'mixmod-local-ollama/glm-4.7-flash:Q4_K_M'
+    echo 'llama.cpp/glm-4.7-flash:Q4_K_M'
   else
-    echo 'mixmod-local-ollama/qwen3.6:27b'
+    echo 'llama.cpp/qwen/qwen3.6-27b'
   fi
   exit 0
 fi
@@ -296,23 +296,17 @@ exit 1
             std::fs::set_permissions(&command, perms).unwrap();
         }
         let mut config = MixmodConfig::default();
-        ModelOverrides::new(
-            None,
-            Some("mixmod-local-ollama/glm-4.7-flash:Q4_K_M".to_string()),
-        )
-        .apply_to_config(&mut config)
-        .unwrap();
+        ModelOverrides::new(None, Some("llama.cpp/glm-4.7-flash:Q4_K_M".to_string()))
+            .apply_to_config(&mut config)
+            .unwrap();
 
         let selection =
             resolve_opencode_model(command.to_str().unwrap(), root, &config.opencode, false)
                 .unwrap();
 
-        assert_eq!(selection.provider, "mixmod-local-ollama");
+        assert_eq!(selection.provider, "llama.cpp");
         assert_eq!(selection.model, "glm-4.7-flash:Q4_K_M");
-        assert_eq!(
-            selection.model_arg,
-            "mixmod-local-ollama/glm-4.7-flash:Q4_K_M"
-        );
+        assert_eq!(selection.model_arg, "llama.cpp/glm-4.7-flash:Q4_K_M");
         assert!(
             std::fs::read_to_string(opencode_config)
                 .unwrap()

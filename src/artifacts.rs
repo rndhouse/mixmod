@@ -248,6 +248,8 @@ pub struct SupervisorFeedback {
     #[serde(default)]
     pub exact_edits: Vec<String>,
     #[serde(default)]
+    pub edit_plan: Vec<String>,
+    #[serde(default)]
     pub deferred_checks: Vec<String>,
     #[serde(default)]
     pub defer_checks_until_patch_exists: Option<bool>,
@@ -305,6 +307,8 @@ pub struct WorkerBrief {
     pub constraints: Vec<String>,
     #[serde(default)]
     pub implementation_steps: Vec<String>,
+    #[serde(default)]
+    pub edit_plan: Vec<String>,
     #[serde(default)]
     pub exact_edits: Vec<String>,
     #[serde(default)]

@@ -52,6 +52,7 @@ struct RevisionTaskDetails<'a> {
     worker_turn_shape: Option<&'a str>,
     turn_goal: Option<&'a str>,
     exact_edits: &'a [String],
+    edit_plan: &'a [String],
     deferred_checks: &'a [String],
     defer_checks_until_patch_exists: Option<bool>,
     completion_gate: Option<&'a str>,
@@ -83,9 +84,9 @@ pub(crate) fn write_worker_brief_task(
         get_string_array(&original, "files"),
     );
     let expect_patch = typed_brief.expect_patch.unwrap_or(handoff != "blocked");
-    let small_patch_slice = expect_patch
-        && get_str(brief, "worker_turn_shape")
-            .is_some_and(|shape| shape.trim() == "small_patch_slice");
+    let worker_turn_shape = get_str(brief, "worker_turn_shape").unwrap_or("");
+    let small_patch_slice = expect_patch && worker_turn_shape.trim() == "small_patch_slice";
+    let bounded_feature_slice = expect_patch && worker_turn_shape.trim() == "bounded_feature_slice";
     let defer_checks_until_patch_exists =
         get_bool(brief, "defer_checks_until_patch_exists").unwrap_or(small_patch_slice);
     let original_required_tests = non_empty_or(
@@ -122,6 +123,17 @@ pub(crate) fn write_worker_brief_task(
                 .to_string(),
         );
         constraints.push("Do not finalize until git diff --stat is non-empty.".to_string());
+    } else if bounded_feature_slice {
+        constraints
+            .push("Do not ask questions; make a reasonable assumption and continue.".to_string());
+        constraints.push(
+            "Complete the bounded feature chunk before running broad checks or finalizing."
+                .to_string(),
+        );
+        constraints.push(
+            "Run focused checks after the repository patch exists when checks are available."
+                .to_string(),
+        );
     } else {
         constraints.push(
             "Treat the original task JSON as primary; the supervisor handoff is supplemental."
@@ -148,6 +160,8 @@ pub(crate) fn write_worker_brief_task(
         .unwrap_or("git diff --stat must be non-empty");
     let acceptance = if small_patch_slice {
         vec![completion_gate.to_string()]
+    } else if bounded_feature_slice {
+        non_empty_or(checks.clone(), get_string_array(&original, "acceptance"))
     } else {
         non_empty_or(checks.clone(), get_string_array(&original, "acceptance"))
     };
@@ -158,6 +172,15 @@ pub(crate) fn write_worker_brief_task(
             &target_files,
             completion_gate,
             &codex_message,
+        )
+    } else if bounded_feature_slice {
+        bounded_feature_slice_instructions(
+            &original,
+            brief,
+            &target_files,
+            &codex_message,
+            &supervisor_investigation_section,
+            &brief_json,
         )
     } else {
         format!(
@@ -271,6 +294,88 @@ Diff non-empty: yes/no
         hard_rules = bullet_list(&hard_rules),
         exact_edits = numbered_list(&exact_edits),
         deferred_edit_note = deferred_edit_note,
+    )
+}
+
+fn bounded_feature_slice_instructions(
+    original: &Value,
+    brief: &Value,
+    target_files: &[String],
+    fallback_message: &str,
+    supervisor_investigation_section: &str,
+    brief_json: &str,
+) -> String {
+    let original_instructions = get_str(original, "instructions").unwrap_or("").trim();
+    let turn_goal = get_str(brief, "turn_goal")
+        .or_else(|| get_str(brief, "objective"))
+        .or_else(|| get_str(brief, "message_to_worker"))
+        .or_else(|| get_str(brief, "message"))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_message)
+        .trim();
+    let plan = non_empty_or(
+        merged_string_arrays(brief, &["edit_plan", "exact_edits", "implementation_steps"]),
+        vec![turn_goal.to_string()],
+    );
+    let checks = merged_string_arrays(
+        brief,
+        &[
+            "checks",
+            "must_check",
+            "required_checks",
+            "acceptance_checks",
+        ],
+    );
+    let checks = if checks.is_empty() {
+        "Run the narrowest compile or focused test check that is available after editing."
+            .to_string()
+    } else {
+        numbered_list(&checks)
+    };
+    let file_list = if target_files.is_empty() {
+        "- none specified".to_string()
+    } else {
+        target_files
+            .iter()
+            .map(|file| format!("- {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        r#"Noninteractive coding task. This is the full instruction. No user will answer questions.
+
+Original task instructions:
+{original_instructions}
+
+Supervisor bounded feature goal:
+{turn_goal}
+{supervisor_investigation_section}
+
+Complete this bounded feature chunk before finalizing. A bounded chunk may include related source, API, serialization/deserialization, and focused test/check work when those edits belong together. Keep the work inside the relevant files and do not continue into unrelated acceptance criteria after this chunk is complete.
+
+Edit plan:
+{plan}
+
+Relevant files:
+{file_list}
+
+Rules:
+- Do not ask questions.
+- Do not stop after only reading files.
+- Make the repository edits before running broad checks.
+- Preserve surrounding control flow and indentation in large functions.
+- Do not rewrite unrelated code.
+- Do not inspect Mixmod state or artifact directories.
+- Do not commit.
+
+Checks after a patch exists:
+{checks}
+
+Supervisor handoff JSON:
+{brief_json}
+"#,
+        plan = numbered_list(&plan),
     )
 }
 
@@ -399,6 +504,7 @@ pub(crate) fn write_revision_task(
         }
     );
     let small_patch_slice = decision.revision_handoff.is_small_patch_slice();
+    let bounded_feature_slice = decision.revision_handoff.is_bounded_feature_slice();
     let defer_checks_until_patch_exists = decision
         .revision_handoff
         .defer_checks_until_patch_exists
@@ -430,6 +536,17 @@ pub(crate) fn write_revision_task(
             );
         }
         constraints.push("Do not finalize until git diff --stat is non-empty.".to_string());
+    } else if bounded_feature_slice {
+        constraints
+            .push("Do not ask questions; make a reasonable assumption and continue.".to_string());
+        constraints.push(
+            "Complete the bounded feature chunk before running broad checks or finalizing."
+                .to_string(),
+        );
+        constraints.push(
+            "Run focused checks after the repository patch exists when checks are available."
+                .to_string(),
+        );
     }
     constraints.sort();
     constraints.dedup();
@@ -455,6 +572,14 @@ pub(crate) fn write_revision_task(
         format!(
             "Original task instructions:\n{original_instructions}\n\nThe supervisor requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nSupervisor message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
             decision.hint, decision.required_checks
+        )
+    } else if bounded_feature_slice {
+        bounded_feature_slice_revision_instructions(
+            &task_value,
+            decision,
+            &focus_files,
+            &focus_note,
+            patch_decision_note,
         )
     } else {
         format!(
@@ -492,6 +617,7 @@ pub(crate) fn write_revision_task(
                 worker_turn_shape: decision.revision_handoff.worker_turn_shape.as_deref(),
                 turn_goal: decision.revision_handoff.turn_goal.as_deref(),
                 exact_edits: &decision.revision_handoff.exact_edits,
+                edit_plan: &decision.revision_handoff.edit_plan,
                 deferred_checks: &decision.revision_handoff.deferred_checks,
                 defer_checks_until_patch_exists: decision
                     .revision_handoff
@@ -647,6 +773,105 @@ Diff non-empty: yes/no
     )
 }
 
+fn bounded_feature_slice_revision_instructions(
+    original: &Value,
+    decision: &SupervisorFeedbackTurn,
+    focus_files: &[String],
+    focus_note: &str,
+    patch_decision_note: &str,
+) -> String {
+    let original_instructions = get_str(original, "instructions")
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let original_context = if original_instructions.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nOriginal task context, for alignment only:\n{}\n",
+            truncate_for_report(&original_instructions, 1200)
+        )
+    };
+    let fallback_goal = if decision.hint.trim().is_empty() {
+        "Apply the supervisor-requested bounded feature revision."
+    } else {
+        decision.hint.trim()
+    };
+    let turn_goal = decision
+        .revision_handoff
+        .turn_goal
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_goal)
+        .trim();
+    let plan = non_empty_or(
+        non_empty_or(
+            decision.revision_handoff.edit_plan.clone(),
+            decision.revision_handoff.exact_edits.clone(),
+        ),
+        vec![turn_goal.to_string()],
+    );
+    let checks = non_empty_or(
+        decision.revision_handoff.deferred_checks.clone(),
+        decision.required_checks.clone(),
+    );
+    let checks = if checks.is_empty() {
+        "Run the narrowest compile or focused test check that is available after editing."
+            .to_string()
+    } else {
+        numbered_list(&checks)
+    };
+    let file_list = if focus_files.is_empty() {
+        "- none specified".to_string()
+    } else {
+        focus_files
+            .iter()
+            .map(|file| format!("- {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        r#"Noninteractive coding revision. This is the full instruction. No user will answer questions.
+
+Original task:{original_context}
+Current accumulated patch is useful but not yet accepted as the full solution.
+Continue from the current working tree; do not revert existing correct edits.{patch_decision_note}
+
+Bounded feature revision goal:
+{turn_goal}
+
+Complete this coherent next behavior before finalizing. Keep the same OpenCode session context, use what you already learned, and avoid redoing broad investigation. A bounded chunk may include related source, API, serialization/deserialization, and focused test/check work when those edits belong together.
+
+Edit plan:
+{plan}
+
+Relevant files:
+{file_list}
+
+{focus_note}
+Use concrete repo files from the relevant file list. Do not inspect Mixmod state or artifact directories.
+
+Rules:
+- Do not ask questions.
+- Do not stop after only reading files.
+- Make repository edits before running broad checks.
+- Preserve surrounding control flow and indentation in large functions.
+- Do not rewrite unrelated code.
+- Do not commit.
+
+Checks after a patch exists:
+{checks}
+
+Final response format:
+Summary: <one sentence>
+Changed files: <comma-separated list>
+Tests/checks: <commands and result, or not run with reason>
+"#,
+        plan = numbered_list(&plan),
+    )
+}
+
 fn immediate_small_patch_exact_edits(all_exact_edits: &[String], turn_goal: &str) -> Vec<String> {
     all_exact_edits
         .iter()
@@ -751,6 +976,7 @@ fn brief_has_legacy_guidance(brief: &Value) -> bool {
         || !get_string_array(brief, "focus_files").is_empty()
         || !get_string_array(brief, "target_files").is_empty()
         || !get_string_array(brief, "implementation_steps").is_empty()
+        || !get_string_array(brief, "edit_plan").is_empty()
         || !get_string_array(brief, "exact_edits").is_empty()
         || !get_string_array(brief, "forbidden_actions").is_empty()
         || !get_string_array(brief, "deferred_checks").is_empty()

@@ -36,6 +36,7 @@ pub(crate) struct RevisionHandoff {
     pub(crate) worker_turn_shape: Option<String>,
     pub(crate) turn_goal: Option<String>,
     pub(crate) exact_edits: Vec<String>,
+    pub(crate) edit_plan: Vec<String>,
     pub(crate) deferred_checks: Vec<String>,
     pub(crate) defer_checks_until_patch_exists: Option<bool>,
     pub(crate) completion_gate: Option<String>,
@@ -48,6 +49,7 @@ impl RevisionHandoff {
             worker_turn_shape: feedback.worker_turn_shape.clone(),
             turn_goal: feedback.turn_goal.clone(),
             exact_edits: feedback.exact_edits.clone(),
+            edit_plan: feedback.edit_plan.clone(),
             deferred_checks: feedback.deferred_checks.clone(),
             defer_checks_until_patch_exists: feedback.defer_checks_until_patch_exists,
             completion_gate: feedback.completion_gate.clone(),
@@ -59,6 +61,12 @@ impl RevisionHandoff {
         self.worker_turn_shape
             .as_deref()
             .is_some_and(|shape| shape.trim() == "small_patch_slice")
+    }
+
+    pub(crate) fn is_bounded_feature_slice(&self) -> bool {
+        self.worker_turn_shape
+            .as_deref()
+            .is_some_and(|shape| shape.trim() == "bounded_feature_slice")
     }
 }
 
@@ -343,6 +351,9 @@ fn worker_brief_needs_small_slice_repair(
     brief: &Value,
     worker_guidance: &WorkerSupervisorGuidance,
 ) -> bool {
+    if worker_guidance_prefers_bounded_feature_slice(worker_guidance) {
+        return false;
+    }
     if !worker_guidance_prefers_small_patch_slice(worker_guidance)
         && !supervisor_value_indicates_complex_source_work(brief)
     {
@@ -387,6 +398,9 @@ fn supervisor_feedback_needs_revision_slice_repair(
     if normalize_supervisor_verdict(raw_verdict) != "revise" {
         return false;
     }
+    if worker_guidance_prefers_bounded_feature_slice(worker_guidance) {
+        return false;
+    }
     if !worker_guidance_prefers_small_patch_slice(worker_guidance)
         && !supervisor_value_indicates_complex_source_work(feedback)
     {
@@ -412,6 +426,15 @@ fn worker_guidance_prefers_small_patch_slice(worker_guidance: &WorkerSupervisorG
         item.contains("worker_turn_shape=small_patch_slice")
             || item.contains("one immediate source edit")
     })
+}
+
+fn worker_guidance_prefers_bounded_feature_slice(
+    worker_guidance: &WorkerSupervisorGuidance,
+) -> bool {
+    worker_guidance
+        .guidance
+        .iter()
+        .any(|item| item.contains("worker_turn_shape=bounded_feature_slice"))
 }
 
 fn supervisor_value_indicates_complex_source_work(value: &Value) -> bool {

@@ -421,6 +421,7 @@ mod tests {
                     "Edit builder.py around the packer loop only.".to_string(),
                     "Do not add tests.".to_string(),
                 ],
+                edit_plan: vec![],
                 deferred_checks: vec![],
                 defer_checks_until_patch_exists: Some(true),
                 completion_gate: Some("git diff --stat must be non-empty".to_string()),

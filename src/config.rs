@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_OLLAMA_MODEL, DEFAULT_OPENCODE_PROVIDER,
+    DEFAULT_OPENCODE_LOCAL_MODEL, DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER,
     DEFAULT_SUPERVISOR_MODEL, DEFAULT_SUPERVISOR_REASONING_EFFORT, MIXMOD_OPENCODE_AGENT,
     WorkerModelProfile, WorkerSupervisorGuidance, default_worker_model_profiles,
 };
@@ -241,11 +241,9 @@ impl Default for OpenCodeConfig {
             DEFAULT_OPENCODE_MODEL.to_string(),
             vec![
                 DEFAULT_OPENCODE_MODEL.to_string(),
-                DEFAULT_OPENCODE_OLLAMA_MODEL.to_string(),
+                DEFAULT_OPENCODE_LOCAL_MODEL.to_string(),
                 "qwen/qwen3.6-27b".to_string(),
-                "ollama/qwen3.6:27b".to_string(),
-                "local-ollama/qwen3.6:27b".to_string(),
-                format!("{DEFAULT_OPENCODE_PROVIDER}/qwen3.6:27b"),
+                format!("{DEFAULT_OPENCODE_PROVIDER}/{DEFAULT_OPENCODE_LOCAL_MODEL}"),
             ],
         );
         Self {
@@ -272,8 +270,6 @@ impl Default for OpenCodeConfig {
             local_providers: vec![
                 "local".to_string(),
                 DEFAULT_OPENCODE_PROVIDER.to_string(),
-                "local-ollama".to_string(),
-                "ollama".to_string(),
                 "lmstudio".to_string(),
                 "llama.cpp".to_string(),
                 "vllm".to_string(),
@@ -370,7 +366,7 @@ impl Default for LocalVerificationConfig {
         Self {
             enabled: true,
             gpu_command: "nvidia-smi".to_string(),
-            backend_command: "ollama ps".to_string(),
+            backend_command: "curl -fsS http://127.0.0.1:8080/v1/models".to_string(),
         }
     }
 }

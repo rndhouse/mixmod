@@ -149,7 +149,7 @@ fn run_mixmod_exec(root: &Path, exec_args: &[&str]) -> PathBuf {
     let supervisor_model =
         std::env::var("MIXMOD_E2E_SUPERVISOR_MODEL").unwrap_or_else(|_| "gpt-5.5:high".to_string());
     let worker_model = std::env::var("MIXMOD_E2E_WORKER_MODEL")
-        .unwrap_or_else(|_| "mixmod-local-ollama/qwen3.6:27b".to_string());
+        .unwrap_or_else(|_| "llama.cpp/qwen/qwen3.6-27b".to_string());
     let mut args = vec![
         "exec".to_string(),
         "--supervisor-model".to_string(),
@@ -225,7 +225,9 @@ fn assert_qwen_worker(metrics: &Value) {
     let model = value_str(metrics, "opencode_model").to_ascii_lowercase();
     let model_arg = value_str(metrics, "opencode_model_arg").to_ascii_lowercase();
     assert!(
-        provider.contains("local") || provider.contains("ollama"),
+        provider.contains("local")
+            || provider.contains("llama.cpp")
+            || provider.contains("localhost"),
         "expected a local worker provider, got `{provider}`"
     );
     assert!(

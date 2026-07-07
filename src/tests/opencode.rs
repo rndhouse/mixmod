@@ -6,7 +6,7 @@ fn resumed_opencode_args_use_specific_session_without_title() {
         "run".to_string(),
         "--dangerously-skip-permissions".to_string(),
         "--model".to_string(),
-        "local-ollama/qwen3.6:27b".to_string(),
+        "llama.cpp/qwen/qwen3.6-27b".to_string(),
         "--title".to_string(),
         "opencode-session-123".to_string(),
         "Do the task".to_string(),
@@ -22,7 +22,7 @@ fn resumed_opencode_args_use_specific_session_without_title() {
             "ses_abc123",
             "--dangerously-skip-permissions",
             "--model",
-            "local-ollama/qwen3.6:27b",
+            "llama.cpp/qwen/qwen3.6-27b",
             "Do the task",
         ]
     );
@@ -65,7 +65,7 @@ fn interrupt_continue_args_resume_session_with_only_control_message() {
         "run".to_string(),
         "--dangerously-skip-permissions".to_string(),
         "--model".to_string(),
-        "local-ollama/qwen3.6:27b".to_string(),
+        "llama.cpp/qwen/qwen3.6-27b".to_string(),
         "--title".to_string(),
         "opencode-session-test".to_string(),
         "FULL ORIGINAL INSTRUCTION".to_string(),
@@ -87,7 +87,7 @@ fn interrupt_continue_args_resume_session_with_only_control_message() {
             "ses_existing",
             "--dangerously-skip-permissions",
             "--model",
-            "local-ollama/qwen3.6:27b",
+            "llama.cpp/qwen/qwen3.6-27b",
             "Focus and finish.",
         ]
     );
@@ -101,7 +101,7 @@ fn context_focus_args_start_fresh_titled_session_with_control_message() {
         "run".to_string(),
         "--dangerously-skip-permissions".to_string(),
         "--model".to_string(),
-        "local-ollama/qwen3.6:27b".to_string(),
+        "llama.cpp/qwen/qwen3.6-27b".to_string(),
         "--session".to_string(),
         "ses_old".to_string(),
         "FULL ORIGINAL INSTRUCTION".to_string(),
@@ -123,7 +123,7 @@ fn context_focus_args_start_fresh_titled_session_with_control_message() {
             "opencode-session-test",
             "--dangerously-skip-permissions",
             "--model",
-            "local-ollama/qwen3.6:27b",
+            "llama.cpp/qwen/qwen3.6-27b",
             "Fresh focus.",
         ]
     );
@@ -139,7 +139,7 @@ fn interrupt_continue_restarts_opencode_with_same_session_inside_one_run() {
         r#"#!/bin/sh
 printf 'cmd=%s env=%s args=%s\n' "$1" "$OPENCODE_CONFIG" "$*" >> "{}"
 if [ "$1" = "models" ]; then
-  echo "local-ollama/qwen3.6:27b"
+  echo "llama.cpp/qwen/qwen3.6-27b"
   exit 0
 fi
 if [ "$1" = "db" ]; then
@@ -186,9 +186,9 @@ esac
     config.worker_timeout_seconds = 10;
     config.idle_timeout_seconds = 0;
     let selection = OpenCodeModelSelection {
-        provider: "local-ollama".to_string(),
-        model: "qwen3.6:27b".to_string(),
-        model_arg: "local-ollama/qwen3.6:27b".to_string(),
+        provider: "llama.cpp".to_string(),
+        model: "qwen/qwen3.6-27b".to_string(),
+        model_arg: "llama.cpp/qwen/qwen3.6-27b".to_string(),
         require_local: false,
     };
     let control_path = out_dir.join(SUPERVISOR_CONTROL_FILE);

@@ -25,7 +25,7 @@ from typing import Any
 
 DEFAULT_MODEL_NAME = "mixmod-qwen36-current-10-v2"
 DEFAULT_SUPERVISOR_MODEL = "gpt-5.5:high"
-DEFAULT_WORKER_MODEL = "mixmod-local-ollama/qwen3.6:27b"
+DEFAULT_WORKER_MODEL = "llama.cpp/qwen/qwen3.6-27b"
 DEFAULT_POOL_NAME = "qwen36-current-10-v2"
 
 SELECTED_INSTANCES = [

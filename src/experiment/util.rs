@@ -30,7 +30,7 @@ pub(super) fn copy_budgeted_artifacts(
         "nvidia-smi-before.txt",
         "nvidia-smi-during.txt",
         "nvidia-smi-after.txt",
-        "ollama-ps.txt",
+        "backend-status.txt",
         "heartbeat.jsonl",
     ] {
         let source = final_out.join("logs").join(name);

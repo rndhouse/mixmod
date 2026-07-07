@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::harness::AgentRequest;
 use crate::{
-    DEFAULT_OPENCODE_OLLAMA_MODEL, LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OpenCodeConfig,
+    DEFAULT_OPENCODE_LOCAL_MODEL, LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OpenCodeConfig,
     SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file,
     append_jsonl, atomic_write, diff_without_unchanged_blocks, env_u64, get_bool, get_str,
     get_string_array, git_diff_with_untracked, write_pretty_json,
@@ -59,7 +59,7 @@ pub(crate) struct VerifiedCommandOutput {
     pub(crate) verification_notes: Vec<String>,
 }
 
-const DEFAULT_SMALL_PATCH_NO_DELTA_INTERRUPT_SECONDS: u64 = 90;
+const DEFAULT_SMALL_PATCH_NO_DELTA_INTERRUPT_SECONDS: u64 = 300;
 const DEFAULT_SMALL_PATCH_NO_DELTA_MAX_INTERRUPTS: u64 = 1;
 
 #[derive(Debug)]
@@ -126,13 +126,23 @@ impl SmallPatchNoDeltaIntervention {
         })
     }
 
-    fn maybe_control(&mut self, root: &Path, elapsed: Duration) -> Option<Value> {
+    fn maybe_control(
+        &mut self,
+        root: &Path,
+        elapsed: Duration,
+        last_output_age: Duration,
+    ) -> Option<Value> {
         let current_diff = git_diff_with_untracked(root).ok()?;
-        self.maybe_control_for_diff(&current_diff, elapsed)
+        self.maybe_control_for_diff(&current_diff, elapsed, last_output_age)
     }
 
-    fn maybe_control_for_diff(&mut self, current_diff: &str, elapsed: Duration) -> Option<Value> {
-        if self.stopped || elapsed < self.threshold {
+    fn maybe_control_for_diff(
+        &mut self,
+        current_diff: &str,
+        elapsed: Duration,
+        last_output_age: Duration,
+    ) -> Option<Value> {
+        if self.stopped || elapsed < self.threshold || last_output_age < self.threshold {
             return None;
         }
         let new_delta = diff_without_unchanged_blocks(current_diff, &self.baseline_diff);
@@ -488,7 +498,7 @@ impl LocalVerificationRun<'_> {
                             run_optional_command_text(&verification_config.backend_command, root)
                         {
                             let sample = format!("\n--- sample {heartbeat_count} ---\n{text}");
-                            append_file(&logs_dir.join("ollama-ps.txt"), sample.as_bytes())?;
+                            append_file(&logs_dir.join("backend-status.txt"), sample.as_bytes())?;
                             backend_activity_seen |=
                                 backend_activity_observed(Some(&text), selection);
                             backend_sample_written = true;
@@ -533,7 +543,11 @@ impl LocalVerificationRun<'_> {
                         small_patch_no_delta_intervention
                             .as_mut()
                             .and_then(|intervention| {
-                                intervention.maybe_control(root, segment_started_instant.elapsed())
+                                intervention.maybe_control(
+                                    root,
+                                    segment_started_instant.elapsed(),
+                                    Duration::from_millis(last_output_age),
+                                )
                             })
                     {
                         write_pretty_json(
@@ -835,7 +849,7 @@ impl LocalVerificationRun<'_> {
                 "nvidia_smi_before": "logs/nvidia-smi-before.txt",
                 "nvidia_smi_during": "logs/nvidia-smi-during.txt",
                 "nvidia_smi_after": "logs/nvidia-smi-after.txt",
-                "backend": "logs/ollama-ps.txt",
+                "backend": "logs/backend-status.txt",
                 "heartbeat": "logs/heartbeat.jsonl"
             }
         });
@@ -913,7 +927,7 @@ fn backend_activity_observed(text: Option<&str>, selection: &OpenCodeModelSelect
     let model_arg = selection.model_arg.to_ascii_lowercase();
     lower.contains(&model)
         || lower.contains(&model_arg)
-        || lower.contains(DEFAULT_OPENCODE_OLLAMA_MODEL)
+        || lower.contains(DEFAULT_OPENCODE_LOCAL_MODEL)
 }
 
 #[cfg(test)]
@@ -959,11 +973,11 @@ mod tests {
 
         assert!(
             guard
-                .maybe_control_for_diff("", Duration::from_secs(1))
+                .maybe_control_for_diff("", Duration::from_secs(1), Duration::from_secs(1))
                 .is_none()
         );
         let interrupt = guard
-            .maybe_control_for_diff("", Duration::from_secs(2))
+            .maybe_control_for_diff("", Duration::from_secs(2), Duration::from_secs(2))
             .unwrap();
 
         assert_eq!(get_str(&interrupt, "action"), Some("interrupt_continue"));
@@ -977,7 +991,7 @@ mod tests {
                 .contains("Add only the flatten=True serialization branch.")
         );
         let stop = guard
-            .maybe_control_for_diff("", Duration::from_secs(2))
+            .maybe_control_for_diff("", Duration::from_secs(2), Duration::from_secs(2))
             .unwrap();
         assert_eq!(get_str(&stop, "action"), Some("stop"));
         assert_eq!(
@@ -987,7 +1001,7 @@ mod tests {
         assert_eq!(get_str(&stop, "risk"), Some("worker_stalled_no_delta"));
         assert!(
             guard
-                .maybe_control_for_diff("", Duration::from_secs(3))
+                .maybe_control_for_diff("", Duration::from_secs(3), Duration::from_secs(3))
                 .is_none()
         );
     }
@@ -1008,7 +1022,24 @@ diff --git a/builder.py b/builder.py
 
         assert!(
             guard
-                .maybe_control_for_diff(current_diff, Duration::from_secs(5))
+                .maybe_control_for_diff(
+                    current_diff,
+                    Duration::from_secs(5),
+                    Duration::from_secs(5),
+                )
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn small_patch_no_delta_guard_waits_during_recent_worker_output() {
+        let mut guard =
+            SmallPatchNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 2, 1)
+                .unwrap();
+
+        assert!(
+            guard
+                .maybe_control_for_diff("", Duration::from_secs(10), Duration::from_secs(1))
                 .is_none()
         );
     }
@@ -1020,7 +1051,7 @@ diff --git a/builder.py b/builder.py
                 .unwrap();
         assert!(
             guard
-                .maybe_control_for_diff("", Duration::from_secs(1))
+                .maybe_control_for_diff("", Duration::from_secs(1), Duration::from_secs(1))
                 .is_some()
         );
         let current_diff = "\
@@ -1034,7 +1065,11 @@ diff --git a/builder.py b/builder.py
 
         assert!(
             guard
-                .maybe_control_for_diff(current_diff, Duration::from_secs(1))
+                .maybe_control_for_diff(
+                    current_diff,
+                    Duration::from_secs(1),
+                    Duration::from_secs(1),
+                )
                 .is_none()
         );
     }
@@ -1046,7 +1081,7 @@ diff --git a/builder.py b/builder.py
                 .unwrap();
 
         let interrupt = guard
-            .maybe_control_for_diff("", Duration::from_secs(1))
+            .maybe_control_for_diff("", Duration::from_secs(1), Duration::from_secs(1))
             .unwrap();
 
         assert_eq!(get_str(&interrupt, "action"), Some("interrupt_continue"));

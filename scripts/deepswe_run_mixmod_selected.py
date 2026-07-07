@@ -16,7 +16,7 @@ from typing import Any
 
 
 DEFAULT_SUPERVISOR_MODEL = "gpt-5.5:high"
-DEFAULT_WORKER_MODEL = "mixmod-local-ollama/qwen3.6:27b"
+DEFAULT_WORKER_MODEL = "llama.cpp/qwen/qwen3.6-27b"
 LOCAL_MIXMOD_TARGET = "x86_64-unknown-linux-musl"
 
 
@@ -124,6 +124,14 @@ def selected_tasks(screen_state: dict[str, Any], limit: int) -> list[str]:
     return tasks[:limit] if limit else tasks
 
 
+def effective_agent_env(args: argparse.Namespace) -> list[str]:
+    agent_env = list(args.agent_env)
+    agent_env_keys = {value.split("=", 1)[0] for value in agent_env if "=" in value}
+    if args.worker_base_url and "NODE_OPTIONS" not in agent_env_keys:
+        agent_env.append("NODE_OPTIONS=--use-env-proxy")
+    return agent_env
+
+
 def build_pier_command(
     args: argparse.Namespace,
     jobs_dir: Path,
@@ -168,8 +176,10 @@ def build_pier_command(
         cmd.extend(["--agent-kwarg", f"local_mixmod_binary={local_mixmod_binary}"])
     if args.mixmod_install_command:
         cmd.extend(["--agent-kwarg", f"mixmod_install_command={args.mixmod_install_command}"])
-    if args.ollama_base_url:
-        cmd.extend(["--agent-kwarg", f"ollama_base_url={args.ollama_base_url}"])
+    if args.worker_base_url:
+        cmd.extend(["--agent-kwarg", f"worker_base_url={args.worker_base_url}"])
+    for value in effective_agent_env(args):
+        cmd.extend(["--agent-env", value])
     for task in args.tasks:
         cmd.extend(["--include-task-name", task])
     if args.no_delete:
@@ -207,10 +217,16 @@ def main() -> int:
     )
     parser.add_argument("--stop-after-first-worker", action="store_true")
     parser.add_argument("--no-require-local", dest="require_local", action="store_false")
-    parser.add_argument("--ollama-base-url")
+    parser.add_argument("--worker-base-url", "--ollama-base-url", dest="worker_base_url")
     parser.add_argument("--mixmod-install-command")
     parser.add_argument("--local-mixmod-binary", type=Path)
     parser.add_argument("--no-local-mixmod-binary", action="store_true")
+    parser.add_argument(
+        "--agent-env",
+        action="append",
+        default=[],
+        help="Environment variable to pass to the Pier agent as KEY=VALUE.",
+    )
     parser.add_argument("--mixmod-timeout-seconds", type=int, default=3 * 60 * 60)
     parser.add_argument("--timeout-seconds", type=int, default=4 * 60 * 60)
     parser.add_argument("--job-name", default="")
@@ -253,6 +269,8 @@ def main() -> int:
         "supervisor_init": args.supervisor_init,
         "stop_after_first_worker": args.stop_after_first_worker,
         "require_local": args.require_local,
+        "agent_env": args.agent_env,
+        "effective_agent_env": effective_agent_env(args),
         "local_mixmod_binary": str(local_mixmod_binary) if local_mixmod_binary else None,
         "command": [str(part) for part in cmd],
         "started_at": datetime.now(timezone.utc).isoformat(),

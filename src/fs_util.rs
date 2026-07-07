@@ -150,6 +150,7 @@ fn revision_handoff_from_supervisor_control(
                 auto_revision_no_delta.then(|| "make the first no-delta recovery edit".to_string())
             }),
         exact_edits,
+        edit_plan: get_string_array(control, "edit_plan"),
         deferred_checks: get_string_array(control, "deferred_checks"),
         defer_checks_until_patch_exists: get_bool(control, "defer_checks_until_patch_exists")
             .or_else(|| auto_revision_no_delta.then_some(true)),

@@ -72,7 +72,7 @@ fn supervise_args_launch_background_run_with_resume() {
         Some("ses_123"),
         &ModelOverrides::new(
             Some("gpt-5.5:high".to_string()),
-            Some("mixmod-local-ollama/qwen3.6:27b".to_string()),
+            Some("llama.cpp/qwen/qwen3.6-27b".to_string()),
         )
         .with_worker_backend(Some(WorkerBackend::OpenCode)),
     );
@@ -88,8 +88,10 @@ fn supervise_args_launch_background_run_with_resume() {
         args.windows(2)
             .any(|pair| pair[0] == "--supervisor-model" && pair[1] == "gpt-5.5:high")
     );
-    assert!(args.windows(2).any(|pair| pair[0] == "--worker-model"
-        && pair[1] == "mixmod-local-ollama/qwen3.6:27b"));
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "--worker-model" && pair[1] == "llama.cpp/qwen/qwen3.6-27b")
+    );
     assert!(
         args.windows(2)
             .any(|pair| pair[0] == "--worker-backend" && pair[1] == "opencode")
@@ -302,24 +304,24 @@ fn model_overrides_apply_supervisor_and_worker_models() {
 
     ModelOverrides::new(
         Some("gpt-5.5:xhigh".to_string()),
-        Some("ollama/qwen3.6:27b".to_string()),
+        Some("llama.cpp/qwen/qwen3.6-27b".to_string()),
     )
     .apply_to_config(&mut config)
     .unwrap();
 
     assert_eq!(config.supervisor.model, "gpt-5.5");
     assert_eq!(config.supervisor.reasoning_effort, "xhigh");
-    assert_eq!(config.opencode.provider, "ollama");
-    assert_eq!(config.opencode.model, "qwen3.6:27b");
+    assert_eq!(config.opencode.provider, "llama.cpp");
+    assert_eq!(config.opencode.model, "qwen/qwen3.6-27b");
     assert!(config.opencode.require_local);
     assert!(config.opencode.local_verification.enabled);
     assert!(
         config
             .opencode
             .model_aliases
-            .get("qwen3.6:27b")
+            .get("qwen/qwen3.6-27b")
             .unwrap()
-            .contains(&"ollama/qwen3.6:27b".to_string())
+            .contains(&"llama.cpp/qwen/qwen3.6-27b".to_string())
     );
 }
 
@@ -362,16 +364,16 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("repository diff"))
+            .any(|item| item.contains("reasoning before editing"))
     );
     assert!(
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("one source behavior"))
+            .any(|item| item.contains("worker_turn_shape=bounded_feature_slice"))
     );
 
-    ModelOverrides::new(None, Some("ollama/qwen3.6:27b".to_string()))
+    ModelOverrides::new(None, Some("llama.cpp/qwen/qwen3.6-27b".to_string()))
         .apply_to_config(&mut config)
         .unwrap();
     let guidance = config.worker_supervisor_guidance();
@@ -388,9 +390,12 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
 #[test]
 fn unknown_worker_model_has_no_default_guidance() {
     let mut config = MixmodConfig::default();
-    ModelOverrides::new(None, Some("ollama/unknown-local-model:latest".to_string()))
-        .apply_to_config(&mut config)
-        .unwrap();
+    ModelOverrides::new(
+        None,
+        Some("llama.cpp/unknown-local-model:latest".to_string()),
+    )
+    .apply_to_config(&mut config)
+    .unwrap();
 
     assert!(config.worker_supervisor_guidance().is_empty());
 }
@@ -398,12 +403,9 @@ fn unknown_worker_model_has_no_default_guidance() {
 #[test]
 fn glm_worker_profile_is_selected_by_alias() {
     let mut config = MixmodConfig::default();
-    ModelOverrides::new(
-        None,
-        Some("mixmod-local-ollama/glm-4.7-flash:Q4_K_M".to_string()),
-    )
-    .apply_to_config(&mut config)
-    .unwrap();
+    ModelOverrides::new(None, Some("llama.cpp/glm-4.7-flash:Q4_K_M".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
 
     let guidance = config.worker_supervisor_guidance();
 

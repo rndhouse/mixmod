@@ -830,6 +830,7 @@ fn small_patch_slice_revision_task_uses_noninteractive_delta_gate() {
                 "In checkout.py, add the branch that applies item discounts inside nested checkout items.".to_string(),
                 "In test_checkout.py, add one assertion for a nested discounted item.".to_string(),
             ],
+            edit_plan: vec![],
             deferred_checks: vec!["python -m unittest test_checkout.py -q".to_string()],
             defer_checks_until_patch_exists: Some(true),
             completion_gate: Some("git diff --stat must be non-empty".to_string()),

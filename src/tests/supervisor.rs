@@ -29,6 +29,9 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("not merely because the latest worker turn created a non-empty diff"));
     assert!(prompt.contains("worker-brief.json used worker_turn_shape=small_patch_slice"));
     assert!(prompt.contains("set worker_turn_shape=small_patch_slice with the next narrow"));
+    assert!(prompt.contains("worker-brief.json used worker_turn_shape=bounded_feature_slice"));
+    assert!(prompt.contains("judge whether the previous worker slice was too much"));
+    assert!(prompt.contains("keep or enlarge the next slice as bounded_feature_slice"));
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("Make the next slice one behavior only"));
     assert!(prompt.contains("Treat exact_edits as a queue"));
@@ -106,11 +109,10 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
         supervisor_worker_brief_prompt(root, &task, &guidance, SupervisorInitMode::Compact)
             .unwrap();
     assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
-    assert!(brief_prompt.contains("repository diff"));
-    assert!(brief_prompt.contains("worker_turn_shape=small_patch_slice"));
-    assert!(brief_prompt.contains("no tests before editing"));
-    assert!(brief_prompt.contains("one immediate source edit before any test edit"));
-    assert!(brief_prompt.contains("literal nearby code anchor"));
+    assert!(brief_prompt.contains("reasoning before editing"));
+    assert!(brief_prompt.contains("worker_turn_shape=bounded_feature_slice"));
+    assert!(brief_prompt.contains("one coherent feature chunk"));
+    assert!(brief_prompt.contains("small_patch_slice only after"));
     assert!(brief_prompt.contains("Select only relevant points"));
 }
 

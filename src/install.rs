@@ -168,22 +168,23 @@ heartbeat_seconds = 10
 worker_timeout_seconds = 600
 idle_timeout_seconds = 300
 
-local_providers = ["local", "{opencode_provider}", "local-ollama", "ollama", "lmstudio", "llama.cpp", "vllm", "localhost"]
+local_providers = ["local", "{opencode_provider}", "lmstudio", "llama.cpp", "vllm", "localhost"]
 
 [opencode.local_verification]
 enabled = true
 gpu_command = "nvidia-smi"
-backend_command = "ollama ps"
+backend_command = "curl -fsS http://127.0.0.1:8080/v1/models"
 
 [opencode.model_aliases]
-"{default_model}" = ["{default_model}", "{ollama_model}", "qwen/qwen3.6-27b", "ollama/{ollama_model}", "local-ollama/{ollama_model}", "{opencode_provider}/{ollama_model}"]
+"{default_model}" = ["{default_model}", "{local_model}", "{opencode_provider}/{local_model}"]
 
 [[worker_model_profiles]]
 model = "{default_model}"
-aliases = ["{default_model}", "{ollama_model}", "qwen/qwen3.6-27b", "ollama/{ollama_model}", "local-ollama/{ollama_model}", "{opencode_provider}/{ollama_model}"]
+aliases = ["{default_model}", "{local_model}", "{opencode_provider}/{local_model}"]
 supervisor_guidance = [
-  "On expected-patch tasks, it may stop after exploration without producing a repository diff; if edits are needed, instruct it to make the smallest concrete source/test change before finalizing.",
-  "For broad expected-patch tasks, prefer worker_turn_shape=small_patch_slice with exact_edits, one or two narrow files when possible, no tests before editing, no questions, and a git diff --stat non-empty completion gate.",
+  "This worker can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.",
+  "For broad expected-patch tasks, prefer worker_turn_shape=bounded_feature_slice: one coherent feature chunk, usually one to three source files, related serialization/deserialization or API/test edits together, and a compile or focused test check after the patch exists.",
+  "For revisions, keep worker_mode=continue and ask for the next coherent incomplete behavior instead of one mechanical edit. Use small_patch_slice only after a broad turn produced a confused, destructive, or empty patch.",
   "When tests fail to start because dependencies are missing, keep it focused on repo-level evidence and allowed commands instead of global environment repair.",
   "It can create broad or malformed tests when fixture semantics are unclear; ask for the narrowest regression test that matches existing test style.",
   "It may try to mutate user or global environments while installing dependencies; prefer existing project commands and avoid global installs unless the task explicitly requires them.",
@@ -207,14 +208,14 @@ reasoning_effort = "{supervisor_reasoning_effort}"
         opencode_provider = DEFAULT_OPENCODE_PROVIDER,
         mixmod_agent = MIXMOD_OPENCODE_AGENT,
         default_model = DEFAULT_OPENCODE_MODEL,
-        ollama_model = DEFAULT_OPENCODE_OLLAMA_MODEL,
+        local_model = DEFAULT_OPENCODE_LOCAL_MODEL,
         supervisor_model = DEFAULT_SUPERVISOR_MODEL,
         supervisor_reasoning_effort = DEFAULT_SUPERVISOR_REASONING_EFFORT
     )
 }
 
 fn opencode_config_content() -> String {
-    opencode_config_content_for_provider(DEFAULT_OPENCODE_PROVIDER, "Ollama (Mixmod local)")
+    opencode_config_content_for_provider(DEFAULT_OPENCODE_PROVIDER, "llama.cpp (Mixmod local)")
 }
 
 fn legacy_opencode_config_content() -> String {
@@ -253,9 +254,9 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
     );
     let mut models = Map::new();
     models.insert(
-        DEFAULT_OPENCODE_OLLAMA_MODEL.to_string(),
+        DEFAULT_OPENCODE_LOCAL_MODEL.to_string(),
         json!({
-            "name": "Qwen 3.6 27B (local)",
+            "name": "Qwen 3.6 27B (llama.cpp)",
             "reasoning": true
         }),
     );
@@ -266,7 +267,7 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
             "name": name,
             "npm": "@ai-sdk/openai-compatible",
             "options": {
-                "baseURL": "http://127.0.0.1:11434/v1"
+                "baseURL": "http://127.0.0.1:8080/v1"
             },
             "models": models
         }),
@@ -274,7 +275,7 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
     let config = json!({
         "$schema": "https://opencode.ai/config.json",
         "autoupdate": false,
-        "model": format!("{provider}/{ollama_model}", ollama_model = DEFAULT_OPENCODE_OLLAMA_MODEL),
+        "model": format!("{provider}/{local_model}", local_model = DEFAULT_OPENCODE_LOCAL_MODEL),
         "default_agent": MIXMOD_OPENCODE_AGENT,
         "agent": agents,
         "provider": providers
@@ -286,10 +287,7 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
 }
 
 fn previous_opencode_config_content() -> String {
-    previous_opencode_config_content_for_provider(
-        DEFAULT_OPENCODE_PROVIDER,
-        "Ollama (Mixmod local)",
-    )
+    previous_opencode_config_content_for_provider("mixmod-local-ollama", "Ollama (Mixmod local)")
 }
 
 fn previous_opencode_config_content_for_provider(provider: &str, name: &str) -> String {
@@ -316,7 +314,7 @@ fn previous_opencode_config_content_for_provider(provider: &str, name: &str) -> 
 "#,
         provider = provider,
         name = name,
-        ollama_model = DEFAULT_OPENCODE_OLLAMA_MODEL
+        ollama_model = "qwen3.6:27b"
     )
 }
 
