@@ -1,10 +1,15 @@
 use crate::*;
 use std::sync::Arc;
 
+mod command;
+mod context;
 mod prompts;
 mod recovery;
 mod report;
+mod session;
 
+pub(crate) use command::shell_command;
+pub(crate) use context::{WorkerContextSignals, worker_context_signals, worker_session_token_peak};
 pub(crate) use prompts::build_opencode_instruction;
 use recovery::{
     EmptyPatchFollowup, EmptyPatchFollowupRequest, RevisionNoopContext, RevisionNoopFollowup,
@@ -15,12 +20,7 @@ pub(crate) use report::build_run_summary;
 #[cfg(test)]
 pub(crate) use report::opencode_exit_status_label;
 use report::{RunReportInput, build_run_report};
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct WorkerContextSignals {
-    pub(crate) context_overflow_count: u64,
-    pub(crate) context_overflow_last_message: Option<String>,
-}
+use session::{build_reasoning_trace_jsonl, build_session_jsonl};
 
 pub fn run_mixmod_task(
     root: &Path,
@@ -661,158 +661,4 @@ fn intervention_details(
         .into_iter()
         .map(|(key, value)| (key.to_string(), value))
         .collect()
-}
-
-pub(crate) fn shell_command(command: &str) -> Command {
-    #[cfg(unix)]
-    {
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c").arg(command);
-        cmd
-    }
-
-    #[cfg(windows)]
-    {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg(command);
-        cmd
-    }
-}
-
-fn build_session_jsonl(
-    start: &DateTime<Utc>,
-    end: &DateTime<Utc>,
-    output: &AgentOutput,
-) -> Result<String> {
-    let events = [
-        json!({
-            "event": "started",
-            "timestamp": start.to_rfc3339(),
-            "command": output.command_for_metrics,
-            "session_label": output.session_label,
-            "session_id": output.session_id,
-            "resume_session_id": output.resume_session_id,
-            "worker_session_reused": output.session_reused,
-            "interrupted_by_supervisor": output.interrupted_by_supervisor,
-            "supervisor_control_action": output.supervisor_control_action,
-            "opencode_segments": output.segments.clone(),
-        }),
-        json!({
-            "event": "opencode_stdout",
-            "timestamp": end.to_rfc3339(),
-            "bytes": output.stdout.len(),
-            "text": String::from_utf8_lossy(&output.stdout),
-        }),
-        json!({
-            "event": "opencode_stderr",
-            "timestamp": end.to_rfc3339(),
-            "bytes": output.stderr.len(),
-            "text": String::from_utf8_lossy(&output.stderr),
-        }),
-        json!({
-            "event": "finished",
-            "timestamp": end.to_rfc3339(),
-            "exit_status": output.exit_status,
-            "success": output.success,
-            "timed_out": output.timed_out,
-            "idle_timed_out": output.idle_timed_out,
-            "heartbeat_count": output.heartbeat_count,
-            "interrupted_by_supervisor": output.interrupted_by_supervisor,
-            "supervisor_control_action": output.supervisor_control_action,
-        }),
-    ];
-    let mut session = String::new();
-    for event in events {
-        session.push_str(
-            &serde_json::to_string(&event).context("failed to serialize session JSONL event")?,
-        );
-        session.push('\n');
-    }
-    Ok(session)
-}
-
-fn build_reasoning_trace_jsonl(stdout: &[u8]) -> Result<(String, u64)> {
-    let mut trace = String::new();
-    let mut count = 0_u64;
-    let stdout = String::from_utf8_lossy(stdout);
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let Ok(event) = serde_json::from_str::<Value>(trimmed) else {
-            continue;
-        };
-        if get_str(&event, "type") != Some("reasoning") {
-            continue;
-        }
-        trace.push_str(
-            &serde_json::to_string(&event).context("failed to serialize reasoning trace event")?,
-        );
-        trace.push('\n');
-        count += 1;
-    }
-    Ok((trace, count))
-}
-
-pub(crate) fn worker_context_signals(stdout: &[u8]) -> WorkerContextSignals {
-    let mut signals = WorkerContextSignals::default();
-    let stdout = String::from_utf8_lossy(stdout);
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if !is_context_overflow_line(trimmed) {
-            continue;
-        }
-        signals.context_overflow_count += 1;
-        signals.context_overflow_last_message = Some(extract_context_overflow_message(trimmed));
-    }
-    signals
-}
-
-pub(crate) fn worker_session_token_peak(stdout: &[u8]) -> Option<u64> {
-    let mut peak = None;
-    let stdout = String::from_utf8_lossy(stdout);
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let Ok(event) = serde_json::from_str::<Value>(trimmed) else {
-            continue;
-        };
-        let Some(total) = event.pointer("/part/tokens/total").and_then(Value::as_u64) else {
-            continue;
-        };
-        peak = Some(peak.map_or(total, |current: u64| current.max(total)));
-    }
-    peak
-}
-
-fn is_context_overflow_line(line: &str) -> bool {
-    line.contains("ContextOverflowError") || line.contains("exceeds the available context size")
-}
-
-fn extract_context_overflow_message(line: &str) -> String {
-    if let Ok(event) = serde_json::from_str::<Value>(line) {
-        let name = event
-            .pointer("/error/name")
-            .and_then(Value::as_str)
-            .unwrap_or("ContextOverflowError");
-        let message = event
-            .pointer("/error/data/message")
-            .and_then(Value::as_str)
-            .unwrap_or("context overflow");
-        return truncate_context_overflow_message(&format!("{name}: {message}"));
-    }
-    truncate_context_overflow_message(line)
-}
-
-fn truncate_context_overflow_message(value: &str) -> String {
-    const LIMIT: usize = 500;
-    if value.chars().count() <= LIMIT {
-        return value.to_string();
-    }
-    let mut truncated = value.chars().take(LIMIT).collect::<String>();
-    truncated.push_str("...");
-    truncated
 }

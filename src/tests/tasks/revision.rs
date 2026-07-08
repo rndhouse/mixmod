@@ -1,0 +1,330 @@
+use super::super::*;
+
+#[test]
+fn revision_task_preserves_codex_focus_files() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": [],
+  "constraints": ["Do not commit."],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "accept_current".to_string(),
+        hint: "Update the discount code and its test.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
+        focus_files: vec!["checkout.py".to_string(), "test_checkout.py".to_string()],
+        required_checks: vec!["python -m unittest -q".to_string()],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 1).unwrap();
+    let revision = read_json_file(&path).unwrap();
+
+    assert_eq!(
+        get_string_array(&revision, "files"),
+        vec!["checkout.py", "test_checkout.py"]
+    );
+    assert_eq!(
+        get_string_array(&revision, "acceptance"),
+        vec!["python -m unittest -q"]
+    );
+    let constraints = get_string_array(&revision, "constraints");
+    assert!(constraints.contains(&"Do not commit.".to_string()));
+    assert!(constraints.contains(&"Keep the revision focused.".to_string()));
+    let instructions = get_str(&revision, "instructions").unwrap();
+    assert!(instructions.contains("Message to worker: Update the discount code"));
+    assert_eq!(
+        get_bool(&revision["context"]["revision"], "delta_expected"),
+        Some(true)
+    );
+    assert_eq!(
+        get_str(&revision["context"]["revision"], "message_to_worker"),
+        Some("Update the discount code and its test.")
+    );
+    assert_eq!(
+        get_string_array(&revision["context"]["revision"], "focus_files"),
+        vec!["checkout.py", "test_checkout.py"]
+    );
+}
+
+#[test]
+fn context_focus_revision_task_uses_focused_prompt() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": [],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "context_focus".to_string(),
+        patch_decision: "accept_current".to_string(),
+        hint: "Ignore dependency setup and edit the focused files first.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
+        focus_files: vec!["checkout.py".to_string()],
+        required_checks: vec!["python -m unittest -q".to_string()],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 2).unwrap();
+    let revision = read_json_file(&path).unwrap();
+
+    assert_eq!(get_str(&revision, "worker_mode"), Some("context_focus"));
+    assert_eq!(get_string_array(&revision, "files"), vec!["checkout.py"]);
+    let instructions = get_str(&revision, "instructions").unwrap();
+    assert!(instructions.contains("worker_mode=context_focus"));
+    assert!(instructions.contains("fresh focused worker attempt"));
+    assert!(instructions.contains("make the code/test edit first"));
+}
+
+#[test]
+fn revision_task_mentions_revise_previous_checkpoint_decision() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": [],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "context_focus".to_string(),
+        patch_decision: "revise_previous".to_string(),
+        hint: "Recover the earlier source edit and remove unrelated files.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
+        focus_files: vec!["checkout.py".to_string()],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 3).unwrap();
+    let revision = read_json_file(&path).unwrap();
+    let instructions = get_str(&revision, "instructions").unwrap();
+
+    assert!(instructions.contains("Patch checkpoint decision: revise_previous"));
+    assert!(instructions.contains("Mixmod has restored the previous candidate patch"));
+    assert!(instructions.contains("Apply only the focused follow-up edit"));
+    assert!(instructions.contains("Do not read Mixmod artifacts directly."));
+    assert!(!instructions.contains("previous-worktree.patch"));
+    assert_eq!(
+        get_str(&revision["context"], "patch_decision"),
+        Some("revise_previous")
+    );
+}
+
+#[test]
+fn small_patch_slice_revision_task_uses_noninteractive_delta_gate() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Add nested checkout discounts and update tests.",
+  "files": [],
+  "tests": ["python -m unittest -q"],
+  "constraints": [],
+  "acceptance": ["discounts apply to nested checkout items"]
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "revise_current".to_string(),
+        hint: "Add the nested item discount branch and one focused assertion.".to_string(),
+        revision_handoff: RevisionHandoff {
+            worker_turn_shape: Some("small_patch_slice".to_string()),
+            turn_goal: Some("nested item discount branch".to_string()),
+            exact_edits: vec![
+                "In checkout.py, add the branch that applies item discounts inside nested checkout items.".to_string(),
+                "In test_checkout.py, add one assertion for a nested discounted item.".to_string(),
+            ],
+            edit_plan: vec![],
+            deferred_checks: vec!["python -m unittest test_checkout.py -q".to_string()],
+            defer_checks_until_patch_exists: Some(true),
+            completion_gate: Some("git diff --stat must be non-empty".to_string()),
+            forbidden_actions: vec!["run broad tests before editing".to_string()],
+        },
+        focus_files: vec!["checkout.py".to_string(), "test_checkout.py".to_string()],
+        required_checks: vec!["python -m unittest test_checkout.py -q".to_string()],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 1).unwrap();
+    let revision = read_json_file(&path).unwrap();
+
+    assert_eq!(
+        get_string_array(&revision, "files"),
+        vec!["checkout.py", "test_checkout.py"]
+    );
+    assert_eq!(get_string_array(&revision, "tests"), Vec::<String>::new());
+    assert_eq!(
+        get_string_array(&revision, "acceptance"),
+        vec!["git diff --stat must be non-empty"]
+    );
+    let constraints = get_string_array(&revision, "constraints");
+    assert!(
+        constraints
+            .iter()
+            .any(|constraint| constraint.contains("Do not run tests in this revision turn"))
+    );
+    let instructions = get_str(&revision, "instructions").unwrap();
+    assert!(instructions.contains("Noninteractive coding revision"));
+    assert!(instructions.contains("Current accumulated patch is useful but not yet accepted"));
+    assert!(
+        instructions.contains(
+            "Your only goal in this revision turn is to add a non-empty repository delta"
+        )
+    );
+    assert!(instructions.contains("Make exactly this next small patch"));
+    assert!(instructions.contains("Worker edit packet:"));
+    assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
+    assert!(instructions.contains("nested item discount branch"));
+    assert!(!instructions.contains("add one assertion for a nested discounted item"));
+    assert!(instructions.contains("additional edit(s)"));
+    assert!(instructions.contains("Do not do them now."));
+    assert!(instructions.contains("Do not run broad tests before editing."));
+    assert!(instructions.contains("After editing, run exactly: git diff --stat"));
+    assert_eq!(
+        get_str(&revision["context"]["revision"], "worker_turn_shape"),
+        Some("small_patch_slice")
+    );
+    assert_eq!(
+        get_string_array(&revision["context"]["revision"], "exact_edits"),
+        vec![
+            "In checkout.py, add the branch that applies item discounts inside nested checkout items.",
+            "In test_checkout.py, add one assertion for a nested discounted item."
+        ]
+    );
+}
+
+#[test]
+fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("work/task.json");
+    fs::create_dir_all(task.parent().unwrap()).unwrap();
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": [],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "context_focus".to_string(),
+        patch_decision: "accept_current".to_string(),
+        hint: "Use the latest focused task and edit the source file.".to_string(),
+        revision_handoff: RevisionHandoff::default(),
+        focus_files: vec![
+            "revision-task-3.json".to_string(),
+            "sympy/core/power.py".to_string(),
+            "../default/worker-brief.json".to_string(),
+        ],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 4).unwrap();
+    let revision = read_json_file(&path).unwrap();
+
+    assert_eq!(
+        get_string_array(&revision, "files"),
+        vec!["sympy/core/power.py"]
+    );
+    assert_eq!(
+        get_string_array(&revision["context"], "mixmod_artifact_refs"),
+        vec!["revision-task-3.json", "../default/worker-brief.json"]
+    );
+    let instructions = get_str(&revision, "instructions").unwrap();
+    assert!(instructions.contains("Mixmod artifact references from the supervisor"));
+    assert!(instructions.contains("use the current task text and the supervisor message instead"));
+    assert!(!instructions.contains("compact artifacts instead"));
+    assert!(!instructions.contains("Focus files: [\"revision-task-3.json\""));
+}

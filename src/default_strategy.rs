@@ -244,76 +244,7 @@ impl DefaultStrategyRun<'_> {
             supervisor_samples.extend(live_supervisor.drain_usage_samples());
         }
         let supervisor_usage = aggregate_supervisor_usage(&supervisor_samples);
-        let local_worker_stdout = worker_metrics
-            .iter()
-            .map(|metrics| get_u64(metrics, "stdout_bytes").unwrap_or(0))
-            .sum::<u64>();
-        let local_worker_stderr = worker_metrics
-            .iter()
-            .map(|metrics| get_u64(metrics, "stderr_bytes").unwrap_or(0))
-            .sum::<u64>();
-        let local_worker_reasoning_trace = worker_metrics
-            .iter()
-            .map(|metrics| get_u64(metrics, "reasoning_trace_bytes").unwrap_or(0))
-            .sum::<u64>();
-        let local_worker_reasoning_events = worker_metrics
-            .iter()
-            .map(|metrics| get_u64(metrics, "reasoning_trace_event_count").unwrap_or(0))
-            .sum::<u64>();
-        let opencode_session_ids = worker_metrics
-            .iter()
-            .filter_map(|metrics| get_str(metrics, "opencode_session_id").map(ToOwned::to_owned))
-            .collect::<Vec<_>>();
-        let opencode_session_labels = worker_metrics
-            .iter()
-            .filter_map(|metrics| get_str(metrics, "opencode_session_label").map(ToOwned::to_owned))
-            .collect::<Vec<_>>();
-        let worker_session_reuse_count = worker_metrics
-            .iter()
-            .filter(|metrics| get_bool(metrics, "worker_session_reused").unwrap_or(false))
-            .count() as u64;
-        let supervisor_control_count = worker_metrics
-            .iter()
-            .map(|metrics| {
-                metrics
-                    .get("supervisor_control_events")
-                    .and_then(Value::as_array)
-                    .map(|items| items.len() as u64)
-                    .unwrap_or(0)
-            })
-            .sum::<u64>();
-        let supervisor_control_actions = worker_metrics
-            .iter()
-            .filter_map(|metrics| {
-                get_str(metrics, "supervisor_control_action").map(ToOwned::to_owned)
-            })
-            .collect::<Vec<_>>();
-        let supervisor_control_risks = worker_metrics
-            .iter()
-            .flat_map(|metrics| {
-                metrics
-                    .get("supervisor_control_events")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|event| get_str(event, "risk").map(ToOwned::to_owned))
-            })
-            .filter(|risk| !risk.trim().is_empty())
-            .collect::<Vec<_>>();
-        let supervisor_control_interrupts = worker_metrics
-            .iter()
-            .filter(|metrics| get_bool(metrics, "interrupted_by_supervisor").unwrap_or(false))
-            .count() as u64;
-        let local_inference_verified = !worker_metrics.is_empty()
-            && worker_metrics
-                .iter()
-                .all(|metrics| get_bool(metrics, "local_inference_verified").unwrap_or(false));
-        let gpu_activity_observed = worker_metrics
-            .iter()
-            .any(|metrics| get_bool(metrics, "gpu_activity_observed").unwrap_or(false));
-        let backend_activity_observed = worker_metrics
-            .iter()
-            .any(|metrics| get_bool(metrics, "backend_activity_observed").unwrap_or(false));
+        let worker_summary = WorkerMetricsSummary::from_metrics(&worker_metrics);
         let approval_action = final_decision
             .as_ref()
             .map(|decision| decision.verdict.clone())
@@ -383,16 +314,16 @@ impl DefaultStrategyRun<'_> {
             "opencode_session_label": get_str(&final_metrics, "opencode_session_label").unwrap_or("unknown"),
             "opencode_session_id": get_str(&final_metrics, "opencode_session_id").unwrap_or("unknown"),
             "opencode_resume_session_id": get_str(&final_metrics, "opencode_resume_session_id"),
-            "opencode_session_ids": opencode_session_ids,
-            "opencode_session_labels": opencode_session_labels,
-            "worker_session_reuse_count": worker_session_reuse_count,
+            "opencode_session_ids": worker_summary.opencode_session_ids,
+            "opencode_session_labels": worker_summary.opencode_session_labels,
+            "worker_session_reuse_count": worker_summary.worker_session_reuse_count,
             "worker_session_reused": get_bool(&final_metrics, "worker_session_reused").unwrap_or(false),
             "worker_run_dirs": worker_run_dirs,
             "final_worker_run_dir": display_path(root, &final_out),
-            "supervisor_control_count": supervisor_control_count,
-            "supervisor_control_actions": supervisor_control_actions,
-            "supervisor_control_risks": supervisor_control_risks,
-            "supervisor_control_interrupts": supervisor_control_interrupts,
+            "supervisor_control_count": worker_summary.supervisor_control_count,
+            "supervisor_control_actions": worker_summary.supervisor_control_actions,
+            "supervisor_control_risks": worker_summary.supervisor_control_risks,
+            "supervisor_control_interrupts": worker_summary.supervisor_control_interrupts,
             "interrupted_by_supervisor": get_bool(&final_metrics, "interrupted_by_supervisor").unwrap_or(false),
             "supervisor_control_action": get_str(&final_metrics, "supervisor_control_action"),
             "opencode_timed_out": get_bool(&final_metrics, "opencode_timed_out").unwrap_or(false),
@@ -402,14 +333,14 @@ impl DefaultStrategyRun<'_> {
             "opencode_model": get_str(&final_metrics, "opencode_model").unwrap_or("unknown"),
             "opencode_model_arg": get_str(&final_metrics, "opencode_model_arg").unwrap_or("unknown"),
             "require_local": get_bool(&final_metrics, "require_local").unwrap_or(false),
-            "local_inference_verified": local_inference_verified,
-            "gpu_activity_observed": gpu_activity_observed,
-            "backend_activity_observed": backend_activity_observed,
-            "local_worker_stdout_bytes": local_worker_stdout,
-            "local_worker_stderr_bytes": local_worker_stderr,
-            "local_worker_text_bytes": local_worker_stdout + local_worker_stderr,
-            "local_worker_reasoning_trace_bytes": local_worker_reasoning_trace,
-            "local_worker_reasoning_trace_event_count": local_worker_reasoning_events,
+            "local_inference_verified": worker_summary.local_inference_verified,
+            "gpu_activity_observed": worker_summary.gpu_activity_observed,
+            "backend_activity_observed": worker_summary.backend_activity_observed,
+            "local_worker_stdout_bytes": worker_summary.local_stdout_bytes,
+            "local_worker_stderr_bytes": worker_summary.local_stderr_bytes,
+            "local_worker_text_bytes": worker_summary.local_stdout_bytes + worker_summary.local_stderr_bytes,
+            "local_worker_reasoning_trace_bytes": worker_summary.local_reasoning_trace_bytes,
+            "local_worker_reasoning_trace_event_count": worker_summary.local_reasoning_trace_event_count,
             "artifact_byte_sizes": artifact_byte_sizes(&out_dir)?,
             "patch_bytes": final_patch.len() as u64,
             "changed_files": stats.files,

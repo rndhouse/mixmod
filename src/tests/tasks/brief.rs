@@ -1,0 +1,381 @@
+use super::super::*;
+
+#[test]
+fn as_given_worker_brief_uses_original_task_defaults() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "As-given handoff",
+  "instructions": "Fix the checkout bug.",
+  "files": ["checkout.py"],
+  "tests": ["python -m unittest -q"],
+  "constraints": ["Keep patch focused."],
+  "acceptance": ["Tests pass."]
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({"handoff": "as_given"});
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+
+    assert_eq!(get_string_array(&worker_task, "files"), vec!["checkout.py"]);
+    assert_eq!(
+        get_string_array(&worker_task, "tests"),
+        vec!["python -m unittest -q"]
+    );
+    assert_eq!(
+        get_string_array(&worker_task, "acceptance"),
+        vec!["Tests pass."]
+    );
+
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+    assert!(instructions.contains("Supervisor message to worker:"));
+    assert!(instructions.contains("Proceed from the original task."));
+    assert!(instructions.contains("Fix the checkout bug."));
+    assert!(!instructions.contains("Objective:"));
+    assert!(!instructions.contains("Implementation steps:"));
+    assert_eq!(worker_task["context"]["worker_brief"], brief);
+}
+
+#[test]
+fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    atomic_write(
+        &root.join("checkout.py"),
+        b"def total(items):\n    return sum(items)\n",
+    )
+    .unwrap();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Checkout",
+  "instructions": "Fix totals.",
+  "files": ["checkout.py"],
+  "tests": ["python -m unittest -q"]
+}"#,
+    )
+    .unwrap();
+
+    let prompt = supervisor_worker_brief_prompt(
+        root,
+        &task,
+        &WorkerSupervisorGuidance::default(),
+        SupervisorInitMode::Compact,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("minimize supervisor output"));
+    assert!(prompt.contains("compact executable worker handoff"));
+    assert!(prompt.contains("exact files, edit target, expected behavior, and checks"));
+    assert!(prompt.contains(r#"Default to "guided""#));
+    assert!(prompt.contains("Guided means terse and executable"));
+    assert!(prompt.contains("target <=120 output tokens"));
+    assert!(prompt.contains("one command-style message_to_worker"));
+    assert!(prompt.contains("usually <=2"));
+    assert!(prompt.contains("worker_turn_shape"));
+    assert!(prompt.contains("small_patch_slice"));
+    assert!(prompt.contains("exact_edits"));
+    assert!(prompt.contains("completion_gate"));
+    assert!(prompt.contains("preferred worker_turn_shape"));
+    assert!(prompt.contains("first patch seed"));
+    assert!(prompt.contains("Bad small_patch_slice choices ask for a whole feature"));
+    assert!(prompt.contains("immediately executable edit commands"));
+    assert!(prompt.contains("concrete repo file paths, not directories"));
+    assert!(prompt.contains("omit investigation_summary"));
+    assert!(prompt.contains(r#""expect_patch": true"#));
+    assert!(prompt.contains("Set false for investigation/no-change handoffs"));
+    assert!(prompt.contains("setup rabbit holes"));
+    assert!(prompt.contains("already names the relevant files, desired behavior, and checks"));
+    assert!(prompt.contains(r#"{"handoff":"as_given"}"#));
+    assert!(prompt.contains("omit empty fields"));
+}
+
+#[test]
+fn investigative_worker_brief_prompt_allows_read_only_file_pass() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Checkout",
+  "instructions": "Fix totals.",
+  "files": [],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let prompt = supervisor_worker_brief_prompt(
+        root,
+        &task,
+        &WorkerSupervisorGuidance::default(),
+        SupervisorInitMode::Investigate,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("read-only repo investigation"));
+    assert!(prompt.contains("rg"));
+    assert!(prompt.contains("target <=500 output tokens"));
+    assert!(prompt.contains("investigation_summary"));
+    assert!(prompt.contains("edit_plan"));
+    assert!(prompt.contains("evidence"));
+    assert!(prompt.contains("less capable"));
+}
+
+#[test]
+fn worker_task_surfaces_supervisor_investigation_notes() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Investigated handoff",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "message_to_worker": "Patch checkout totals before running broad tests.",
+        "investigation_summary": "Discount total uses pre-tax values in checkout.py.",
+        "edit_plan": ["Update calculate_total.", "Add one regression test."],
+        "evidence": ["checkout.py:calculate_total has the wrong order."]
+    });
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+
+    assert!(instructions.contains("Supervisor investigation:"));
+    assert!(instructions.contains("Summary: Discount total uses pre-tax values"));
+    assert!(instructions.contains("Edit plan:"));
+    assert!(instructions.contains("- Update calculate_total."));
+    assert!(instructions.contains("Evidence:"));
+}
+
+#[test]
+fn small_patch_slice_worker_task_uses_noninteractive_diff_gate() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Flatten metadata",
+  "instructions": "Implement a broad flatten feature and run pytest.",
+  "files": ["mashumaro/helper.py", "mashumaro/core/meta/code/builder.py"],
+  "tests": ["python -m pytest tests/test_helper.py"],
+  "acceptance": ["all tests pass"]
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "worker_turn_shape": "small_patch_slice",
+        "turn_goal": "Create the first metadata plumbing patch.",
+        "files": ["mashumaro/helper.py", "tests/test_helper.py"],
+        "exact_edits": [
+            "Add flatten: bool = False to field_options.",
+            "Add flatten_prefix: Optional[Union[str, bool]] = None.",
+            "Add flatten_rename: Optional[dict[str, str]] = None.",
+            "Return all three keys in the metadata dict.",
+            "Update tests/test_helper.py expectations for those keys."
+        ],
+        "defer_checks_until_patch_exists": true,
+        "deferred_checks": ["python -m pytest tests/test_helper.py"],
+        "completion_gate": "git diff --stat must be non-empty",
+        "forbidden_actions": ["ask questions", "run tests before editing"]
+    });
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+
+    assert_eq!(
+        get_string_array(&worker_task, "files"),
+        vec!["mashumaro/helper.py", "tests/test_helper.py"]
+    );
+    assert!(get_string_array(&worker_task, "tests").is_empty());
+    assert_eq!(
+        get_string_array(&worker_task, "acceptance"),
+        vec!["git diff --stat must be non-empty"]
+    );
+
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+    assert!(instructions.contains("Noninteractive coding task"));
+    assert!(instructions.contains("No user will answer questions"));
+    assert!(
+        instructions
+            .contains("Your only goal in this turn is to create a non-empty repository patch.")
+    );
+    assert!(instructions.contains("Do not ask questions."));
+    assert!(instructions.contains("Do not run tests in this turn."));
+    assert!(instructions.contains("Do not stop after reading files."));
+    assert!(instructions.contains("Patch slice goal: Create the first metadata plumbing patch."));
+    assert!(instructions.contains("1. Add flatten: bool = False to field_options."));
+    assert!(!instructions.contains("Add flatten_prefix: Optional"));
+    assert!(instructions.contains("additional edit(s)"));
+    assert!(instructions.contains("Do not do them now."));
+    assert!(instructions.contains("Make exactly this first small patch:"));
+    assert!(instructions.contains("Worker edit packet:"));
+    assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
+    assert!(
+        instructions.contains("If a listed item is a directory, do not read the whole directory")
+    );
+    assert!(instructions.contains("git diff --stat"));
+    assert!(instructions.contains("Diff non-empty: yes/no"));
+    assert!(!instructions.contains("Supervisor handoff JSON"));
+    assert!(!instructions.contains("python -m pytest tests/test_helper.py"));
+    assert_eq!(worker_task["context"]["worker_brief"], brief);
+}
+
+#[test]
+fn small_patch_slice_worker_task_includes_anchor_source_packet() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("mashumaro")).unwrap();
+    atomic_write(
+        &root.join("mashumaro/helper.py"),
+        b"from typing import Any\n\n\ndef field_options(alias=None):\n    metadata = {}\n    if alias is not None:\n        metadata['alias'] = alias\n    return metadata\n",
+    )
+    .unwrap();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Flatten metadata",
+  "instructions": "Add flatten metadata support.",
+  "files": ["mashumaro/helper.py"],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "worker_turn_shape": "small_patch_slice",
+        "turn_goal": "Add the first flatten option to field_options.",
+        "files": ["mashumaro/helper.py"],
+        "exact_edits": [
+            "In mashumaro/helper.py near the line containing \"def field_options(\" add a flatten: bool = False parameter and return it in metadata."
+        ],
+        "edit_packet": ["field_options is the public metadata helper."],
+        "defer_checks_until_patch_exists": true
+    });
+
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+
+    assert!(instructions.contains("Supervisor packet:"));
+    assert!(instructions.contains("field_options is the public metadata helper"));
+    assert!(
+        instructions
+            .contains("Source snippet from mashumaro/helper.py around `def field_options(`")
+    );
+    assert!(instructions.contains("def field_options(alias=None):"));
+    assert!(instructions.contains("Do not read an entire large file before the first edit"));
+}
+
+#[test]
+fn focused_worker_brief_overrides_files_and_adds_supplemental_checks() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Focused handoff",
+  "instructions": "Fix the checkout bug.",
+  "files": ["catalog.py", "checkout.py"],
+  "tests": ["python -m unittest -q"],
+  "constraints": [],
+  "acceptance": ["Tests pass."]
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "focused",
+        "expect_patch": false,
+        "supplement": "Preserve public return shapes.",
+        "focus_files": ["checkout.py"],
+        "must_check": ["VIP discount after line discounts"],
+        "avoid": ["broad refactor"]
+    });
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+
+    assert_eq!(get_bool(&worker_task, "expect_patch"), Some(false));
+    assert_eq!(get_string_array(&worker_task, "files"), vec!["checkout.py"]);
+    assert_eq!(
+        get_string_array(&worker_task, "acceptance"),
+        vec!["VIP discount after line discounts"]
+    );
+    assert!(
+        get_string_array(&worker_task, "constraints")
+            .contains(&"Avoid: broad refactor".to_string())
+    );
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+    assert!(instructions.contains("Supervisor message to worker:"));
+    assert!(instructions.contains("Preserve public return shapes."));
+    assert!(instructions.contains("Files:"));
+}
+
+#[test]
+fn direct_worker_message_is_preserved() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Direct handoff",
+  "instructions": "Fix the checkout bug.",
+  "files": ["catalog.py"],
+  "tests": [],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "message_to_worker": "Investigate checkout totals and make the smallest safe fix.",
+        "files": ["checkout.py"],
+        "checks": ["VIP discount after line discounts"]
+    });
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+
+    assert_eq!(get_bool(&worker_task, "expect_patch"), Some(true));
+    assert_eq!(get_string_array(&worker_task, "files"), vec!["checkout.py"]);
+    assert_eq!(
+        get_string_array(&worker_task, "acceptance"),
+        vec!["VIP discount after line discounts"]
+    );
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+    assert!(instructions.contains(
+        "Supervisor message to worker:\nInvestigate checkout totals and make the smallest safe fix."
+    ));
+}

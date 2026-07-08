@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde_json::{Value, json};
 
 mod artifacts;
@@ -29,6 +29,7 @@ mod loop_summary;
 mod report;
 mod run;
 mod state;
+mod strategy_metrics;
 mod supervisor;
 mod task;
 #[cfg(test)]
@@ -119,6 +120,7 @@ pub(crate) use run::{
     worker_context_signals,
 };
 pub(crate) use state::state_layout;
+pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, RevisionHandoff, SupervisorFeedbackTurn, aggregate_supervisor_usage,
     codex_only_prompt, normalize_worker_mode, run_codex_app_server_turn, run_supervisor_brief_turn,
