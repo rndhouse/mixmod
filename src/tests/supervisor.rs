@@ -152,6 +152,10 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("Select only relevant points"));
     assert!(brief_prompt.contains("worker-model guidance as handoff constraints"));
+    assert!(brief_prompt.contains("satisfy that contract in the first JSON turn"));
+    assert!(brief_prompt.contains("exact_edits as exactly one string source edit"));
+    assert!(brief_prompt.contains("base path plus modifiers"));
+    assert!(brief_prompt.contains("one modifier family per later slice"));
 }
 
 #[test]

@@ -301,6 +301,8 @@ copy_if_exists(
     agent_dir / "supervision-loop-summary.json",
 )
 copy_if_exists(run_dir / "supervisor-feedback.jsonl", agent_dir / "supervisor-feedback.jsonl")
+for name in ["task.json", "worker-brief.json", "worker-task.json"]:
+    copy_if_exists(run_dir / name, agent_dir / name)
 
 worker_root = run_dir / "worker-runs"
 if worker_root.exists():
@@ -387,6 +389,41 @@ def last_jsonl_record(path: Path) -> dict:
             return value
     return {{}}
 
+def jsonl_records(path: Path) -> list[dict]:
+    records = []
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return records
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            records.append(value)
+    return records
+
+def worker_control_records(worker_dir: Path, worker_metric: dict) -> list[dict]:
+    records = jsonl_records(worker_dir / "supervisor-control.jsonl")
+    if records:
+        return records
+    events = worker_metric.get("supervisor_control_events")
+    if isinstance(events, list):
+        return [event for event in events if isinstance(event, dict)]
+    return []
+
+def string_values(records: list[dict], field: str) -> list[str]:
+    values = []
+    for record in records:
+        value = record.get(field)
+        if isinstance(value, str) and value.strip():
+            values.append(value)
+    return values
+
 feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
 worker_dirs = sorted(
     path for path in (agent_dir / "worker-runs").glob("*") if path.is_dir()
@@ -421,6 +458,24 @@ latest_heartbeat = (
     if latest_worker_dir
     else {{}}
 )
+worker_metric_by_dir = dict(worker_metric_records)
+latest_worker_controls = (
+    worker_control_records(latest_worker_dir, latest_worker)
+    if latest_worker_dir
+    else []
+)
+all_worker_controls = []
+for worker_dir in worker_dirs:
+    all_worker_controls.extend(
+        worker_control_records(worker_dir, worker_metric_by_dir.get(worker_dir, {{}}))
+    )
+latest_worker_control_actions = string_values(latest_worker_controls, "action")
+latest_worker_control_risks = string_values(latest_worker_controls, "risk")
+all_worker_control_actions = string_values(all_worker_controls, "action")
+all_worker_control_risks = string_values(all_worker_controls, "risk")
+all_worker_control_interrupts = [
+    action for action in all_worker_control_actions if action.startswith("interrupt")
+]
 patch_path = artifacts_dir / "model.patch"
 try:
     patch_text = patch_path.read_text()
@@ -471,6 +526,47 @@ summary = {{
         if latest_worker_dir
         else None
     ),
+    "latest_worker_changes_patch_bytes": (
+        file_len(latest_worker_dir / "changes.patch")
+        if latest_worker_dir
+        else None
+    ),
+    "latest_worker_worktree_patch_bytes": (
+        file_len(latest_worker_dir / "worktree.patch")
+        if latest_worker_dir
+        else None
+    ),
+    "latest_worker_partial_patch_bytes": (
+        file_len(latest_worker_dir / "partial.patch")
+        if latest_worker_dir
+        else None
+    ),
+    "latest_worker_control_log_bytes": (
+        file_len(latest_worker_dir / "supervisor-control.jsonl")
+        if latest_worker_dir
+        else None
+    ),
+    "latest_worker_supervisor_control_count": (
+        len(latest_worker_controls)
+        if latest_worker_dir
+        else None
+    ),
+    "latest_worker_supervisor_control_actions": (
+        latest_worker_control_actions or None
+    ),
+    "latest_worker_supervisor_control_risks": (
+        latest_worker_control_risks or None
+    ),
+    "latest_worker_supervisor_control_last_action": (
+        latest_worker_control_actions[-1]
+        if latest_worker_control_actions
+        else None
+    ),
+    "latest_worker_interrupted_by_supervisor": (
+        any(action.startswith("interrupt") for action in latest_worker_control_actions)
+        if latest_worker_dir
+        else None
+    ),
     "latest_completed_worker_run": latest_completed_worker.get("opencode_session_label"),
     "latest_completed_worker_dir": (
         latest_completed_worker_dir.name
@@ -485,6 +581,18 @@ summary = {{
         for item in worker_metrics
         if isinstance(item.get("context_overflow_count"), int)
     ) if worker_metrics else None,
+    "observed_supervisor_control_count": (
+        len(all_worker_controls) or None
+    ),
+    "observed_supervisor_control_actions": (
+        all_worker_control_actions or None
+    ),
+    "observed_supervisor_control_risks": (
+        all_worker_control_risks or None
+    ),
+    "observed_supervisor_control_interrupts": (
+        len(all_worker_control_interrupts) or None
+    ),
     "worker_session_token_peak": max(
         [
             item.get("worker_session_token_peak")
@@ -515,6 +623,7 @@ summary = {{
         or None,
     "patch_bytes": len(patch_text.encode()),
     "patch_lines": patch_text.count("\\n"),
+    "repository_patch_observed": bool(patch_text.strip()),
 }}
 summary_path.write_text(json.dumps(summary, indent=2) + "\\n")
 PY
