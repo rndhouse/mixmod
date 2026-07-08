@@ -39,8 +39,12 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("judge whether the previous worker slice was too much"));
     assert!(prompt.contains("previous slices may now be too small"));
     assert!(prompt.contains("first useful end-to-end behavior path"));
-    assert!(prompt.contains("Use bounded_feature_slice when the worker can handle"));
+    assert!(prompt.contains("Use bounded_feature_slice only when the selected worker guidance"));
     assert!(prompt.contains("keep or enlarge the next slice as bounded_feature_slice"));
+    assert!(prompt.contains("broaden only the anchored source behavior inside that shape"));
+    assert!(prompt.contains(
+        "promotion means one coherent anchored source behavior inside small_patch_slice"
+    ));
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("Make the next slice one behavior only"));
     assert!(prompt.contains("Treat exact_edits as a queue"));
@@ -137,6 +141,11 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("one immediate source edit"));
     assert!(brief_prompt.contains("current accumulated patch"));
     assert!(brief_prompt.contains("one literal anchor plus the smallest local transformation"));
+    assert!(brief_prompt.contains("use worker_turn_shape=small_patch_slice by default"));
+    assert!(brief_prompt.contains("switching this profile to bounded_feature_slice"));
+    assert!(
+        brief_prompt.contains("make the exact source edit more coherent inside small_patch_slice")
+    );
     assert!(brief_prompt.contains("multiple clean small_patch_slice revisions"));
     assert!(brief_prompt.contains("prioritize the first useful behavior path"));
     assert!(brief_prompt.contains("context overflow"));

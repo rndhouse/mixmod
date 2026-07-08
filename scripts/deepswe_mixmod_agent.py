@@ -391,14 +391,31 @@ feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
 worker_dirs = sorted(
     path for path in (agent_dir / "worker-runs").glob("*") if path.is_dir()
 )
-worker_metrics = [
-    load_json(worker_dir / "metrics.json")
-    for worker_dir in worker_dirs
-    if (worker_dir / "metrics.json").exists()
-]
-worker_metrics = [item for item in worker_metrics if item]
-latest_worker = worker_metrics[-1] if worker_metrics else {{}}
+worker_metric_records = []
+for worker_dir in worker_dirs:
+    worker_metrics_path = worker_dir / "metrics.json"
+    if not worker_metrics_path.exists():
+        continue
+    worker_metric = load_json(worker_metrics_path)
+    if worker_metric:
+        worker_metric_records.append((worker_dir, worker_metric))
+worker_metrics = [item for _, item in worker_metric_records]
+latest_completed_worker_dir = (
+    worker_metric_records[-1][0]
+    if worker_metric_records
+    else None
+)
+latest_completed_worker = (
+    worker_metric_records[-1][1]
+    if worker_metric_records
+    else {{}}
+)
 latest_worker_dir = worker_dirs[-1] if worker_dirs else None
+latest_worker = (
+    load_json(latest_worker_dir / "metrics.json")
+    if latest_worker_dir and (latest_worker_dir / "metrics.json").exists()
+    else {{}}
+)
 latest_heartbeat = (
     last_jsonl_record(latest_worker_dir / "logs" / "heartbeat.jsonl")
     if latest_worker_dir
@@ -412,7 +429,7 @@ except OSError:
 
 summary = {{
     "snapshot_status": "final" if metrics else "in_progress_or_interrupted",
-    "worker_backend": metrics.get("worker_backend") or latest_worker.get("worker_backend"),
+    "worker_backend": metrics.get("worker_backend") or latest_completed_worker.get("worker_backend"),
     "supervisor_input_tokens": metrics.get("supervisor_input_tokens") or sum_field(feedback, "supervisor_input_tokens"),
     "supervisor_cached_input_tokens": metrics.get("supervisor_cached_input_tokens") or sum_field(feedback, "supervisor_cached_input_tokens"),
     "supervisor_output_tokens": metrics.get("supervisor_output_tokens") or sum_field(feedback, "supervisor_output_tokens"),
@@ -437,6 +454,7 @@ summary = {{
     ),
     "latest_worker_run": latest_worker.get("opencode_session_label"),
     "latest_worker_dir": latest_worker_dir.name if latest_worker_dir else None,
+    "latest_worker_completed": bool(latest_worker),
     "latest_worker_session_reused": latest_worker.get("worker_session_reused"),
     "latest_worker_context_overflow_count": latest_worker.get("context_overflow_count"),
     "latest_worker_token_peak": latest_worker.get("worker_session_token_peak"),
@@ -453,6 +471,15 @@ summary = {{
         if latest_worker_dir
         else None
     ),
+    "latest_completed_worker_run": latest_completed_worker.get("opencode_session_label"),
+    "latest_completed_worker_dir": (
+        latest_completed_worker_dir.name
+        if latest_completed_worker_dir
+        else None
+    ),
+    "latest_completed_worker_session_reused": latest_completed_worker.get("worker_session_reused"),
+    "latest_completed_worker_context_overflow_count": latest_completed_worker.get("context_overflow_count"),
+    "latest_completed_worker_token_peak": latest_completed_worker.get("worker_session_token_peak"),
     "context_overflow_count": sum(
         item.get("context_overflow_count", 0)
         for item in worker_metrics
