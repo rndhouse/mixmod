@@ -319,6 +319,7 @@ def main() -> int:
         "supervisor_init": args.supervisor_init,
         "stop_after_first_worker": args.stop_after_first_worker,
         "require_local": args.require_local,
+        "worker_base_url": args.worker_base_url,
         "host_network": args.host_network,
         "agent_env": args.agent_env,
         "effective_agent_env": effective_agent_env(args),
