@@ -1,4 +1,4 @@
-"""Pier installed-agent wrapper for Codex-only DeepSWE screening."""
+"""Pier installed-agent wrapper for Codex-only DeepSWE runs."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from scripts.deepswe_mixmod_agent import (
 
 
 class CodexAppAgent(BaseInstalledAgent):
-    """Run a Codex-only Mixmod baseline through direct Codex exec."""
+    """Run a Codex-only Mixmod baseline through the Codex app backend."""
 
     SUPPORTS_ATIF = False
 
@@ -59,7 +59,7 @@ class CodexAppAgent(BaseInstalledAgent):
 
     @staticmethod
     def name() -> str:
-        return "mixmod-codex-exec"
+        return "mixmod-codex-only"
 
     def get_version_command(self) -> str | None:
         if self.local_mixmod_binary:
@@ -109,7 +109,7 @@ class CodexAppAgent(BaseInstalledAgent):
             "context": {
                 "benchmark": "DeepSWE",
                 "dataset": "datacurve/deep-swe",
-                "lane": "codex-exec-screen",
+                "lane": "codex-only",
             },
         }
 
@@ -216,9 +216,9 @@ Path({summary_path.as_posix()!r}).write_text(json.dumps(summary, indent=2) + "\\
 PY
 if [ -n "$(git status --porcelain)" ]; then
   git add -A
-  git commit -m "Codex exec solution"
+  git commit -m "Codex-only solution"
 else
-  git commit --allow-empty -m "Codex exec empty solution"
+  git commit --allow-empty -m "Codex-only empty solution"
 fi
 """
 
