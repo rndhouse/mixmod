@@ -2,6 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
 # shellcheck source=scripts/mixmod_bench_cmd.sh
 source "${script_dir}/mixmod_bench_cmd.sh"
 
@@ -19,5 +20,7 @@ the worker down. Set MIXMOD_KEEP_LLAMA_WORKER=1 to leave it running.
 EOF
   exit 2
 fi
+
+export PYTHONPATH="${repo_root}${PYTHONPATH:+:${PYTHONPATH}}"
 
 run_mixmod_bench worker run-with-llama -- "$@"
