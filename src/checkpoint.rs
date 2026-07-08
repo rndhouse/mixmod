@@ -1,14 +1,18 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    CHANGES_PATCH, PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, PatchStats, SupervisorFeedbackTurn,
-    WORKTREE_PATCH, file_len, get_bool, patch_stats, read_json_file, write_pretty_json,
+    CHANGES_PATCH, PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, PatchStats,
+    ROLLBACK_CURRENT_PATCH, ROLLBACK_RESTORED_PATCH, SupervisorFeedbackTurn, TASK_JSON,
+    WORKTREE_PATCH, atomic_write, file_len, get_bool, git_diff_with_untracked, patch_stats,
+    read_json_file, write_pretty_json,
 };
 
 /// Summary of a worker revision compared with the previous candidate patch.
@@ -50,15 +54,205 @@ pub(crate) struct PatchCheckpointComparison {
     pub(crate) supervisor_guidance: String,
 }
 
+/// Receipt for a filesystem rollback to a previous candidate patch.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct PatchRollbackReceipt {
+    /// Rollback outcome.
+    pub(crate) status: String,
+    /// Artifact that supplied the restored candidate patch.
+    pub(crate) previous_patch_artifact: String,
+    /// Artifact containing the discarded current candidate patch.
+    pub(crate) discarded_patch_artifact: String,
+    /// Artifact containing the patch captured after restore.
+    pub(crate) restored_patch_artifact: String,
+    /// Previous candidate patch size in bytes.
+    pub(crate) previous_patch_bytes: u64,
+    /// Discarded current patch size in bytes.
+    pub(crate) discarded_patch_bytes: u64,
+    /// Restored patch size in bytes.
+    pub(crate) restored_patch_bytes: u64,
+}
+
+/// Restore the target worktree to the previous checkpoint patch.
+pub(crate) fn restore_previous_patch_checkpoint(
+    root: &Path,
+    checkpoint_run_dir: &Path,
+) -> Result<PatchRollbackReceipt> {
+    let previous_patch_path = checkpoint_run_dir.join(PREVIOUS_WORKTREE_PATCH);
+    let previous_patch = fs::read_to_string(&previous_patch_path)
+        .with_context(|| format!("failed to read {}", previous_patch_path.display()))?;
+    let current_patch = git_diff_with_untracked(root)
+        .with_context(|| format!("failed to capture current diff in {}", root.display()))?;
+
+    let current_patch_path = checkpoint_run_dir.join(ROLLBACK_CURRENT_PATCH);
+    atomic_write(&current_patch_path, current_patch.as_bytes()).with_context(|| {
+        format!(
+            "failed to write rollback current patch {}",
+            current_patch_path.display()
+        )
+    })?;
+
+    reset_worktree(root).context("failed to reset worktree before checkpoint restore")?;
+    clean_worktree(root).context("failed to clean worktree before checkpoint restore")?;
+    if let Err(error) = apply_patch_if_nonempty(
+        root,
+        previous_patch_path.to_string_lossy().as_ref(),
+        &previous_patch,
+    ) {
+        let _ = reset_worktree(root);
+        let _ = clean_worktree(root);
+        let _ = apply_patch_if_nonempty(
+            root,
+            current_patch_path.to_string_lossy().as_ref(),
+            &current_patch,
+        );
+        return Err(error).with_context(|| {
+            format!(
+                "failed to restore previous checkpoint from {}",
+                previous_patch_path.display()
+            )
+        });
+    }
+
+    let restored_patch = git_diff_with_untracked(root)
+        .with_context(|| format!("failed to capture restored diff in {}", root.display()))?;
+    let restored_patch_path = checkpoint_run_dir.join(ROLLBACK_RESTORED_PATCH);
+    atomic_write(&restored_patch_path, restored_patch.as_bytes()).with_context(|| {
+        format!(
+            "failed to write rollback restored patch {}",
+            restored_patch_path.display()
+        )
+    })?;
+    if restored_patch.trim() != previous_patch.trim() {
+        let _ = reset_worktree(root);
+        let _ = clean_worktree(root);
+        let _ = apply_patch_if_nonempty(
+            root,
+            current_patch_path.to_string_lossy().as_ref(),
+            &current_patch,
+        );
+        bail!(
+            "checkpoint restore verification failed: restored diff does not match {}",
+            previous_patch_path.display()
+        );
+    }
+
+    let receipt = PatchRollbackReceipt {
+        status: "restored".to_string(),
+        previous_patch_artifact: PREVIOUS_WORKTREE_PATCH.to_string(),
+        discarded_patch_artifact: ROLLBACK_CURRENT_PATCH.to_string(),
+        restored_patch_artifact: ROLLBACK_RESTORED_PATCH.to_string(),
+        previous_patch_bytes: previous_patch.len() as u64,
+        discarded_patch_bytes: current_patch.len() as u64,
+        restored_patch_bytes: restored_patch.len() as u64,
+    };
+    write_pretty_json(
+        &checkpoint_run_dir.join(PATCH_ROLLBACK_JSON),
+        &receipt,
+        "patch rollback receipt",
+    )?;
+    Ok(receipt)
+}
+
+fn reset_worktree(root: &Path) -> Result<()> {
+    run_git(root, &["reset", "--hard", "HEAD"])
+}
+
+fn clean_worktree(root: &Path) -> Result<()> {
+    run_git(
+        root,
+        &[
+            "clean",
+            "-fd",
+            "-e",
+            ".mixmod",
+            "-e",
+            ".mixmod/**",
+            "-e",
+            ".codex",
+            "-e",
+            ".codex/**",
+            "-e",
+            TASK_JSON,
+        ],
+    )
+}
+
+fn apply_patch_if_nonempty(root: &Path, patch_label: &str, patch: &str) -> Result<()> {
+    if patch.trim().is_empty() {
+        return Ok(());
+    }
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("apply")
+        .arg("--binary")
+        .arg("--whitespace=nowarn")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to run git apply in {}", root.display()))?;
+    child
+        .stdin
+        .take()
+        .context("failed to open git apply stdin")?
+        .write_all(patch.as_bytes())
+        .context("failed to write patch to git apply stdin")?;
+    let output = child
+        .wait_with_output()
+        .context("failed to wait for git apply")?;
+    if !output.status.success() {
+        bail!(
+            "git apply {} failed in {}: {}",
+            patch_label,
+            root.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+fn run_git(root: &Path, args: &[&str]) -> Result<()> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to run git {} in {}", args.join(" "), root.display()))?;
+    if !output.status.success() {
+        bail!(
+            "git {} failed in {}: {}",
+            args.join(" "),
+            root.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 /// Write checkpoint artifacts for a revision run and return the comparison.
+#[cfg(test)]
 pub(crate) fn write_patch_checkpoint_comparison(
     previous_run_dir: &Path,
     current_run_dir: &Path,
     decision: &SupervisorFeedbackTurn,
 ) -> Result<PatchCheckpointComparison> {
-    let previous_patch_path = previous_run_dir.join(WORKTREE_PATCH);
+    write_patch_checkpoint_comparison_from_patch(
+        &previous_run_dir.join(WORKTREE_PATCH),
+        current_run_dir,
+        decision,
+    )
+}
+
+/// Write checkpoint artifacts using an explicit previous patch source.
+pub(crate) fn write_patch_checkpoint_comparison_from_patch(
+    previous_patch_path: &Path,
+    current_run_dir: &Path,
+    decision: &SupervisorFeedbackTurn,
+) -> Result<PatchCheckpointComparison> {
     let previous_copy_path = current_run_dir.join(PREVIOUS_WORKTREE_PATCH);
-    fs::copy(&previous_patch_path, &previous_copy_path).with_context(|| {
+    fs::copy(previous_patch_path, &previous_copy_path).with_context(|| {
         format!(
             "failed to copy previous patch {} to {}",
             previous_patch_path.display(),
@@ -175,7 +369,7 @@ pub(crate) fn write_patch_checkpoint_comparison(
 
     let degradation_detected = !reasons.is_empty();
     let supervisor_guidance = if degradation_detected {
-        "A worker revision may have degraded the candidate. Choose patch_decision explicitly: accept_current/revise_current if the current patch is better, or revise_previous if the previous patch should be preserved and the worker should recover from it. If the reasons mention a broad/destructive small patch slice, prefer revise_previous plus a smaller structure-preserving recovery edit."
+        "A worker revision may have degraded the candidate. Choose patch_decision explicitly: accept_current/revise_current if the current patch is better, or revise_previous if the previous patch should be restored before the next worker turn. If the reasons mention a broad/destructive small patch slice, prefer revise_previous plus a smaller structure-preserving follow-up edit."
     } else {
         "No patch degradation heuristic fired. Review the current worktree.patch normally."
     }

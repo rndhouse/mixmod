@@ -39,6 +39,12 @@ pub const LOCAL_VERIFICATION_JSON: &str = "local-verification.json";
 pub const PATCH_COMPARISON: &str = "patch-comparison.json";
 /// Previous accumulated worktree patch artifact.
 pub const PREVIOUS_WORKTREE_PATCH: &str = "previous-worktree.patch";
+/// Rollback receipt written when `revise_previous` restores a checkpoint.
+pub const PATCH_ROLLBACK_JSON: &str = "patch-rollback.json";
+/// Current patch saved before a `revise_previous` rollback.
+pub const ROLLBACK_CURRENT_PATCH: &str = "rollback-current.patch";
+/// Patch captured after a `revise_previous` rollback.
+pub const ROLLBACK_RESTORED_PATCH: &str = "rollback-restored.patch";
 /// Mixmod intervention audit log artifact.
 pub const INTERVENTIONS_JSONL: &str = "interventions.jsonl";
 /// Supervisor control event log artifact.
@@ -93,6 +99,9 @@ pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
     METRICS_JSON,
     PATCH_COMPARISON,
     PREVIOUS_WORKTREE_PATCH,
+    PATCH_ROLLBACK_JSON,
+    ROLLBACK_CURRENT_PATCH,
+    ROLLBACK_RESTORED_PATCH,
 ];
 
 /// Artifacts copied or size-counted from worker/default strategy run dirs.
@@ -110,6 +119,9 @@ pub const WORKER_RUN_ARTIFACTS: &[&str] = &[
     INTERVENTIONS_JSONL,
     PATCH_COMPARISON,
     PREVIOUS_WORKTREE_PATCH,
+    PATCH_ROLLBACK_JSON,
+    ROLLBACK_CURRENT_PATCH,
+    ROLLBACK_RESTORED_PATCH,
     PARTIAL_PATCH,
     SUPERVISION_LOOP_SUMMARY_JSON,
     METRICS_JSON,

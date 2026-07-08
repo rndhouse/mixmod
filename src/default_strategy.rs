@@ -165,14 +165,23 @@ impl DefaultStrategyRun<'_> {
                 match decision.verdict.as_str() {
                     "approve" | "stop" => break decision,
                     _ => {
-                        worker_modes.push(decision.worker_mode.clone());
-                        let resume_session_id = if decision.worker_mode == "continue" {
+                        let mut worker_decision = decision.clone();
+                        let previous_patch_source =
+                            if worker_decision.patch_decision == "revise_previous" {
+                                restore_previous_patch_checkpoint(root, &final_out)?;
+                                worker_decision.worker_mode = "context_focus".to_string();
+                                final_out.join(PREVIOUS_WORKTREE_PATCH)
+                            } else {
+                                final_out.join(WORKTREE_PATCH)
+                            };
+                        worker_modes.push(worker_decision.worker_mode.clone());
+                        let resume_session_id = if worker_decision.worker_mode == "continue" {
                             Some(active_opencode_session_id.clone().ok_or_else(|| {
-                            anyhow!(
-                                "The supervisor requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
-                                final_out.join(METRICS_JSON).display()
-                            )
-                        })?)
+                                anyhow!(
+                                    "The supervisor requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
+                                    final_out.join(METRICS_JSON).display()
+                                )
+                            })?)
                         } else {
                             None
                         };
@@ -181,7 +190,7 @@ impl DefaultStrategyRun<'_> {
                             &task_file,
                             &out_dir,
                             "exec",
-                            &decision,
+                            &worker_decision,
                             decision_index,
                         )?;
                         let revision_out_name = if decision_index == 1 {
@@ -189,7 +198,6 @@ impl DefaultStrategyRun<'_> {
                         } else {
                             format!("revision-{decision_index}")
                         };
-                        let previous_out = final_out.clone();
                         final_out = worker_runs_dir.join(revision_out_name);
                         let revision_receipt = run_mixmod_task_with_worker_options(
                             root,
@@ -205,7 +213,11 @@ impl DefaultStrategyRun<'_> {
                             },
                         )?;
                         ensure_worker_run_verified(&out_dir, &revision_receipt, &final_out)?;
-                        write_patch_checkpoint_comparison(&previous_out, &final_out, &decision)?;
+                        write_patch_checkpoint_comparison_from_patch(
+                            &previous_patch_source,
+                            &final_out,
+                            &worker_decision,
+                        )?;
                         opencode_calls += 1;
                         worker_run_dirs.push(final_out.clone());
                         write_supervision_loop_summary(&out_dir, &worker_run_dirs)?;

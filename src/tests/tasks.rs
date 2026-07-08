@@ -852,7 +852,8 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
     let instructions = get_str(&revision, "instructions").unwrap();
 
     assert!(instructions.contains("Patch checkpoint decision: revise_previous"));
-    assert!(instructions.contains("Recover the previous candidate using the supervisor message"));
+    assert!(instructions.contains("Mixmod has restored the previous candidate patch"));
+    assert!(instructions.contains("Apply only the focused follow-up edit"));
     assert!(instructions.contains("Do not read Mixmod artifacts directly."));
     assert!(!instructions.contains("previous-worktree.patch"));
     assert_eq!(

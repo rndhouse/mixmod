@@ -19,7 +19,8 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("one concrete source edit"));
     assert!(prompt.contains("patch_decision"));
     assert!(prompt.contains("revise_previous"));
-    assert!(prompt.contains("summarize the concrete source/test edits to recover"));
+    assert!(prompt.contains("Mixmod will restore the previous candidate worktree"));
+    assert!(prompt.contains("focused follow-up edit to apply after rollback"));
     assert!(prompt.contains("Do not ask the worker to inspect Mixmod state"));
     assert!(prompt.contains("previous worker context is discarded"));
     assert!(prompt.contains("Do not implement code. Do not edit files."));
@@ -274,6 +275,70 @@ diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
             .iter()
             .any(|path| path.ends_with(PREVIOUS_WORKTREE_PATCH))
     );
+}
+
+#[test]
+fn revise_previous_checkpoint_restores_previous_worktree_patch() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("repo");
+    fs::create_dir_all(&root).unwrap();
+    let root = root.as_path();
+    init_git(root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 1 }\n",
+    )
+    .unwrap();
+    Command::new("git")
+        .args(["add", "src/lib.rs"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "base"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 2 }\n",
+    )
+    .unwrap();
+    atomic_write(root.join("new.rs").as_path(), b"pub fn added() {}\n").unwrap();
+    atomic_write(root.join(TASK_JSON).as_path(), b"{\"title\":\"keep me\"}\n").unwrap();
+    let previous_patch = git_diff_with_untracked(root).unwrap();
+
+    let run_dir = temp.path().join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    atomic_write(
+        &run_dir.join(PREVIOUS_WORKTREE_PATCH),
+        previous_patch.as_bytes(),
+    )
+    .unwrap();
+
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 999 }\n",
+    )
+    .unwrap();
+    atomic_write(root.join("bad.rs").as_path(), b"pub fn bad() {}\n").unwrap();
+
+    let receipt = restore_previous_patch_checkpoint(root, &run_dir).unwrap();
+
+    assert_eq!(receipt.status, "restored");
+    assert_eq!(
+        fs::read_to_string(root.join("src/lib.rs")).unwrap(),
+        "pub fn value() -> i32 { 2 }\n"
+    );
+    assert!(root.join("new.rs").exists());
+    assert!(!root.join("bad.rs").exists());
+    assert!(root.join(TASK_JSON).exists());
+    assert_eq!(git_diff_with_untracked(root).unwrap(), previous_patch);
+    assert!(run_dir.join(ROLLBACK_CURRENT_PATCH).exists());
+    assert!(run_dir.join(ROLLBACK_RESTORED_PATCH).exists());
+    assert!(run_dir.join(PATCH_ROLLBACK_JSON).exists());
 }
 
 #[test]

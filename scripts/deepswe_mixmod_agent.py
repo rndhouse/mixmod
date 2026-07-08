@@ -331,6 +331,9 @@ if worker_root.exists():
             "changes.patch",
             "worktree.patch",
             "patch-comparison.json",
+            "patch-rollback.json",
+            "rollback-current.patch",
+            "rollback-restored.patch",
             "supervisor-control.jsonl",
         ]:
             copy_if_exists(worker_dir / name, target / name)

@@ -14,6 +14,7 @@ pub(crate) use prompts::{
     supervisor_worker_brief_repair_retry_prompt,
 };
 
+#[derive(Clone)]
 pub(crate) struct SupervisorFeedbackTurn {
     pub(crate) feedback: Value,
     pub(crate) verdict: String,

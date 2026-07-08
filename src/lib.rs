@@ -38,7 +38,8 @@ mod worker;
 pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
     LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD, PARTIAL_PATCH,
-    PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, REASONING_TRACE_JSONL, RECEIPT_JSON, REPORT_MD,
+    PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, REASONING_TRACE_JSONL,
+    RECEIPT_JSON, REPORT_MD, ROLLBACK_CURRENT_PATCH, ROLLBACK_RESTORED_PATCH,
     RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISION_LOOP_SUMMARY_JSON, SUPERVISOR_CONTROL_LOG,
     SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS,
     WORKER_TASK_JSON, WORKTREE_PATCH, is_static_mixmod_artifact_name,
@@ -49,8 +50,11 @@ pub use artifacts::{
     PatchStats, Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent,
     SupervisorFeedback, WorkerBrief,
 };
+#[cfg(test)]
+pub(crate) use checkpoint::write_patch_checkpoint_comparison;
 pub(crate) use checkpoint::{
-    append_patch_checkpoint_artifacts, patch_checkpoint_metrics, write_patch_checkpoint_comparison,
+    append_patch_checkpoint_artifacts, patch_checkpoint_metrics, restore_previous_patch_checkpoint,
+    write_patch_checkpoint_comparison_from_patch,
 };
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub(crate) use config::is_cloud_opencode_provider;

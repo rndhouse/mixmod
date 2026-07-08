@@ -771,7 +771,7 @@ pub(crate) fn write_revision_task(
     constraints.dedup();
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
     let patch_decision_note = if decision.patch_decision == "revise_previous" {
-        "\nPatch checkpoint decision: revise_previous. The supervisor judged the previous candidate patch better than the current revision. Recover the previous candidate using the supervisor message below, then make the requested focused changes. Do not read Mixmod artifacts directly.\n"
+        "\nPatch checkpoint decision: revise_previous. Mixmod has restored the previous candidate patch in the worktree before this turn. Apply only the focused follow-up edit from the supervisor message below. Do not read Mixmod artifacts directly.\n"
     } else if decision.patch_decision == "revise_current" {
         "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues the supervisor identified.\n"
     } else {
