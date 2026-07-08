@@ -37,6 +37,9 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("set worker_turn_shape=small_patch_slice with the next narrow"));
     assert!(prompt.contains("worker-brief.json used worker_turn_shape=bounded_feature_slice"));
     assert!(prompt.contains("judge whether the previous worker slice was too much"));
+    assert!(prompt.contains("previous slices may now be too small"));
+    assert!(prompt.contains("first useful end-to-end behavior path"));
+    assert!(prompt.contains("Use bounded_feature_slice when the worker can handle"));
     assert!(prompt.contains("keep or enlarge the next slice as bounded_feature_slice"));
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("Make the next slice one behavior only"));
@@ -134,6 +137,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("one immediate source edit"));
     assert!(brief_prompt.contains("current accumulated patch"));
     assert!(brief_prompt.contains("one literal anchor plus the smallest local transformation"));
+    assert!(brief_prompt.contains("multiple clean small_patch_slice revisions"));
+    assert!(brief_prompt.contains("prioritize the first useful behavior path"));
     assert!(brief_prompt.contains("context overflow"));
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("Select only relevant points"));
