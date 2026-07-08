@@ -56,6 +56,7 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("current accumulated worktree.patch"));
     assert!(prompt.contains("Preserve useful existing edits"));
     assert!(prompt.contains("local transformation near one anchor"));
+    assert!(prompt.contains("compile-driven repair slice"));
     assert!(prompt.contains("edit_packet"));
     assert!(prompt.contains("source_snippets"));
     assert!(prompt.contains("exact symbols plus a literal nearby code anchor"));
@@ -145,6 +146,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("one immediate source edit"));
     assert!(brief_prompt.contains("current accumulated patch"));
     assert!(brief_prompt.contains("one literal anchor plus the smallest local transformation"));
+    assert!(brief_prompt.contains("compile-driven repair instruction"));
     assert!(brief_prompt.contains("use worker_turn_shape=small_patch_slice by default"));
     assert!(brief_prompt.contains("switching this profile to bounded_feature_slice"));
     assert!(

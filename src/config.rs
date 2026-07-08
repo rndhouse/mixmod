@@ -134,9 +134,9 @@ pub struct LiveSupervisionConfig {
     pub min_elapsed_seconds: u64,
     /// Cooldown between live supervisor checks within one worker run.
     pub check_interval_seconds: u64,
-    /// Last-output age that makes a no-delta worker eligible for inspection.
+    /// Last-output age that makes a quiet worker eligible for inspection.
     pub stale_after_seconds: u64,
-    /// Repeated read/search count that makes a no-delta worker eligible.
+    /// Repeated read/search count that makes a worker eligible for inspection.
     pub repeated_read_threshold: u64,
     /// Maximum live supervisor checks per worker run.
     pub max_checks_per_worker: u64,

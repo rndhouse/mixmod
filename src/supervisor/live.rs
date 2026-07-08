@@ -359,17 +359,18 @@ pub(super) fn live_supervision_snapshot_should_check(
     if snapshot.elapsed_ms < config.min_elapsed_seconds.saturating_mul(1000) {
         return false;
     }
-    if snapshot.new_delta_bytes > 0 {
-        return false;
-    }
     if snapshot.context_overflow_count > 0 {
         return true;
     }
-    if snapshot.repeated_read_count >= config.repeated_read_threshold {
+    let stale_with_output = snapshot.last_output_age_ms
+        >= config.stale_after_seconds.saturating_mul(1000)
+        && snapshot.stdout_bytes > 0;
+    if snapshot.repeated_read_count >= config.repeated_read_threshold
+        && (snapshot.new_delta_bytes == 0 || stale_with_output)
+    {
         return true;
     }
-    snapshot.last_output_age_ms >= config.stale_after_seconds.saturating_mul(1000)
-        && snapshot.stdout_bytes > 0
+    stale_with_output
 }
 
 pub(super) fn should_force_final_no_delta_live_stop(

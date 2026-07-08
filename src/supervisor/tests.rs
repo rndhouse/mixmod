@@ -99,16 +99,33 @@ fn small_slice_worker_brief_does_not_need_repair() {
 }
 
 #[test]
-fn live_supervision_waits_when_worker_has_new_delta() {
+fn live_supervision_waits_when_worker_has_fresh_delta() {
     let snapshot = LiveWorkerSnapshot {
         elapsed_ms: 300_000,
         new_delta_bytes: 120,
         repeated_read_count: 12,
-        last_output_age_ms: 120_000,
+        last_output_age_ms: 10_000,
+        stdout_bytes: 2000,
         ..LiveWorkerSnapshot::default()
     };
 
     assert!(!live_supervision_snapshot_should_check(
+        &snapshot,
+        &LiveSupervisionConfig::default()
+    ));
+}
+
+#[test]
+fn live_supervision_checks_stale_worker_with_new_delta() {
+    let snapshot = LiveWorkerSnapshot {
+        elapsed_ms: 300_000,
+        new_delta_bytes: 120,
+        last_output_age_ms: 120_000,
+        stdout_bytes: 2000,
+        ..LiveWorkerSnapshot::default()
+    };
+
+    assert!(live_supervision_snapshot_should_check(
         &snapshot,
         &LiveSupervisionConfig::default()
     ));
