@@ -360,13 +360,46 @@ def any_bool(values: list[object]) -> bool | None:
         return None
     return any(bools)
 
+def file_len(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+def last_jsonl_record(path: Path) -> dict:
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return {{}}
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return {{}}
+
 feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
+worker_dirs = sorted(
+    path for path in (agent_dir / "worker-runs").glob("*") if path.is_dir()
+)
 worker_metrics = [
-    load_json(path)
-    for path in sorted((agent_dir / "worker-runs").glob("*/metrics.json"))
+    load_json(worker_dir / "metrics.json")
+    for worker_dir in worker_dirs
+    if (worker_dir / "metrics.json").exists()
 ]
 worker_metrics = [item for item in worker_metrics if item]
 latest_worker = worker_metrics[-1] if worker_metrics else {{}}
+latest_worker_dir = worker_dirs[-1] if worker_dirs else None
+latest_heartbeat = (
+    last_jsonl_record(latest_worker_dir / "logs" / "heartbeat.jsonl")
+    if latest_worker_dir
+    else {{}}
+)
 patch_path = artifacts_dir / "model.patch"
 try:
     patch_text = patch_path.read_text()
@@ -382,7 +415,14 @@ summary = {{
     "supervisor_reasoning_tokens": metrics.get("supervisor_reasoning_tokens") or sum_field(feedback, "supervisor_reasoning_tokens"),
     "supervisor_total_tokens": metrics.get("supervisor_total_tokens") or sum_field(feedback, "supervisor_total_tokens"),
     "codex_calls": metrics.get("codex_calls") or len(feedback) or None,
-    "opencode_calls": metrics.get("opencode_calls") or len(worker_metrics) or None,
+    "opencode_calls": metrics.get("opencode_calls") or len(worker_dirs) or len(worker_metrics) or None,
+    "worker_runs_observed": len(worker_dirs) or None,
+    "worker_runs_completed": len(worker_metrics) or None,
+    "worker_runs_incomplete": (
+        max(len(worker_dirs) - len(worker_metrics), 0)
+        if worker_dirs
+        else None
+    ),
     "final_status": metrics.get("final_status"),
     "final_verdict": metrics.get("final_verdict"),
     "latest_supervisor_label": feedback[-1].get("label") if feedback else None,
@@ -392,9 +432,23 @@ summary = {{
         else None
     ),
     "latest_worker_run": latest_worker.get("opencode_session_label"),
+    "latest_worker_dir": latest_worker_dir.name if latest_worker_dir else None,
     "latest_worker_session_reused": latest_worker.get("worker_session_reused"),
     "latest_worker_context_overflow_count": latest_worker.get("context_overflow_count"),
     "latest_worker_token_peak": latest_worker.get("worker_session_token_peak"),
+    "latest_worker_heartbeat_status": latest_heartbeat.get("status"),
+    "latest_worker_heartbeat_elapsed_ms": latest_heartbeat.get("elapsed_ms"),
+    "latest_worker_last_output_age_ms": latest_heartbeat.get("last_output_age_ms"),
+    "latest_worker_stdout_bytes": (
+        file_len(latest_worker_dir / "logs" / "opencode.stdout.txt")
+        if latest_worker_dir
+        else None
+    ),
+    "latest_worker_stderr_bytes": (
+        file_len(latest_worker_dir / "logs" / "opencode.stderr.txt")
+        if latest_worker_dir
+        else None
+    ),
     "context_overflow_count": sum(
         item.get("context_overflow_count", 0)
         for item in worker_metrics
