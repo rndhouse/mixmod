@@ -62,7 +62,15 @@ diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
 
     let comparison = write_patch_checkpoint_comparison(&previous, &current, &decision).unwrap();
 
-    assert!(comparison.degradation_detected);
+    assert_eq!(
+        comparison.observations,
+        vec![
+            "current patch lost changed file(s): src/_pytest/assertion/rewrite.py, testing/test_assertrewrite.py",
+            "current patch lost focused file(s): src/_pytest/assertion/rewrite.py, testing/test_assertrewrite.py",
+            "current patch no longer touches any focused files",
+            "latest worker delta is empty while accumulated patch shrank from previous candidate",
+        ]
+    );
     assert_eq!(
         comparison.lost_focus_files,
         vec![
@@ -81,7 +89,7 @@ diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
             .any(|path| path.ends_with(PATCH_COMPARISON))
     );
     assert!(
-        artifacts
+        !artifacts
             .iter()
             .any(|path| path.ends_with(PREVIOUS_WORKTREE_PATCH))
     );
@@ -152,7 +160,7 @@ fn revise_previous_checkpoint_restores_previous_worktree_patch() {
 }
 
 #[test]
-fn checkpoint_detects_destructive_small_patch_slice() {
+fn checkpoint_records_small_patch_slice_delta_observations() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let previous = root.join("previous");
@@ -204,13 +212,17 @@ fn checkpoint_detects_destructive_small_patch_slice() {
 
     let comparison = write_patch_checkpoint_comparison(&previous, &current, &decision).unwrap();
 
-    assert!(comparison.degradation_detected);
     assert!(comparison.latest_delta_stats.removed_lines > 25);
     assert!(
         comparison
-            .reasons
+            .observations
             .iter()
-            .any(|reason| reason.contains("small patch slice removed too many lines"))
+            .any(|observation| observation.contains("small patch slice latest delta removed lines"))
     );
-    assert!(comparison.supervisor_guidance.contains("revise_previous"));
+    assert!(
+        comparison
+            .observations
+            .iter()
+            .all(|observation| !observation.contains("revise_previous"))
+    );
 }

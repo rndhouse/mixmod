@@ -11,8 +11,8 @@ use serde_json::json;
 use crate::{
     CHANGES_PATCH, PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, PatchStats,
     ROLLBACK_CURRENT_PATCH, ROLLBACK_RESTORED_PATCH, SupervisorFeedbackTurn, TASK_JSON,
-    WORKTREE_PATCH, atomic_write, file_len, get_bool, git_diff_with_untracked, patch_stats,
-    read_json_file, write_pretty_json,
+    WORKTREE_PATCH, atomic_write, file_len, git_diff_with_untracked, patch_stats, read_json_file,
+    write_pretty_json,
 };
 
 /// Summary of a worker revision compared with the previous candidate patch.
@@ -46,12 +46,8 @@ pub(crate) struct PatchCheckpointComparison {
     pub(crate) lost_focus_files: Vec<String>,
     /// Current changed files that are outside the requested focus set.
     pub(crate) current_non_focus_files: Vec<String>,
-    /// Whether the heuristic thinks the revision degraded the candidate.
-    pub(crate) degradation_detected: bool,
-    /// Concrete reasons for the degradation signal.
-    pub(crate) reasons: Vec<String>,
-    /// Guidance included for the next supervisor review.
-    pub(crate) supervisor_guidance: String,
+    /// Neutral observations about structural differences between candidates.
+    pub(crate) observations: Vec<String>,
 }
 
 /// Receipt for a filesystem rollback to a previous candidate patch.
@@ -315,21 +311,21 @@ pub(crate) fn write_patch_checkpoint_comparison_from_patch(
             .collect::<Vec<_>>()
     };
 
-    let mut reasons = Vec::new();
+    let mut observations = Vec::new();
     if previous_patch_bytes > 0 && current_patch_bytes == 0 {
-        reasons.push("current patch is empty after a non-empty previous patch".to_string());
+        observations.push("current patch is empty after a non-empty previous patch".to_string());
     }
     if !previous_files.is_empty() && current_files.is_empty() {
-        reasons.push("current patch no longer changes any files".to_string());
+        observations.push("current patch no longer changes any files".to_string());
     }
     if !lost_changed_files.is_empty() && current_files.len() < previous_files.len() {
-        reasons.push(format!(
+        observations.push(format!(
             "current patch lost changed file(s): {}",
             lost_changed_files.join(", ")
         ));
     }
     if !lost_focus_files.is_empty() {
-        reasons.push(format!(
+        observations.push(format!(
             "current patch lost focused file(s): {}",
             lost_focus_files.join(", ")
         ));
@@ -338,42 +334,34 @@ pub(crate) fn write_patch_checkpoint_comparison_from_patch(
         && previous_files.iter().any(|file| focus_files.contains(file))
         && !current_files.iter().any(|file| focus_files.contains(file))
     {
-        reasons.push("current patch no longer touches any focused files".to_string());
+        observations.push("current patch no longer touches any focused files".to_string());
     }
     if latest_delta_bytes == 0 && current_patch_bytes < previous_patch_bytes {
-        reasons.push(
+        observations.push(
             "latest worker delta is empty while accumulated patch shrank from previous candidate"
                 .to_string(),
         );
     }
     if decision.revision_handoff.is_small_patch_slice() {
         if latest_delta_stats.removed_lines > 25 {
-            reasons.push(format!(
-                "small patch slice removed too many lines: {}",
+            observations.push(format!(
+                "small patch slice latest delta removed lines: {}",
                 latest_delta_stats.removed_lines
             ));
         }
         if latest_delta_stats.changed_line_count > 80 {
-            reasons.push(format!(
-                "small patch slice changed too many lines: {}",
+            observations.push(format!(
+                "small patch slice latest delta changed line count: {}",
                 latest_delta_stats.changed_line_count
             ));
         }
         if latest_delta_stats.files.len() > 2 {
-            reasons.push(format!(
-                "small patch slice changed too many files: {}",
+            observations.push(format!(
+                "small patch slice latest delta changed files: {}",
                 latest_delta_stats.files.join(", ")
             ));
         }
     }
-
-    let degradation_detected = !reasons.is_empty();
-    let supervisor_guidance = if degradation_detected {
-        "A worker revision may have degraded the candidate. Choose patch_decision explicitly: accept_current/revise_current if the current patch is better, or revise_previous if the previous patch should be restored before the next worker turn. If the reasons mention a broad/destructive small patch slice, prefer revise_previous plus a smaller structure-preserving follow-up edit."
-    } else {
-        "No patch degradation heuristic fired. Review the current worktree.patch normally."
-    }
-    .to_string();
 
     let comparison = PatchCheckpointComparison {
         previous_patch_artifact: PREVIOUS_WORKTREE_PATCH.to_string(),
@@ -390,9 +378,7 @@ pub(crate) fn write_patch_checkpoint_comparison_from_patch(
         focus_files: focus_files.into_iter().collect(),
         lost_focus_files,
         current_non_focus_files,
-        degradation_detected,
-        reasons,
-        supervisor_guidance,
+        observations,
     };
     write_pretty_json(
         &current_run_dir.join(PATCH_COMPARISON),
@@ -412,13 +398,6 @@ pub(crate) fn append_patch_checkpoint_artifacts(
         return Ok(());
     }
     artifact_paths.push(comparison_path.clone());
-    let comparison = read_json_file(&comparison_path)?;
-    if get_bool(&comparison, "degradation_detected").unwrap_or(false) {
-        let previous_patch = run_dir.join(PREVIOUS_WORKTREE_PATCH);
-        if previous_patch.exists() {
-            artifact_paths.push(previous_patch);
-        }
-    }
     Ok(())
 }
 
@@ -433,8 +412,7 @@ pub(crate) fn patch_checkpoint_metrics(worker_run_dirs: &[PathBuf]) -> Result<se
         let comparison = read_json_file(&path)?;
         items.push(json!({
             "run_dir": dir.to_string_lossy(),
-            "degradation_detected": get_bool(&comparison, "degradation_detected").unwrap_or(false),
-            "reasons": comparison.get("reasons").cloned().unwrap_or_else(|| json!([])),
+            "observations": comparison.get("observations").cloned().unwrap_or_else(|| json!([])),
             "previous_patch_bytes": comparison.get("previous_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
             "current_patch_bytes": comparison.get("current_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
             "latest_delta_bytes": comparison.get("latest_delta_bytes").cloned().unwrap_or_else(|| json!(0)),
@@ -445,10 +423,6 @@ pub(crate) fn patch_checkpoint_metrics(worker_run_dirs: &[PathBuf]) -> Result<se
     }
     Ok(json!({
         "count": items.len(),
-        "degradation_count": items
-            .iter()
-            .filter(|item| get_bool(item, "degradation_detected").unwrap_or(false))
-            .count(),
         "items": items
     }))
 }

@@ -490,10 +490,10 @@ worker_patch_comparisons = [
 worker_patch_comparisons = [
     item for item in worker_patch_comparisons if item
 ]
-observed_patch_degradation_count = sum(
+observed_patch_observation_count = sum(
     1
     for item in worker_patch_comparisons
-    if item.get("degradation_detected") is True
+    if item.get("observations")
 )
 worker_metric_by_dir = dict(worker_metric_records)
 latest_worker_controls = (
@@ -583,13 +583,8 @@ summary = {{
         if latest_worker_dir
         else None
     ),
-    "latest_worker_patch_degradation_detected": (
-        latest_worker_patch_comparison.get("degradation_detected")
-        if latest_worker_patch_comparison
-        else None
-    ),
-    "latest_worker_patch_degradation_reasons": (
-        latest_worker_patch_comparison.get("reasons")
+    "latest_worker_patch_observations": (
+        latest_worker_patch_comparison.get("observations")
         if latest_worker_patch_comparison
         else None
     ),
@@ -645,8 +640,8 @@ summary = {{
     "observed_supervisor_control_interrupts": (
         len(all_worker_control_interrupts) or None
     ),
-    "observed_patch_degradation_count": (
-        observed_patch_degradation_count or None
+    "observed_patch_observation_count": (
+        observed_patch_observation_count or None
     ),
     "worker_session_token_peak": max(
         [

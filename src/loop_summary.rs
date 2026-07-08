@@ -42,7 +42,6 @@ pub(crate) fn write_supervision_loop_summary(
             get_str(turn, "worker_turn_shape") == Some("small_patch_slice")
                 && get_u64(turn, "latest_delta_bytes").unwrap_or(0) > 0
                 && get_u64(turn, "context_overflow_count").unwrap_or(0) == 0
-                && !get_bool(turn, "patch_degradation_detected").unwrap_or(false)
         })
         .count();
     let context_overflow_total = turns
@@ -135,13 +134,9 @@ fn summarize_worker_turn(default_dir: &Path, index: usize, run_dir: &Path) -> Va
         "supervisor_control_count_source": supervisor_control_count_source,
         "supervisor_control_actions": supervisor_control_actions,
         "interrupted_by_supervisor": get_bool(&metrics, "interrupted_by_supervisor").unwrap_or(false),
-        "patch_degradation_detected": patch_comparison
+        "patch_observations": patch_comparison
             .as_ref()
-            .and_then(|value| get_bool(value, "degradation_detected"))
-            .unwrap_or(false),
-        "patch_degradation_reasons": patch_comparison
-            .as_ref()
-            .and_then(|value| value.get("reasons").cloned())
+            .and_then(|value| value.get("observations").cloned())
             .unwrap_or_else(|| json!([])),
     })
 }
