@@ -275,6 +275,7 @@ When patch-comparison.json is present, choose patch_decision explicitly. Use acc
 If patch-comparison.json reports destructive or broad small-slice degradation, prefer patch_decision=revise_previous and ask for a smaller structure-preserving recovery edit unless the current patch is clearly better.
 Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files. Do not ask the worker to inspect Mixmod state or artifact directories.
 Important artifact semantics: worktree.patch is the accumulated current repository diff and is authoritative for deciding whether the patch exists; changes.patch is only the latest worker run delta and may be empty after a verification-only revision.
+When supervision-loop-summary.json is present, treat it as observed cross-turn telemetry only: use it to judge whether worker slices are too small, too large, context-pressured, or making progress, but keep responsibility for the next handoff decision yourself.
 Use stop only to record a blocked or inconclusive worker result when no useful worker path remains. Stop does not permit direct supervisor editing.
 Working repo: {work_dir}
 Instruction: {instruction}

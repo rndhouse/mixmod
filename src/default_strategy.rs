@@ -122,6 +122,7 @@ impl DefaultStrategyRun<'_> {
 
         let mut opencode_calls = 1_u64;
         let mut worker_run_dirs = vec![proposal_out.clone()];
+        write_supervision_loop_summary(&out_dir, &worker_run_dirs)?;
         let mut worker_modes = Vec::new();
         let mut active_opencode_session_id = read_opencode_session_id_from_metrics(&proposal_out)?;
         let mut pending_supervisor_control =
@@ -207,6 +208,7 @@ impl DefaultStrategyRun<'_> {
                         write_patch_checkpoint_comparison(&previous_out, &final_out, &decision)?;
                         opencode_calls += 1;
                         worker_run_dirs.push(final_out.clone());
+                        write_supervision_loop_summary(&out_dir, &worker_run_dirs)?;
                         active_opencode_session_id =
                             read_opencode_session_id_from_metrics(&final_out)?;
                         pending_supervisor_control =

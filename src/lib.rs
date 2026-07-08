@@ -25,6 +25,7 @@ mod harness;
 mod install;
 mod interventions;
 mod live;
+mod loop_summary;
 mod report;
 mod run;
 mod state;
@@ -38,9 +39,10 @@ pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
     LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD, PARTIAL_PATCH,
     PATCH_COMPARISON, PREVIOUS_WORKTREE_PATCH, REASONING_TRACE_JSONL, RECEIPT_JSON, REPORT_MD,
-    RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISOR_CONTROL_LOG, SUPERVISOR_FEEDBACK_JSONL,
-    TASK_JSON, TASK_MD, WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH,
-    is_static_mixmod_artifact_name, supervisor_review_artifact_paths,
+    RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISION_LOOP_SUMMARY_JSON, SUPERVISOR_CONTROL_LOG,
+    SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS,
+    WORKER_TASK_JSON, WORKTREE_PATCH, is_static_mixmod_artifact_name,
+    supervisor_review_artifact_paths,
 };
 pub use artifacts::{
     CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL,
@@ -101,6 +103,7 @@ pub(crate) use live::supervise_run_args;
 pub(crate) use live::{
     ensure_debug_command_enabled, live_control, live_status, supervise_mixmod_task,
 };
+pub(crate) use loop_summary::write_supervision_loop_summary;
 pub(crate) use report::budgeted_report;
 pub(crate) use run::{
     WorkerRunOptions, run_mixmod_task_with_session, run_mixmod_task_with_worker_options,

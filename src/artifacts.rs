@@ -45,6 +45,8 @@ pub const INTERVENTIONS_JSONL: &str = "interventions.jsonl";
 pub const SUPERVISOR_CONTROL_LOG: &str = "supervisor-control.jsonl";
 /// Extracted worker reasoning events from structured OpenCode output.
 pub const REASONING_TRACE_JSONL: &str = "reasoning-trace.jsonl";
+/// Compact cross-turn telemetry for the supervisor's worker loop.
+pub const SUPERVISION_LOOP_SUMMARY_JSON: &str = "supervision-loop-summary.json";
 
 /// Compact artifacts that a supervisor can review for a single worker run.
 pub const RUN_COMPACT_ARTIFACTS: &[&str] = &[
@@ -62,22 +64,28 @@ pub(crate) fn supervisor_review_artifact_paths(
     default_dir: &Path,
     worker_run_dir: &Path,
 ) -> Vec<PathBuf> {
-    [TASK_JSON, WORKER_BRIEF_JSON, WORKER_TASK_JSON]
-        .into_iter()
-        .map(|name| default_dir.join(name))
-        .filter(|path| path.exists())
-        .chain(
-            RUN_COMPACT_ARTIFACTS
-                .iter()
-                .map(|name| worker_run_dir.join(name)),
-        )
-        .collect()
+    [
+        TASK_JSON,
+        WORKER_BRIEF_JSON,
+        WORKER_TASK_JSON,
+        SUPERVISION_LOOP_SUMMARY_JSON,
+    ]
+    .into_iter()
+    .map(|name| default_dir.join(name))
+    .filter(|path| path.exists())
+    .chain(
+        RUN_COMPACT_ARTIFACTS
+            .iter()
+            .map(|name| worker_run_dir.join(name)),
+    )
+    .collect()
 }
 
 /// Supervisor-visible worker-run artifacts, including checkpoint artifacts.
 pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
     RECEIPT_JSON,
     REPORT_MD,
+    SUPERVISION_LOOP_SUMMARY_JSON,
     WORKTREE_PATCH,
     CHANGES_PATCH,
     REASONING_TRACE_JSONL,
@@ -103,6 +111,7 @@ pub const WORKER_RUN_ARTIFACTS: &[&str] = &[
     PATCH_COMPARISON,
     PREVIOUS_WORKTREE_PATCH,
     PARTIAL_PATCH,
+    SUPERVISION_LOOP_SUMMARY_JSON,
     METRICS_JSON,
     SUPERVISOR_FEEDBACK_JSONL,
     FINAL_PATCH,

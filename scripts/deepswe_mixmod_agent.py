@@ -296,6 +296,10 @@ run_dir = max(runs, key=lambda path: path.stat().st_mtime)
 copy_if_exists(run_dir / "metrics.json", agent_dir / "mixmod-metrics.json")
 copy_if_exists(run_dir / "final.patch", agent_dir / "mixmod-final.patch")
 copy_if_exists(run_dir / "report.md", agent_dir / "mixmod-report.md")
+copy_if_exists(
+    run_dir / "supervision-loop-summary.json",
+    agent_dir / "supervision-loop-summary.json",
+)
 copy_if_exists(run_dir / "supervisor-feedback.jsonl", agent_dir / "supervisor-feedback.jsonl")
 
 worker_root = run_dir / "worker-runs"
