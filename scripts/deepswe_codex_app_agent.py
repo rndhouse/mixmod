@@ -1,4 +1,4 @@
-"""Pier installed-agent wrapper for Codex app-server DeepSWE screening."""
+"""Pier installed-agent wrapper for Codex-only DeepSWE screening."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from scripts.deepswe_mixmod_agent import (
 
 
 class CodexAppAgent(BaseInstalledAgent):
-    """Run a Codex-only Mixmod baseline through Codex app-server."""
+    """Run a Codex-only Mixmod baseline through direct Codex exec."""
 
     SUPPORTS_ATIF = False
 
@@ -59,7 +59,7 @@ class CodexAppAgent(BaseInstalledAgent):
 
     @staticmethod
     def name() -> str:
-        return "mixmod-codex-app"
+        return "mixmod-codex-exec"
 
     def get_version_command(self) -> str | None:
         if self.local_mixmod_binary:
@@ -109,7 +109,7 @@ class CodexAppAgent(BaseInstalledAgent):
             "context": {
                 "benchmark": "DeepSWE",
                 "dataset": "datacurve/deep-swe",
-                "lane": "codex-app-server-screen",
+                "lane": "codex-exec-screen",
             },
         }
 
@@ -188,6 +188,8 @@ cp {shlex.quote(task_path.as_posix())} "$exp_dir/task.json"
 {shlex.quote(self.container_mixmod_command)} experiment record-codex-only deepswe --task "$exp_dir/task.json" 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex.txt").as_posix())}
 cp "$exp_dir/codex-only/metrics.json" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-metrics.json").as_posix())} || true
 cp "$exp_dir/codex-only/final.patch" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-final.patch").as_posix())} || true
+mkdir -p {shlex.quote((EnvironmentPaths.agent_dir / "logs").as_posix())}
+cp -R "$exp_dir/codex-only/logs/." {shlex.quote((EnvironmentPaths.agent_dir / "logs").as_posix())}/ || true
 if [ -s "$exp_dir/codex-only/final.patch" ]; then
   git apply --whitespace=nowarn "$exp_dir/codex-only/final.patch"
 fi
@@ -201,9 +203,12 @@ metrics = json.loads(metrics_path.read_text()) if metrics_path.exists() else {{}
 summary = {{
     "codex_backend": metrics.get("codex_backend"),
     "codex_exit_status": metrics.get("codex_exit_status"),
+    "codex_token_usage_source": metrics.get("codex_token_usage_source"),
+    "codex_rollout_count": metrics.get("codex_rollout_count"),
     "supervisor_input_tokens": metrics.get("supervisor_input_tokens"),
     "supervisor_cached_input_tokens": metrics.get("supervisor_cached_input_tokens"),
     "supervisor_output_tokens": metrics.get("supervisor_output_tokens"),
+    "supervisor_reasoning_tokens": metrics.get("supervisor_reasoning_tokens"),
     "supervisor_total_tokens": metrics.get("supervisor_total_tokens"),
     "final_status": metrics.get("final_status"),
 }}
@@ -211,9 +216,9 @@ Path({summary_path.as_posix()!r}).write_text(json.dumps(summary, indent=2) + "\\
 PY
 if [ -n "$(git status --porcelain)" ]; then
   git add -A
-  git commit -m "Codex app-server solution"
+  git commit -m "Codex exec solution"
 else
-  git commit --allow-empty -m "Codex app-server empty solution"
+  git commit --allow-empty -m "Codex exec empty solution"
 fi
 """
 

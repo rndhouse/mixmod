@@ -104,6 +104,37 @@ plain backend line
 }
 
 #[test]
+fn codex_usage_reads_rollout_total_token_usage() {
+    let stdout = br#"
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":2,"reasoning_output_tokens":1,"total_tokens":12}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":30,"cached_input_tokens":20,"output_tokens":5,"reasoning_output_tokens":3,"total_tokens":35}}}}
+"#;
+
+    let usage = crate::harness::codex::codex_usage_from_jsonl(stdout);
+
+    assert_eq!(usage.input_tokens, 30);
+    assert_eq!(usage.cached_input_tokens, 20);
+    assert_eq!(usage.output_tokens, 5);
+    assert_eq!(usage.reasoning_tokens, 3);
+    assert_eq!(usage.total_tokens, 35);
+}
+
+#[test]
+fn codex_usage_reads_app_server_total_fallback() {
+    let stdout = br#"
+{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":1,"cachedInputTokens":0,"outputTokens":1,"reasoningOutputTokens":0,"totalTokens":2},"total":{"inputTokens":40,"cachedInputTokens":30,"outputTokens":6,"reasoningOutputTokens":2,"totalTokens":46}}}}
+"#;
+
+    let usage = crate::harness::codex::codex_usage_from_jsonl(stdout);
+
+    assert_eq!(usage.input_tokens, 40);
+    assert_eq!(usage.cached_input_tokens, 30);
+    assert_eq!(usage.output_tokens, 6);
+    assert_eq!(usage.reasoning_tokens, 2);
+    assert_eq!(usage.total_tokens, 46);
+}
+
+#[test]
 fn supervise_args_launch_background_run_with_resume() {
     let args = supervise_run_args(
         DelegationMode::Patch,
@@ -412,6 +443,12 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
             .guidance
             .iter()
             .any(|item| item.contains("worker_turn_shape=small_patch_slice"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("raw field names and resolved aliases"))
     );
 
     ModelOverrides::new(None, Some("llama.cpp/qwen/qwen3.6-27b".to_string()))

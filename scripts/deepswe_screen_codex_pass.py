@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Screen DeepSWE tasks with Codex/GPT-5.5 through Mixmod app-server."""
+"""Screen DeepSWE tasks with Codex/GPT-5.5 through direct Codex exec."""
 
 from __future__ import annotations
 
@@ -224,7 +224,7 @@ def build_pier_command(
         "--agent-import-path",
         "scripts.deepswe_codex_app_agent:CodexAppAgent",
         "--model",
-        "mixmod/gpt-5.5-app-server",
+        "mixmod/gpt-5.5-codex-exec",
         "--agent-kwarg",
         f"supervisor_model={supervisor_model_arg(args)}",
         "--agent-kwarg",
@@ -310,7 +310,7 @@ def main() -> int:
     cmd = build_pier_command(args, jobs_dir, job_name, local_mixmod_binary)
 
     state: dict[str, Any] = {
-        "kind": "deepswe-codex-app-screen",
+        "kind": "deepswe-codex-exec-screen",
         "job_name": job_name,
         "deep_swe": str(args.deep_swe),
         "model": args.model,

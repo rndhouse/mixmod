@@ -63,6 +63,8 @@ fn codex_prompt_uses_agent_visible_task() {
 
     assert!(prompt.contains("Fix 0**-oo."));
     assert!(prompt.contains("sympy__sympy-20212"));
+    assert!(prompt.contains("Do not commit."));
+    assert!(prompt.contains("uncommitted git diff"));
     assert!(!prompt.contains("test_zero"));
     assert!(!prompt.contains("test_rational"));
     assert!(!prompt.contains("fail_to_pass"));

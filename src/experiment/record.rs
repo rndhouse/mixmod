@@ -18,7 +18,6 @@ pub fn experiment_record_codex_only(root: &Path, name: &str, task: &Path) -> Res
         .with_context(|| format!("failed to create codex-only dir {}", target.display()))?;
     let work_dir = exp_dir.join("work/codex-only");
     if work_dir.exists() {
-        write_agent_visible_task_file(&task_path, &work_dir.join(TASK_JSON))?;
         return run_codex_only_baseline(root, name, &task_path, &target, &work_dir);
     }
 
@@ -104,7 +103,8 @@ fn run_codex_only_baseline(
     let start = Instant::now();
     let run_start = Utc::now();
     let sandbox = codex_only_sandbox_from_env()?;
-    let result = run_codex_app_server_turn(
+    let base_ref = git_rev_parse(work_dir, "HEAD")?;
+    let result = run_codex_exec_turn(
         work_dir,
         target,
         "codex-only",
@@ -112,7 +112,7 @@ fn run_codex_only_baseline(
         &config.supervisor,
         sandbox,
     )?;
-    let patch = git_diff_with_untracked(work_dir).unwrap_or_default();
+    let patch = codex_only_patch_since(work_dir, &base_ref).unwrap_or_default();
     atomic_write(&target.join(FINAL_PATCH), patch.as_bytes())?;
     let stats = patch_stats(&patch);
     write_if_missing(
@@ -146,7 +146,9 @@ fn run_codex_only_baseline(
         "codex_token_usage": result.usage.total_tokens,
         "codex_turns": 1,
         "codex_calls": 1,
-        "codex_backend": "app-server",
+        "codex_backend": "exec",
+        "codex_token_usage_source": result.token_usage_source.clone(),
+        "codex_rollout_count": result.rollout_count,
         "codex_sandbox": sandbox.as_thread_arg(),
         "codex_app_server_thread_id": result.thread_id.clone(),
         "codex_app_server_turn_id": result.turn_id.clone(),
@@ -166,7 +168,7 @@ fn run_codex_only_baseline(
         "stderr_bytes": result.stderr.len() as u64,
         "notes": [
             "Automated Codex-only baseline ran in an isolated fixture work directory.",
-            "Codex was invoked through app-server with an experiment-local CODEX_HOME.",
+            "Codex was invoked through direct codex exec with an experiment-local CODEX_HOME.",
             "Mixmod did not execute project tests in this arm."
         ]
     });
@@ -176,6 +178,39 @@ fn run_codex_only_baseline(
         display_path(root, target)
     );
     Ok(())
+}
+
+fn codex_only_patch_since(work_dir: &Path, base_ref: &str) -> Result<String> {
+    let committed = git_diff_committed_range(work_dir, base_ref, "HEAD")?;
+    let uncommitted = git_diff_with_untracked(work_dir)?;
+    match (committed.trim().is_empty(), uncommitted.trim().is_empty()) {
+        (true, true) => Ok(String::new()),
+        (false, true) => Ok(committed),
+        (true, false) => Ok(uncommitted),
+        (false, false) => Ok(format!(
+            "{}{}{}",
+            committed.trim_end(),
+            "\n",
+            uncommitted.trim_start()
+        )),
+    }
+}
+
+fn git_rev_parse(root: &Path, rev: &str) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", rev])
+        .output()
+        .with_context(|| format!("failed to resolve git rev {rev} in {}", root.display()))?;
+    if !output.status.success() {
+        bail!(
+            "git rev-parse {rev} failed in {}: {}",
+            root.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn codex_only_sandbox_from_env() -> Result<CodexSandbox> {
@@ -302,4 +337,49 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
     );
     println!("run artifacts: {}", display_path(root, &out_dir));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn run_git(root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn codex_only_patch_includes_committed_changes_without_task_json() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        run_git(root, &["init"]);
+        run_git(root, &["config", "user.name", "Mixmod"]);
+        run_git(root, &["config", "user.email", "mixmod@example.invalid"]);
+        atomic_write(&root.join("README.md"), b"fixture\n").unwrap();
+        run_git(root, &["add", "README.md"]);
+        run_git(root, &["commit", "-m", "base"]);
+        let base_ref = git_rev_parse(root, "HEAD").unwrap();
+
+        atomic_write(&root.join(TASK_JSON), b"{\"task\":true}\n").unwrap();
+        atomic_write(&root.join("src.py"), b"print('ok')\n").unwrap();
+        run_git(root, &["add", "src.py"]);
+        run_git(root, &["commit", "-m", "solution"]);
+
+        let patch = codex_only_patch_since(root, &base_ref).unwrap();
+
+        assert!(patch.contains("diff --git a/src.py b/src.py"));
+        assert!(patch.contains("+print('ok')"));
+        assert!(!patch.contains("task.json"));
+    }
 }

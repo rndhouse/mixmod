@@ -84,14 +84,14 @@ pub use interventions::{
 pub use report::experiment_report;
 pub use run::{run_mixmod_task, run_mixmod_task_with_options};
 
-use diff::{diff_without_unchanged_blocks, git_diff_with_untracked};
+use diff::{diff_without_unchanged_blocks, git_diff_committed_range, git_diff_with_untracked};
 pub(crate) use experiment::{placeholder_experiment_metrics, validate_experiment_name};
 #[cfg(test)]
 pub(crate) use experiment::{write_revision_task, write_worker_brief_task};
 pub(crate) use fs_util::*;
-pub(crate) use harness::codex::CodexSandbox;
 #[cfg(test)]
 pub(crate) use harness::codex::codex_home_for_work_dir;
+pub(crate) use harness::codex::{CodexSandbox, run_codex_exec_turn};
 #[cfg(test)]
 pub(crate) use harness::opencode::{
     OpenCodeModelSelection, effective_backend_command_for_base_url, opencode_config_path,
@@ -123,7 +123,7 @@ pub(crate) use state::state_layout;
 pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, RevisionHandoff, SupervisorFeedbackTurn, aggregate_supervisor_usage,
-    codex_only_prompt, normalize_worker_mode, run_codex_app_server_turn, run_supervisor_brief_turn,
+    codex_only_prompt, normalize_worker_mode, run_supervisor_brief_turn,
     run_supervisor_feedback_turn,
 };
 #[cfg(test)]

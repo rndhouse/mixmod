@@ -279,7 +279,25 @@ fn experiment_codex_only_task_copy_strips_hidden_metadata() {
         &[("MIXMOD_DEBUG_COMMANDS", "1")],
     ));
 
-    let empty_path = TempDir::new().unwrap();
+    let fake_path = TempDir::new().unwrap();
+    let fake_bin = fake_path.path().join("bin");
+    std::fs::create_dir_all(&fake_bin).unwrap();
+    let fake_codex = fake_bin.join("codex");
+    std::fs::write(
+        &fake_codex,
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s\n' '{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":1,\"cached_input_tokens\":0,\"output_tokens\":1,\"reasoning_output_tokens\":0,\"total_tokens\":2}}}}}'\nexit 0\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake_codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = format!(
+        "{}:{}",
+        fake_bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
     let task_path = project_state(root).join("experiments/demo/task.json");
     let output = Command::new(mixmod_bin())
         .args([
@@ -290,20 +308,21 @@ fn experiment_codex_only_task_copy_strips_hidden_metadata() {
             task_path.to_str().unwrap(),
         ])
         .current_dir(root)
-        .env("PATH", empty_path.path())
+        .env("PATH", path)
         .env("MIXMOD_STATE_DIR", state_root(root))
         .env("MIXMOD_DEBUG_COMMANDS", "1")
         .output()
         .unwrap();
-    assert!(!output.status.success());
+    assert_success(output);
 
-    let task = read_json(&project_state(root).join("experiments/demo/work/codex-only/task.json"));
-    assert!(task.get("patch").is_none());
-    assert!(task.get("test_patch").is_none());
-    assert!(task.get("hints_text").is_none());
-    assert!(task.get("fail_to_pass").is_none());
-    assert_eq!(task["context"]["dataset"], "swe-bench-lite");
-    assert_eq!(task["context"]["instance_id"], "demo__demo-1");
-    assert!(task["context"].get("test_patch").is_none());
-    assert!(task["context"].get("gold_patch").is_none());
+    let exp = project_state(root).join("experiments/demo");
+    let prompt = std::fs::read_to_string(exp.join("codex-only/codex-only-prompt.md")).unwrap();
+    assert!(prompt.contains("Change value to 2."));
+    assert!(prompt.contains("swe-bench-lite"));
+    assert!(prompt.contains("demo__demo-1"));
+    assert!(!prompt.contains("gold implementation diff"));
+    assert!(!prompt.contains("hidden test diff"));
+    assert!(!prompt.contains("secret hint"));
+    assert!(!prompt.contains("hidden::test"));
+    assert!(!exp.join("work/codex-only/task.json").exists());
 }

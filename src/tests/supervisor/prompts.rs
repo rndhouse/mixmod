@@ -33,6 +33,9 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
             "Prefer revise after failed, empty, distracted, or incomplete worker attempts"
         )
     );
+    assert!(prompt.contains("generated keys, aliases, field names"));
+    assert!(prompt.contains("raw names and configured aliases"));
+    assert!(prompt.contains("focused source repair or regression check"));
     assert!(prompt.contains("not merely because the latest worker turn created a non-empty diff"));
     assert!(prompt.contains("worker-brief.json used worker_turn_shape=small_patch_slice"));
     assert!(prompt.contains("set worker_turn_shape=small_patch_slice with the next narrow"));
@@ -147,6 +150,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("current accumulated patch"));
     assert!(brief_prompt.contains("one literal anchor plus the smallest local transformation"));
     assert!(brief_prompt.contains("compile-driven repair instruction"));
+    assert!(brief_prompt.contains("alias/key generated-code repairs"));
+    assert!(brief_prompt.contains("raw field names and resolved aliases"));
     assert!(brief_prompt.contains("use worker_turn_shape=small_patch_slice by default"));
     assert!(brief_prompt.contains("switching this profile to bounded_feature_slice"));
     assert!(

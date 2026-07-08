@@ -32,6 +32,8 @@ pub(crate) struct CodexTurnResult {
     pub(crate) auth_copied_then_removed: bool,
     pub(crate) thread_id: String,
     pub(crate) turn_id: String,
+    pub(crate) token_usage_source: String,
+    pub(crate) rollout_count: u64,
 }
 
 /// Codex sandbox profile used for an app-server thread or turn.
@@ -66,14 +68,124 @@ impl CodexSandbox {
     }
 }
 
-/// Token usage reported by Codex app-server.
-#[derive(Default)]
+/// Token usage reported by Codex.
+#[derive(Clone, Default)]
 pub(crate) struct CodexUsage {
     pub(crate) input_tokens: u64,
     pub(crate) cached_input_tokens: u64,
     pub(crate) output_tokens: u64,
     pub(crate) reasoning_tokens: u64,
     pub(crate) total_tokens: u64,
+}
+
+/// Run one prompt through direct `codex exec`.
+pub(crate) fn run_codex_exec_turn(
+    work_dir: &Path,
+    artifact_dir: &Path,
+    label: &str,
+    prompt: &str,
+    supervisor: &SupervisorConfig,
+    sandbox: CodexSandbox,
+) -> Result<CodexTurnResult> {
+    let logs_dir = artifact_dir.join("logs");
+    fs::create_dir_all(&logs_dir).with_context(|| {
+        format!(
+            "failed to create Codex exec logs dir {}",
+            logs_dir.display()
+        )
+    })?;
+    atomic_write(
+        &artifact_dir.join(format!("{label}-prompt.md")),
+        prompt.as_bytes(),
+    )?;
+
+    let code_home = codex_home_for_work_dir(work_dir);
+    if code_home.exists() {
+        fs::remove_dir_all(&code_home)
+            .with_context(|| format!("failed to reset Codex home {}", code_home.display()))?;
+    }
+    fs::create_dir_all(&code_home)
+        .with_context(|| format!("failed to create Codex home {}", code_home.display()))?;
+    let copied_auth = copy_codex_auth_if_available(&code_home)?;
+    let model = normalized_supervisor_model(&supervisor.model)?;
+    let reasoning_effort = normalized_reasoning_effort(&supervisor.reasoning_effort)?;
+    let last_message_path = artifact_dir.join(format!("{label}-last-message.md"));
+    let cd_arg = work_dir.to_string_lossy().to_string();
+    let last_message_arg = last_message_path.to_string_lossy().to_string();
+    let effort_config = format!("model_reasoning_effort=\"{reasoning_effort}\"");
+
+    let mut child = Command::new("codex")
+        .args(["--ask-for-approval", "never"])
+        .arg("exec")
+        .arg("--json")
+        .args(["--model", model.as_str()])
+        .args(["--sandbox", sandbox.as_thread_arg()])
+        .args(["--cd", cd_arg.as_str()])
+        .args(["--config", effort_config.as_str()])
+        .args(["--output-last-message", last_message_arg.as_str()])
+        .arg("-")
+        .env("CODEX_HOME", &code_home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| {
+            format!(
+                "failed to start codex exec in {} with CODEX_HOME={}",
+                work_dir.display(),
+                code_home.display()
+            )
+        })?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow!("codex exec stdin was not available"))?
+        .write_all(prompt.as_bytes())
+        .context("failed to write codex exec prompt")?;
+    let output = child.wait_with_output().context("codex exec failed")?;
+    let stdout = output.stdout;
+    let stderr = output.stderr;
+    let exit_status = output.status.code();
+    atomic_write(
+        &logs_dir.join(format!("{label}.exec.stdout.jsonl")),
+        &stdout,
+    )?;
+    atomic_write(&logs_dir.join(format!("{label}.exec.stderr.txt")), &stderr)?;
+
+    let rollout_report = collect_codex_rollout_usage(&code_home, &logs_dir)?;
+    let stdout_usage = codex_usage_from_jsonl(&stdout);
+    let (usage, token_usage_source) = if rollout_report.usage.total_tokens > 0 {
+        (
+            rollout_report.usage.clone(),
+            "codex_rollout_total_token_usage".to_string(),
+        )
+    } else if stdout_usage.total_tokens > 0 {
+        (stdout_usage, "codex_exec_stdout_token_count".to_string())
+    } else {
+        (CodexUsage::default(), "unavailable".to_string())
+    };
+
+    if copied_auth {
+        let _ = fs::remove_file(code_home.join("auth.json"));
+    }
+
+    let last_message = fs::read_to_string(&last_message_path).unwrap_or_default();
+    Ok(CodexTurnResult {
+        exit_status,
+        stdout: stdout.clone(),
+        stderr,
+        output_bytes: stdout.len() as u64 + last_message.len() as u64,
+        last_message,
+        usage,
+        input_bytes: prompt.len() as u64,
+        model,
+        reasoning_effort,
+        auth_copied_then_removed: copied_auth,
+        thread_id: String::new(),
+        turn_id: String::new(),
+        token_usage_source,
+        rollout_count: rollout_report.rollout_count,
+    })
 }
 
 /// Persistent Codex app-server process plus one active thread.
@@ -416,6 +528,8 @@ impl CodexAppServer {
             auth_copied_then_removed: self.copied_auth,
             thread_id: self.thread_id.clone(),
             turn_id,
+            token_usage_source: "codex_app_server_last_token_usage".to_string(),
+            rollout_count: 0,
         })
     }
 
@@ -689,6 +803,136 @@ fn codex_usage_from_breakdown(value: &Value) -> CodexUsage {
                 + get_u64(value, "outputTokens").unwrap_or(0)
                 + get_u64(value, "reasoningOutputTokens").unwrap_or(0)
         }),
+    }
+}
+
+struct CodexRolloutReport {
+    usage: CodexUsage,
+    rollout_count: u64,
+}
+
+fn collect_codex_rollout_usage(code_home: &Path, logs_dir: &Path) -> Result<CodexRolloutReport> {
+    let mut usage = CodexUsage::default();
+    let mut rollout_count = 0_u64;
+    let Some(sessions_dir) = code_home.join("sessions").canonicalize().ok() else {
+        return Ok(CodexRolloutReport {
+            usage,
+            rollout_count,
+        });
+    };
+    let target_root = logs_dir.join("codex-rollouts");
+    for path in rollout_paths(&sessions_dir)? {
+        let bytes = fs::read(&path)
+            .with_context(|| format!("failed to read Codex rollout {}", path.display()))?;
+        if let Some(file_usage) = codex_usage_from_jsonl(&bytes).nonzero() {
+            usage.add(&file_usage);
+        }
+        rollout_count += 1;
+        let rel = path.strip_prefix(&sessions_dir).unwrap_or(&path);
+        atomic_write(&target_root.join(rel), &bytes)?;
+    }
+    Ok(CodexRolloutReport {
+        usage,
+        rollout_count,
+    })
+}
+
+fn rollout_paths(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut stack = vec![root.to_path_buf()];
+    let mut paths = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in
+            fs::read_dir(&dir).with_context(|| format!("failed to read {}", dir.display()))?
+        {
+            let entry =
+                entry.with_context(|| format!("failed to read entry in {}", dir.display()))?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
+            {
+                paths.push(path);
+            }
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+pub(crate) fn codex_usage_from_jsonl(bytes: &[u8]) -> CodexUsage {
+    let mut usage = CodexUsage::default();
+    for line in bytes.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if let Some(next) = codex_usage_from_json_value(&value) {
+            usage = next;
+        }
+    }
+    usage
+}
+
+fn codex_usage_from_json_value(value: &Value) -> Option<CodexUsage> {
+    let payload = value.get("payload");
+    if get_str(value, "type") == Some("event_msg")
+        && payload.and_then(|payload| get_str(payload, "type")) == Some("token_count")
+    {
+        return payload
+            .and_then(|payload| payload.get("info"))
+            .and_then(|info| info.get("total_token_usage"))
+            .map(codex_usage_from_snake_breakdown);
+    }
+    if get_str(value, "type") == Some("token_count") {
+        return value
+            .get("info")
+            .and_then(|info| info.get("total_token_usage"))
+            .map(codex_usage_from_snake_breakdown);
+    }
+    if get_str(value, "method") == Some("thread/tokenUsage/updated") {
+        return value
+            .get("params")
+            .and_then(|params| params.get("tokenUsage"))
+            .and_then(|token_usage| token_usage.get("total").or_else(|| token_usage.get("last")))
+            .map(codex_usage_from_breakdown);
+    }
+    None
+}
+
+fn codex_usage_from_snake_breakdown(value: &Value) -> CodexUsage {
+    CodexUsage {
+        input_tokens: get_u64(value, "input_tokens").unwrap_or(0),
+        cached_input_tokens: get_u64(value, "cached_input_tokens").unwrap_or(0),
+        output_tokens: get_u64(value, "output_tokens").unwrap_or(0),
+        reasoning_tokens: get_u64(value, "reasoning_output_tokens").unwrap_or(0),
+        total_tokens: get_u64(value, "total_tokens").unwrap_or_else(|| {
+            get_u64(value, "input_tokens").unwrap_or(0)
+                + get_u64(value, "output_tokens").unwrap_or(0)
+                + get_u64(value, "reasoning_output_tokens").unwrap_or(0)
+        }),
+    }
+}
+
+impl CodexUsage {
+    fn add(&mut self, other: &Self) {
+        self.input_tokens += other.input_tokens;
+        self.cached_input_tokens += other.cached_input_tokens;
+        self.output_tokens += other.output_tokens;
+        self.reasoning_tokens += other.reasoning_tokens;
+        self.total_tokens += other.total_tokens;
+    }
+
+    fn nonzero(self) -> Option<Self> {
+        if self.total_tokens > 0 {
+            Some(self)
+        } else {
+            None
+        }
     }
 }
 
