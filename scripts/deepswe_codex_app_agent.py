@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pier.agents.installed.base import BaseInstalledAgent, with_prompt_template
@@ -15,10 +15,12 @@ from pier.models.agent.network import NetworkAllowlist
 from pier.models.trial.paths import EnvironmentPaths
 
 from scripts.deepswe_mixmod_agent import (
+    LOCAL_MIXMOD_COMMAND,
     PATH_SETUP,
     mixmod_install_spec,
     mixmod_network_allowlist,
     prepare_codex_auth,
+    prepare_local_mixmod_binary,
 )
 
 
@@ -33,6 +35,7 @@ class CodexAppAgent(BaseInstalledAgent):
         supervisor_model: str = "gpt-5.5:high",
         mixmod_command: str = "mixmod",
         mixmod_install_command: str | None = None,
+        local_mixmod_binary: str | None = None,
         mixmod_timeout_sec: int | str | None = None,
         **kwargs: Any,
     ) -> None:
@@ -40,6 +43,16 @@ class CodexAppAgent(BaseInstalledAgent):
         self.supervisor_model = supervisor_model
         self.mixmod_command = mixmod_command
         self.mixmod_install_command = mixmod_install_command
+        self.local_mixmod_binary = (
+            Path(local_mixmod_binary).expanduser().resolve()
+            if local_mixmod_binary
+            else None
+        )
+        self.container_mixmod_command = (
+            LOCAL_MIXMOD_COMMAND.as_posix()
+            if self.local_mixmod_binary
+            else self.mixmod_command
+        )
         self.mixmod_timeout_sec = (
             int(mixmod_timeout_sec) if mixmod_timeout_sec not in (None, "") else None
         )
@@ -49,6 +62,8 @@ class CodexAppAgent(BaseInstalledAgent):
         return "mixmod-codex-app"
 
     def get_version_command(self) -> str | None:
+        if self.local_mixmod_binary:
+            return None
         return PATH_SETUP + f"{shlex.quote(self.mixmod_command)} --version"
 
     def install_spec(self) -> AgentInstallSpec:
@@ -57,6 +72,7 @@ class CodexAppAgent(BaseInstalledAgent):
             self._version,
             self.mixmod_command,
             self.mixmod_install_command,
+            use_local_binary=bool(self.local_mixmod_binary),
         )
 
     def network_allowlist(self) -> NetworkAllowlist:
@@ -98,6 +114,8 @@ class CodexAppAgent(BaseInstalledAgent):
         }
 
         await prepare_codex_auth(environment)
+        if self.local_mixmod_binary:
+            await prepare_local_mixmod_binary(environment, self.local_mixmod_binary)
         await self.exec_as_agent(
             environment,
             command=(
@@ -134,7 +152,7 @@ class CodexAppAgent(BaseInstalledAgent):
 mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())}
 git config user.name "Mixmod"
 git config user.email "mixmod@example.invalid"
-{shlex.quote(self.mixmod_command)} init
+{shlex.quote(self.container_mixmod_command)} init
 python3 - <<'PY'
 from pathlib import Path
 
@@ -164,10 +182,10 @@ def rewrite_toml(path):
 for path in Path({state_dir.as_posix()!r}).glob("projects/*/config.toml"):
     rewrite_toml(path)
 PY
-{shlex.quote(self.mixmod_command)} experiment init deepswe --fixture .
+{shlex.quote(self.container_mixmod_command)} experiment init deepswe --fixture .
 exp_dir="$(find {shlex.quote(state_dir.as_posix())}/projects -path '*/experiments/deepswe' -type d | head -1)"
 cp {shlex.quote(task_path.as_posix())} "$exp_dir/task.json"
-{shlex.quote(self.mixmod_command)} experiment record-codex-only deepswe --task "$exp_dir/task.json" 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex.txt").as_posix())}
+{shlex.quote(self.container_mixmod_command)} experiment record-codex-only deepswe --task "$exp_dir/task.json" 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex.txt").as_posix())}
 cp "$exp_dir/codex-only/metrics.json" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-metrics.json").as_posix())} || true
 cp "$exp_dir/codex-only/final.patch" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-final.patch").as_posix())} || true
 if [ -s "$exp_dir/codex-only/final.patch" ]; then
