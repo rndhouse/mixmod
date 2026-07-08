@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from scripts.deepswe_artifacts import normalize_pier_job
+
 
 DEFAULT_SUPERVISOR_MODEL = "gpt-5.5:high"
 DEFAULT_WORKER_MODEL = "llama.cpp/qwen/qwen3.6-27b"
@@ -344,6 +346,7 @@ def main() -> int:
 
     job_dir = jobs_dir / job_name
     records = collect_records(job_dir) if job_dir.exists() else []
+    artifact_bundles = normalize_pier_job(pool, job_dir, records) if job_dir.exists() else []
     state.update(
         {
             "exit": code,
@@ -353,6 +356,9 @@ def main() -> int:
             "job_dir": str(job_dir),
             "log": str(log),
             "records": records,
+            "artifact_bundles": artifact_bundles,
+            "artifact_bundles_manifest": str(pool / "artifact-bundles.json"),
+            "tasks_dir": str(pool / "tasks"),
             "resolved": [record for record in records if record.get("resolved")],
         }
     )
@@ -360,7 +366,8 @@ def main() -> int:
     print(
         "DEEPSWE_MIXMOD_DONE "
         f"exit={code} records={len(records)} resolved={len(state['resolved'])} "
-        f"state={pool / 'mixmod-state.json'}",
+        f"bundles={len(artifact_bundles)} state={pool / 'mixmod-state.json'} "
+        f"tasks={pool / 'tasks'}",
         flush=True,
     )
     return code

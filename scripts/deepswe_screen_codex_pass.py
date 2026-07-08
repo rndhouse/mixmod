@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from scripts.deepswe_artifacts import normalize_pier_job
+
 
 DEFAULT_MODEL = "openai/gpt-5.5"
 DEFAULT_REASONING_EFFORT = "high"
@@ -337,6 +339,7 @@ def main() -> int:
 
     job_dir = jobs_dir / job_name
     records = collect_records(job_dir) if job_dir.exists() else []
+    artifact_bundles = normalize_pier_job(pool, job_dir, records) if job_dir.exists() else []
     state.update(
         {
             "exit": code,
@@ -346,6 +349,9 @@ def main() -> int:
             "job_dir": str(job_dir),
             "log": str(log),
             "records": records,
+            "artifact_bundles": artifact_bundles,
+            "artifact_bundles_manifest": str(pool / "artifact-bundles.json"),
+            "tasks_dir": str(pool / "tasks"),
             "resolved": [record for record in records if record.get("resolved")],
         }
     )
@@ -353,7 +359,8 @@ def main() -> int:
     print(
         "DEEPSWE_CODEX_SCREEN_DONE "
         f"exit={code} records={len(records)} resolved={len(state['resolved'])} "
-        f"state={pool / 'screen-state.json'}",
+        f"bundles={len(artifact_bundles)} state={pool / 'screen-state.json'} "
+        f"tasks={pool / 'tasks'}",
         flush=True,
     )
     return code
