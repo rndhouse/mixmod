@@ -38,6 +38,9 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("worker-brief.json used worker_turn_shape=bounded_feature_slice"));
     assert!(prompt.contains("judge whether the previous worker slice was too much"));
     assert!(prompt.contains("previous slices may now be too small"));
+    assert!(prompt.contains("needed supervisor control"));
+    assert!(prompt.contains("A corrective small_patch_slice is recovery, not promotion"));
+    assert!(prompt.contains("not a new bundle of validation"));
     assert!(prompt.contains("first useful end-to-end behavior path"));
     assert!(prompt.contains("Use bounded_feature_slice only when the selected worker guidance"));
     assert!(prompt.contains("keep or enlarge the next slice as bounded_feature_slice"));

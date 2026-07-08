@@ -304,9 +304,24 @@ copy_if_exists(run_dir / "supervisor-feedback.jsonl", agent_dir / "supervisor-fe
 for name in ["task.json", "worker-brief.json", "worker-task.json"]:
     copy_if_exists(run_dir / name, agent_dir / name)
 
+def worker_dir_sort_key(path: Path) -> tuple[int, int, str]:
+    name = path.name
+    if name == "proposal":
+        return (0, 0, name)
+    if name == "revision":
+        return (1, 1, name)
+    if name.startswith("revision-"):
+        suffix = name.rsplit("-", 1)[-1]
+        if suffix.isdigit():
+            return (1, int(suffix), name)
+    return (2, 0, name)
+
 worker_root = run_dir / "worker-runs"
 if worker_root.exists():
-    for worker_dir in sorted(path for path in worker_root.iterdir() if path.is_dir()):
+    for worker_dir in sorted(
+        (path for path in worker_root.iterdir() if path.is_dir()),
+        key=worker_dir_sort_key,
+    ):
         target = agent_dir / "worker-runs" / worker_dir.relative_to(worker_root)
         target.mkdir(parents=True, exist_ok=True)
         for name in [
@@ -315,6 +330,7 @@ if worker_root.exists():
             "metrics.json",
             "changes.patch",
             "worktree.patch",
+            "patch-comparison.json",
             "supervisor-control.jsonl",
         ]:
             copy_if_exists(worker_dir / name, target / name)
@@ -426,7 +442,8 @@ def string_values(records: list[dict], field: str) -> list[str]:
 
 feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
 worker_dirs = sorted(
-    path for path in (agent_dir / "worker-runs").glob("*") if path.is_dir()
+    (path for path in (agent_dir / "worker-runs").glob("*") if path.is_dir()),
+    key=worker_dir_sort_key,
 )
 worker_metric_records = []
 for worker_dir in worker_dirs:
@@ -457,6 +474,23 @@ latest_heartbeat = (
     last_jsonl_record(latest_worker_dir / "logs" / "heartbeat.jsonl")
     if latest_worker_dir
     else {{}}
+)
+latest_worker_patch_comparison = (
+    load_json(latest_worker_dir / "patch-comparison.json")
+    if latest_worker_dir
+    else {{}}
+)
+worker_patch_comparisons = [
+    load_json(worker_dir / "patch-comparison.json")
+    for worker_dir in worker_dirs
+]
+worker_patch_comparisons = [
+    item for item in worker_patch_comparisons if item
+]
+observed_patch_degradation_count = sum(
+    1
+    for item in worker_patch_comparisons
+    if item.get("degradation_detected") is True
 )
 worker_metric_by_dir = dict(worker_metric_records)
 latest_worker_controls = (
@@ -541,6 +575,21 @@ summary = {{
         if latest_worker_dir
         else None
     ),
+    "latest_worker_patch_comparison_bytes": (
+        file_len(latest_worker_dir / "patch-comparison.json")
+        if latest_worker_dir
+        else None
+    ),
+    "latest_worker_patch_degradation_detected": (
+        latest_worker_patch_comparison.get("degradation_detected")
+        if latest_worker_patch_comparison
+        else None
+    ),
+    "latest_worker_patch_degradation_reasons": (
+        latest_worker_patch_comparison.get("reasons")
+        if latest_worker_patch_comparison
+        else None
+    ),
     "latest_worker_control_log_bytes": (
         file_len(latest_worker_dir / "supervisor-control.jsonl")
         if latest_worker_dir
@@ -592,6 +641,9 @@ summary = {{
     ),
     "observed_supervisor_control_interrupts": (
         len(all_worker_control_interrupts) or None
+    ),
+    "observed_patch_degradation_count": (
+        observed_patch_degradation_count or None
     ),
     "worker_session_token_peak": max(
         [
