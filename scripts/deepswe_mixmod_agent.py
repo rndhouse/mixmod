@@ -325,20 +325,111 @@ if worker_root.exists():
 
 metrics_path = agent_dir / "mixmod-metrics.json"
 metrics = json.loads(metrics_path.read_text()) if metrics_path.exists() else {{}}
+
+def load_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {{}}
+
+def feedback_records(path: Path) -> list[dict]:
+    records = []
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    except OSError:
+        pass
+    return records
+
+def sum_field(records: list[dict], field: str) -> int | None:
+    values = [record.get(field) for record in records]
+    values = [value for value in values if isinstance(value, int)]
+    if not values:
+        return None
+    return sum(values)
+
+def any_bool(values: list[object]) -> bool | None:
+    bools = [value for value in values if isinstance(value, bool)]
+    if not bools:
+        return None
+    return any(bools)
+
+feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
+worker_metrics = [
+    load_json(path)
+    for path in sorted((agent_dir / "worker-runs").glob("*/metrics.json"))
+]
+worker_metrics = [item for item in worker_metrics if item]
+latest_worker = worker_metrics[-1] if worker_metrics else {{}}
+patch_path = artifacts_dir / "model.patch"
+try:
+    patch_text = patch_path.read_text()
+except OSError:
+    patch_text = ""
+
 summary = {{
-    "worker_backend": metrics.get("worker_backend"),
-    "supervisor_input_tokens": metrics.get("supervisor_input_tokens"),
-    "supervisor_cached_input_tokens": metrics.get("supervisor_cached_input_tokens"),
-    "supervisor_output_tokens": metrics.get("supervisor_output_tokens"),
-    "supervisor_total_tokens": metrics.get("supervisor_total_tokens"),
-    "codex_calls": metrics.get("codex_calls"),
-    "opencode_calls": metrics.get("opencode_calls"),
+    "snapshot_status": "final" if metrics else "in_progress_or_interrupted",
+    "worker_backend": metrics.get("worker_backend") or latest_worker.get("worker_backend"),
+    "supervisor_input_tokens": metrics.get("supervisor_input_tokens") or sum_field(feedback, "supervisor_input_tokens"),
+    "supervisor_cached_input_tokens": metrics.get("supervisor_cached_input_tokens") or sum_field(feedback, "supervisor_cached_input_tokens"),
+    "supervisor_output_tokens": metrics.get("supervisor_output_tokens") or sum_field(feedback, "supervisor_output_tokens"),
+    "supervisor_reasoning_tokens": metrics.get("supervisor_reasoning_tokens") or sum_field(feedback, "supervisor_reasoning_tokens"),
+    "supervisor_total_tokens": metrics.get("supervisor_total_tokens") or sum_field(feedback, "supervisor_total_tokens"),
+    "codex_calls": metrics.get("codex_calls") or len(feedback) or None,
+    "opencode_calls": metrics.get("opencode_calls") or len(worker_metrics) or None,
     "final_status": metrics.get("final_status"),
     "final_verdict": metrics.get("final_verdict"),
-    "local_inference_verified": metrics.get("local_inference_verified"),
-    "gpu_activity_observed": metrics.get("gpu_activity_observed"),
-    "local_worker_reasoning_trace_bytes": metrics.get("local_worker_reasoning_trace_bytes"),
-    "local_worker_reasoning_trace_event_count": metrics.get("local_worker_reasoning_trace_event_count"),
+    "latest_supervisor_label": feedback[-1].get("label") if feedback else None,
+    "latest_supervisor_action": (
+        (feedback[-1].get("feedback") or {{}}).get("action")
+        if feedback
+        else None
+    ),
+    "latest_worker_run": latest_worker.get("opencode_session_label"),
+    "latest_worker_session_reused": latest_worker.get("worker_session_reused"),
+    "latest_worker_context_overflow_count": latest_worker.get("context_overflow_count"),
+    "latest_worker_token_peak": latest_worker.get("worker_session_token_peak"),
+    "context_overflow_count": sum(
+        item.get("context_overflow_count", 0)
+        for item in worker_metrics
+        if isinstance(item.get("context_overflow_count"), int)
+    ) if worker_metrics else None,
+    "worker_session_token_peak": max(
+        [
+            item.get("worker_session_token_peak")
+            for item in worker_metrics
+            if isinstance(item.get("worker_session_token_peak"), int)
+        ],
+        default=None,
+    ),
+    "local_inference_verified": metrics.get("local_inference_verified")
+        if metrics.get("local_inference_verified") is not None
+        else any_bool([item.get("local_inference_verified") for item in worker_metrics]),
+    "gpu_activity_observed": metrics.get("gpu_activity_observed")
+        if metrics.get("gpu_activity_observed") is not None
+        else any_bool([item.get("gpu_activity_observed") for item in worker_metrics]),
+    "local_worker_reasoning_trace_bytes": metrics.get("local_worker_reasoning_trace_bytes")
+        or sum(
+            item.get("reasoning_trace_bytes", 0)
+            for item in worker_metrics
+            if isinstance(item.get("reasoning_trace_bytes"), int)
+        )
+        or None,
+    "local_worker_reasoning_trace_event_count": metrics.get("local_worker_reasoning_trace_event_count")
+        or sum(
+            item.get("reasoning_trace_event_count", 0)
+            for item in worker_metrics
+            if isinstance(item.get("reasoning_trace_event_count"), int)
+        )
+        or None,
+    "patch_bytes": len(patch_text.encode()),
+    "patch_lines": patch_text.count("\\n"),
 }}
 summary_path.write_text(json.dumps(summary, indent=2) + "\\n")
 PY

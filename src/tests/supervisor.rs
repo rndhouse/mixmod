@@ -42,6 +42,11 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("Make the next slice one behavior only"));
     assert!(prompt.contains("Treat exact_edits as a queue"));
     assert!(prompt.contains("put one source edit first"));
+    assert!(prompt.contains("current accumulated worktree.patch"));
+    assert!(prompt.contains("Preserve useful existing edits"));
+    assert!(prompt.contains("local transformation near one anchor"));
+    assert!(prompt.contains("edit_packet"));
+    assert!(prompt.contains("source_snippets"));
     assert!(prompt.contains("exact symbols plus a literal nearby code anchor"));
     assert!(prompt.contains("literal nearby code anchor"));
     assert!(prompt.contains("Stop does not permit direct supervisor editing."));
@@ -82,6 +87,12 @@ fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
     assert!(prompt.contains("Preserve the previous feedback's intended target behavior"));
     assert!(prompt.contains("do not rewind to an earlier completed slice"));
     assert!(prompt.contains("Treat useful accumulated worktree.patch changes as context to keep"));
+    assert!(
+        prompt.contains("Write the repaired exact edit from the current accumulated patch state")
+    );
+    assert!(prompt.contains("Do not say to continue from an earlier file-only slice"));
+    assert!(prompt.contains("edit_packet or source_snippets"));
+    assert!(prompt.contains("local transformation near one anchor"));
     assert!(prompt.contains("If previous feedback named one focus file"));
     assert!(prompt.contains("exact_edits must be an array with exactly one string item"));
     assert!(prompt.contains("Do not invent a different file/symbol pair"));
@@ -121,6 +132,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("split broad tasks into small concrete source slices"));
     assert!(brief_prompt.contains("worker_turn_shape=small_patch_slice"));
     assert!(brief_prompt.contains("one immediate source edit"));
+    assert!(brief_prompt.contains("current accumulated patch"));
+    assert!(brief_prompt.contains("one literal anchor plus the smallest local transformation"));
     assert!(brief_prompt.contains("context overflow"));
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("Select only relevant points"));

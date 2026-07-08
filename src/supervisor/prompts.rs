@@ -248,7 +248,7 @@ pub(crate) fn supervisor_feedback_prompt(
 Do not implement code. Do not edit files. Do not ask the user for approval.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Use approve when no more local worker attempts are needed because the accumulated worktree.patch appears to satisfy the original task, not merely because the latest worker turn created a non-empty diff.
 Prefer revise after failed, empty, distracted, or incomplete worker attempts, and put the next worker instruction in message_to_worker.
 Treat applicable worker-model guidance as part of the supervisor decision contract. If the selected worker guidance says to prefer small_patch_slice, a broad revise is the wrong decision even when the remaining feature is broad. Split the remaining work into the next immediately executable worker slice; if you cannot identify a concrete slice from artifacts or read-only inspection, use stop with a clear risk instead of sending a broad revision.
@@ -262,6 +262,9 @@ If worker-brief.json used worker_turn_shape=bounded_feature_slice, treat a usefu
 If worker-brief.json used worker_turn_shape=small_patch_slice, treat the first non-empty patch as a starter slice. Approve only after comparing worktree.patch to task.json and deciding the original acceptance criteria appear satisfied. If the slice is useful but incomplete, return action=revise, patch_decision=revise_current, usually worker_mode=continue, and set worker_turn_shape=small_patch_slice with the next narrow source/test slice.
 For revision bounded_feature_slice, ask for a complete coherent behavior in one turn: related source edits plus a focused test or compile check when appropriate, usually one to three source files. Use this only when it fits the selected worker guidance and observed worker behavior. Use exact_edits or edit_plan as a concise ordered plan. Avoid splitting tightly coupled pairs such as serialization/deserialization, prefix/rename, or API/source/test when doing them together is the clearer next unit.
 For revision small_patch_slice, make exact_edits immediately executable and concrete; use focus_files for repo source/test paths, defer checks until after another non-empty diff, and include a completion_gate such as "git diff --stat must be non-empty". Treat exact_edits as a queue: the next worker turn executes only the first item, so put one source edit first and leave tests or follow-up edits for later turns. Make the next slice one behavior only: one source file plus at most one focused test file, no validation matrix, no bundled prefix+rename+deserialization work, and no broad "implement the feature" instruction.
+For revision small_patch_slice, write from the current accumulated worktree.patch. Preserve useful existing edits, then name the next delta to add; do not tell the worker to restart from an earlier completed slice unless patch_decision=revise_previous and you explain the recovery edit.
+For large functions or code-generation paths, make the next exact_edit a local transformation near one anchor, such as collecting a field set, adding one branch, or wiring one helper call. If the full behavior requires several branches, ask for the first branch that creates useful progress.
+If your read-only review found the relevant source lines, put the minimal file/symbol/anchor context in edit_packet or source_snippets so the worker can edit before rereading the whole method.
 For source edits inside large functions or code-generation paths, include structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
 When a revision needs source details, inspect repo files read-only before returning JSON and name exact symbols plus a literal nearby code anchor when possible, such as `near the line containing "..."`
 in exact_edits. Do not ask the worker to investigate broadly or complete the whole feature in one revision slice.
@@ -353,6 +356,7 @@ Return a corrected revise decision with:
 - exact_edits must be an array with exactly one string item; do not use objects
 - exactly one exact_edits item
 - one source file in focus_files, plus at most one already-written focused test file
+- edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate mentioning git diff --stat
@@ -360,7 +364,9 @@ Return a corrected revise decision with:
 The one exact edit must be atomic: one function or branch, one direction, one source behavior. If the previous edit bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
 Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong. Repair the size/shape of that requested next slice; do not rewind to an earlier completed slice.
 Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
+Write the repaired exact edit from the current accumulated patch state: preserve useful existing edits, then add one next delta. Do not say to continue from an earlier file-only slice when worktree.patch already contains useful changes in another focused source file.
 If previous feedback named one focus file, keep that same repo source file in focus_files and exact_edits while making the edit smaller.
+For large functions or code-generation paths, choose a local transformation near one anchor rather than a whole behavior path.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Include an exact symbol and a literal nearby code anchor when possible, for example `near the line containing "..."`.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
@@ -417,13 +423,16 @@ Return one corrected revise decision with:
 - "worker_turn_shape":"small_patch_slice"
 - exact_edits as an array with exactly one string item; do not use objects
 - one source file in focus_files, plus at most one already-written focused test file
+- edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate mentioning git diff --stat
 - forbidden_actions including "ask questions" and "run tests before editing"
 Repair the size/shape of the previous requested next slice. Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong.
 Do not rewind to an earlier completed slice. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
+Write the repaired exact edit from the current accumulated patch state: preserve useful existing edits, then add one next delta.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
+For large functions or code-generation paths, choose a local transformation near one anchor rather than a whole behavior path.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Working repo: {work_dir}
 
