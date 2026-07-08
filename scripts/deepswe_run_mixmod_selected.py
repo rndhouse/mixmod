@@ -264,7 +264,12 @@ def main() -> int:
     )
     parser.add_argument("--stop-after-first-worker", action="store_true")
     parser.add_argument("--no-require-local", dest="require_local", action="store_false")
-    parser.add_argument("--worker-base-url", "--ollama-base-url", dest="worker_base_url")
+    parser.add_argument(
+        "--worker-base-url",
+        "--ollama-base-url",
+        dest="worker_base_url",
+        default=os.environ.get("MIXMOD_OPENCODE_BASE_URL"),
+    )
     parser.add_argument("--mixmod-install-command")
     parser.add_argument("--local-mixmod-binary", type=Path)
     parser.add_argument("--no-local-mixmod-binary", action="store_true")
