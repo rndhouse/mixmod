@@ -102,16 +102,14 @@ pub(crate) use live::{
     ensure_debug_command_enabled, live_control, live_status, supervise_mixmod_task,
 };
 pub(crate) use report::budgeted_report;
-#[cfg(test)]
-pub(crate) use run::run_mixmod_task_with_session_and_recovery;
+pub(crate) use run::{
+    WorkerRunOptions, run_mixmod_task_with_session, run_mixmod_task_with_worker_options,
+    shell_command, worker_session_token_peak,
+};
 #[cfg(test)]
 pub(crate) use run::{
     build_opencode_instruction, build_run_summary, opencode_exit_status_label,
     worker_context_signals,
-};
-pub(crate) use run::{
-    run_mixmod_task_with_session, run_mixmod_task_with_session_recovery_and_advisor, shell_command,
-    worker_session_token_peak,
 };
 pub(crate) use state::state_layout;
 pub(crate) use supervisor::{

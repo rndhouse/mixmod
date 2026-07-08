@@ -105,16 +105,18 @@ impl DefaultStrategyRun<'_> {
         let worker_task = write_worker_brief_task(root, &task_file, &worker_brief.brief, &out_dir)?;
         let worker_runs_dir = out_dir.join("worker-runs");
         let proposal_out = worker_runs_dir.join("proposal");
-        let proposal_receipt = run_mixmod_task_with_session_recovery_and_advisor(
+        let proposal_receipt = run_mixmod_task_with_worker_options(
             root,
             DelegationMode::Patch,
             &worker_task,
             &proposal_out,
             runner.as_ref(),
             false,
-            options.resume_session,
-            !options.stop_after_first_worker,
-            live_supervisor_advisor(&live_supervisor),
+            WorkerRunOptions {
+                resume_session_id: options.resume_session,
+                allow_auto_followups: !options.stop_after_first_worker,
+                supervisor_advisor: live_supervisor_advisor(&live_supervisor),
+            },
         )?;
         ensure_worker_run_verified(&out_dir, &proposal_receipt, &proposal_out)?;
 
@@ -188,16 +190,18 @@ impl DefaultStrategyRun<'_> {
                         };
                         let previous_out = final_out.clone();
                         final_out = worker_runs_dir.join(revision_out_name);
-                        let revision_receipt = run_mixmod_task_with_session_recovery_and_advisor(
+                        let revision_receipt = run_mixmod_task_with_worker_options(
                             root,
                             DelegationMode::Patch,
                             &revision_task,
                             &final_out,
                             runner.as_ref(),
                             false,
-                            resume_session_id,
-                            true,
-                            live_supervisor_advisor(&live_supervisor),
+                            WorkerRunOptions {
+                                resume_session_id,
+                                allow_auto_followups: true,
+                                supervisor_advisor: live_supervisor_advisor(&live_supervisor),
+                            },
                         )?;
                         ensure_worker_run_verified(&out_dir, &revision_receipt, &final_out)?;
                         write_patch_checkpoint_comparison(&previous_out, &final_out, &decision)?;

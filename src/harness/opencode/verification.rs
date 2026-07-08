@@ -582,8 +582,8 @@ impl LocalVerificationRun<'_> {
                     }
                 }
 
-                if !supervisor_control_path.exists() {
-                    if let Some(control) =
+                if !supervisor_control_path.exists()
+                    && let Some(control) =
                         small_patch_no_delta_intervention
                             .as_mut()
                             .and_then(|intervention| {
@@ -593,13 +593,12 @@ impl LocalVerificationRun<'_> {
                                     Duration::from_millis(last_output_age),
                                 )
                             })
-                    {
-                        write_pretty_json(
-                            &supervisor_control_path,
-                            &control,
-                            "revision no-delta supervisor control",
-                        )?;
-                    }
+                {
+                    write_pretty_json(
+                        &supervisor_control_path,
+                        &control,
+                        "revision no-delta supervisor control",
+                    )?;
                 }
 
                 if let Some(control) = read_supervisor_control(&supervisor_control_path) {
@@ -827,12 +826,13 @@ impl LocalVerificationRun<'_> {
         } else {
             None
         };
-        if verification_config.enabled && !backend_activity_seen {
-            if let Some(text) = run_optional_command_text(&backend_command, root) {
-                let sample = format!("\n--- final sample ---\n{text}");
-                append_file(&logs_dir.join("backend-status.txt"), sample.as_bytes())?;
-                backend_activity_seen |= backend_activity_observed(Some(&text), selection);
-            }
+        if verification_config.enabled
+            && !backend_activity_seen
+            && let Some(text) = run_optional_command_text(&backend_command, root)
+        {
+            let sample = format!("\n--- final sample ---\n{text}");
+            append_file(&logs_dir.join("backend-status.txt"), sample.as_bytes())?;
+            backend_activity_seen |= backend_activity_observed(Some(&text), selection);
         }
 
         let stdout = fs::read(&stdout_path).unwrap_or_default();

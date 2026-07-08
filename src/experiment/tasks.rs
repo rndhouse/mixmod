@@ -163,8 +163,6 @@ pub(crate) fn write_worker_brief_task(
         .unwrap_or("git diff --stat must be non-empty");
     let acceptance = if small_patch_slice {
         vec![completion_gate.to_string()]
-    } else if bounded_feature_slice {
-        non_empty_or(checks.clone(), get_string_array(&original, "acceptance"))
     } else {
         non_empty_or(checks.clone(), get_string_array(&original, "acceptance"))
     };
@@ -780,16 +778,16 @@ pub(crate) fn write_revision_task(
         ""
     };
     let instructions = if small_patch_slice {
-        small_patch_slice_revision_instructions(
+        small_patch_slice_revision_instructions(SmallPatchSliceRevisionInput {
             work_dir,
-            &task_value,
+            original: &task_value,
             decision,
-            &focus_files,
-            &focus_note,
+            focus_files: &focus_files,
+            focus_note: &focus_note,
             completion_gate,
             patch_decision_note,
             defer_checks_until_patch_exists,
-        )
+        })
     } else if decision.worker_mode == "context_focus" {
         format!(
             "Original task instructions:\n{original_instructions}\n\nThe supervisor requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nSupervisor message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
@@ -869,16 +867,28 @@ pub(crate) fn write_revision_task(
     Ok(path)
 }
 
-fn small_patch_slice_revision_instructions(
-    work_dir: &Path,
-    original: &Value,
-    decision: &SupervisorFeedbackTurn,
-    focus_files: &[String],
-    focus_note: &str,
-    completion_gate: &str,
-    patch_decision_note: &str,
+struct SmallPatchSliceRevisionInput<'a> {
+    work_dir: &'a Path,
+    original: &'a Value,
+    decision: &'a SupervisorFeedbackTurn,
+    focus_files: &'a [String],
+    focus_note: &'a str,
+    completion_gate: &'a str,
+    patch_decision_note: &'a str,
     defer_checks_until_patch_exists: bool,
-) -> String {
+}
+
+fn small_patch_slice_revision_instructions(input: SmallPatchSliceRevisionInput<'_>) -> String {
+    let SmallPatchSliceRevisionInput {
+        work_dir,
+        original,
+        decision,
+        focus_files,
+        focus_note,
+        completion_gate,
+        patch_decision_note,
+        defer_checks_until_patch_exists,
+    } = input;
     let title = get_str(original, "title").unwrap_or("the task");
     let original_instructions = get_str(original, "instructions")
         .unwrap_or("")

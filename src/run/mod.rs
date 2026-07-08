@@ -52,51 +52,44 @@ pub(crate) fn run_mixmod_task_with_session(
     require_local: bool,
     resume_session_id: Option<String>,
 ) -> Result<Receipt> {
-    run_mixmod_task_with_session_and_recovery(
+    run_mixmod_task_with_worker_options(
         root,
         mode,
         task_arg,
         out_arg,
         runner,
         require_local,
-        resume_session_id,
-        true,
+        WorkerRunOptions {
+            resume_session_id,
+            ..WorkerRunOptions::default()
+        },
     )
 }
 
-pub(crate) fn run_mixmod_task_with_session_and_recovery(
+pub(crate) struct WorkerRunOptions {
+    pub(crate) resume_session_id: Option<String>,
+    pub(crate) allow_auto_followups: bool,
+    pub(crate) supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
+}
+
+impl Default for WorkerRunOptions {
+    fn default() -> Self {
+        Self {
+            resume_session_id: None,
+            allow_auto_followups: true,
+            supervisor_advisor: None,
+        }
+    }
+}
+
+pub(crate) fn run_mixmod_task_with_worker_options(
     root: &Path,
     mode: DelegationMode,
     task_arg: &Path,
     out_arg: &Path,
     runner: &dyn AgentHarness,
     require_local: bool,
-    resume_session_id: Option<String>,
-    allow_auto_followups: bool,
-) -> Result<Receipt> {
-    run_mixmod_task_with_session_recovery_and_advisor(
-        root,
-        mode,
-        task_arg,
-        out_arg,
-        runner,
-        require_local,
-        resume_session_id,
-        allow_auto_followups,
-        None,
-    )
-}
-
-pub(crate) fn run_mixmod_task_with_session_recovery_and_advisor(
-    root: &Path,
-    mode: DelegationMode,
-    task_arg: &Path,
-    out_arg: &Path,
-    runner: &dyn AgentHarness,
-    require_local: bool,
-    resume_session_id: Option<String>,
-    allow_auto_followups: bool,
-    supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
+    options: WorkerRunOptions,
 ) -> Result<Receipt> {
     MixmodRun {
         root,
@@ -105,9 +98,9 @@ pub(crate) fn run_mixmod_task_with_session_recovery_and_advisor(
         out_arg,
         runner,
         require_local,
-        resume_session_id,
-        allow_auto_followups,
-        supervisor_advisor,
+        resume_session_id: options.resume_session_id,
+        allow_auto_followups: options.allow_auto_followups,
+        supervisor_advisor: options.supervisor_advisor,
     }
     .execute()
 }

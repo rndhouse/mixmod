@@ -186,6 +186,8 @@ def build_pier_command(
         str(jobs_dir),
         "--job-name",
         job_name,
+        "--agent-timeout-multiplier",
+        str(args.agent_timeout_multiplier),
     ]
     if args.host_network:
         cmd.extend(
@@ -271,6 +273,7 @@ def main() -> int:
         help="Environment variable to pass to the Pier agent as KEY=VALUE.",
     )
     parser.add_argument("--mixmod-timeout-seconds", type=int, default=3 * 60 * 60)
+    parser.add_argument("--agent-timeout-multiplier", type=float, default=3.0)
     parser.add_argument("--timeout-seconds", type=int, default=4 * 60 * 60)
     parser.add_argument("--job-name", default="")
     parser.add_argument("--no-delete", action="store_true")
@@ -319,6 +322,8 @@ def main() -> int:
         "host_network": args.host_network,
         "agent_env": args.agent_env,
         "effective_agent_env": effective_agent_env(args),
+        "agent_timeout_multiplier": args.agent_timeout_multiplier,
+        "mixmod_timeout_seconds": args.mixmod_timeout_seconds,
         "local_mixmod_binary": str(local_mixmod_binary) if local_mixmod_binary else None,
         "command": [str(part) for part in cmd],
         "started_at": datetime.now(timezone.utc).isoformat(),

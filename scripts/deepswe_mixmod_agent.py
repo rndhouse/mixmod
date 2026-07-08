@@ -44,6 +44,8 @@ PATH_SETUP = (
     'if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi\n'
 )
 LOCAL_MIXMOD_COMMAND = PurePosixPath("/tmp/mixmod-local/mixmod")
+ARTIFACTS_DIR = PurePosixPath("/logs/artifacts")
+SNAPSHOT_SECONDS = 30
 
 
 def csv_env_values_for_url(extra_url: str | None) -> list[str]:
@@ -228,9 +230,9 @@ class MixmodAgent(BaseInstalledAgent):
             run_default_args.append("--no-require-local")
         quoted_run_default = " ".join(shlex.quote(arg) for arg in run_default_args)
         return f"""set -euo pipefail
-{PATH_SETUP}trap 'rm -f "$HOME/.codex/auth.json" "$HOME/.local/share/opencode/auth.json"' EXIT
-cd /app
+{PATH_SETUP}cd /app
 mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())}
+mkdir -p {shlex.quote(ARTIFACTS_DIR.as_posix())}
 git config user.name "Mixmod"
 git config user.email "mixmod@example.invalid"
 {shlex.quote(self.container_mixmod_command)} init
@@ -250,31 +252,52 @@ if base_url:
                 options["baseURL"] = base_url
         path.write_text(json.dumps(data, indent=2) + "\\n")
 PY
-set +e
-{quoted_run_default} 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod.txt").as_posix())}
-mixmod_exit="${{PIPESTATUS[0]}}"
-set -e
-run_dir="$(python3 - <<'PY'
+snapshot_mixmod_artifacts() {{
+python3 - <<'PY' || true
+import json
+import shutil
+import subprocess
 from pathlib import Path
 
 state_dir = Path({state_dir.as_posix()!r})
+agent_dir = Path({EnvironmentPaths.agent_dir.as_posix()!r})
+artifacts_dir = Path({ARTIFACTS_DIR.as_posix()!r})
+summary_path = Path({summary_path.as_posix()!r})
+
+agent_dir.mkdir(parents=True, exist_ok=True)
+artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+def copy_if_exists(source: Path, target: Path) -> None:
+    try:
+        if source.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    except OSError:
+        pass
+
+def write_command_output(command: list[str], target: Path) -> None:
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            tmp.write_bytes(result.stdout)
+            tmp.replace(target)
+    except OSError:
+        pass
+
+write_command_output(["git", "-C", "/app", "diff", "--binary", "HEAD"], artifacts_dir / "model.patch")
+write_command_output(["git", "-C", "/app", "status", "--porcelain"], artifacts_dir / "git-status.txt")
+
 runs = [path for path in state_dir.glob("projects/*/runs/run-*") if path.is_dir()]
 if not runs:
-    raise SystemExit("no Mixmod exec run directory found")
-print(max(runs, key=lambda path: path.stat().st_mtime))
-PY
-)"
-cp "$run_dir/metrics.json" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-metrics.json").as_posix())} || true
-cp "$run_dir/final.patch" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-final.patch").as_posix())} || true
-cp "$run_dir/report.md" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-report.md").as_posix())} || true
-cp "$run_dir/supervisor-feedback.jsonl" {shlex.quote((EnvironmentPaths.agent_dir / "supervisor-feedback.jsonl").as_posix())} || true
-RUN_DIR="$run_dir" python3 - <<'PY'
-import os
-import shutil
-from pathlib import Path
+    raise SystemExit(0)
 
-agent_dir = Path({EnvironmentPaths.agent_dir.as_posix()!r})
-run_dir = Path(os.environ["RUN_DIR"])
+run_dir = max(runs, key=lambda path: path.stat().st_mtime)
+copy_if_exists(run_dir / "metrics.json", agent_dir / "mixmod-metrics.json")
+copy_if_exists(run_dir / "final.patch", agent_dir / "mixmod-final.patch")
+copy_if_exists(run_dir / "report.md", agent_dir / "mixmod-report.md")
+copy_if_exists(run_dir / "supervisor-feedback.jsonl", agent_dir / "supervisor-feedback.jsonl")
+
 worker_root = run_dir / "worker-runs"
 if worker_root.exists():
     for worker_dir in sorted(path for path in worker_root.iterdir() if path.is_dir()):
@@ -288,9 +311,7 @@ if worker_root.exists():
             "worktree.patch",
             "supervisor-control.jsonl",
         ]:
-            source = worker_dir / name
-            if source.exists():
-                shutil.copy2(source, target / name)
+            copy_if_exists(worker_dir / name, target / name)
         logs = worker_dir / "logs"
         if logs.exists():
             target_logs = target / "logs"
@@ -300,15 +321,8 @@ if worker_root.exists():
                 "opencode.stderr.txt",
                 "heartbeat.jsonl",
             ]:
-                source = logs / name
-                if source.exists():
-                    shutil.copy2(source, target_logs / name)
-PY
-python3 - <<'PY'
-import json
-from pathlib import Path
+                copy_if_exists(logs / name, target_logs / name)
 
-agent_dir = Path({EnvironmentPaths.agent_dir.as_posix()!r})
 metrics_path = agent_dir / "mixmod-metrics.json"
 metrics = json.loads(metrics_path.read_text()) if metrics_path.exists() else {{}}
 summary = {{
@@ -326,8 +340,29 @@ summary = {{
     "local_worker_reasoning_trace_bytes": metrics.get("local_worker_reasoning_trace_bytes"),
     "local_worker_reasoning_trace_event_count": metrics.get("local_worker_reasoning_trace_event_count"),
 }}
-Path({summary_path.as_posix()!r}).write_text(json.dumps(summary, indent=2) + "\\n")
+summary_path.write_text(json.dumps(summary, indent=2) + "\\n")
 PY
+}}
+stop_snapshot_loop() {{
+  if [ -n "${{snapshot_pid:-}}" ]; then
+    kill "$snapshot_pid" 2>/dev/null || true
+    wait "$snapshot_pid" 2>/dev/null || true
+    snapshot_pid=""
+  fi
+}}
+trap 'stop_snapshot_loop; rm -f "$HOME/.codex/auth.json" "$HOME/.local/share/opencode/auth.json"' EXIT
+snapshot_mixmod_artifacts
+while true; do
+  sleep {SNAPSHOT_SECONDS}
+  snapshot_mixmod_artifacts
+done &
+snapshot_pid="$!"
+set +e
+{quoted_run_default} 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod.txt").as_posix())}
+mixmod_exit="${{PIPESTATUS[0]}}"
+set -e
+stop_snapshot_loop
+snapshot_mixmod_artifacts
 if [ -n "$(git status --porcelain)" ]; then
   git add -A
   git commit -m "Mixmod solution"

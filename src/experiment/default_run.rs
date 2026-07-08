@@ -110,16 +110,18 @@ impl DefaultExperimentRun<'_> {
         let worker_task =
             write_worker_brief_task(&work_dir, &task_file, &worker_brief.brief, &default_dir)?;
         let proposal_out = state_layout(&work_dir).runs().join("default-proposal");
-        let proposal_receipt = run_mixmod_task_with_session_recovery_and_advisor(
+        let proposal_receipt = run_mixmod_task_with_worker_options(
             &work_dir,
             DelegationMode::Patch,
             &worker_task,
             &proposal_out,
             runner.as_ref(),
             options.require_local,
-            None,
-            !options.stop_after_first_worker,
-            live_supervisor_advisor(&live_supervisor),
+            WorkerRunOptions {
+                resume_session_id: None,
+                allow_auto_followups: !options.stop_after_first_worker,
+                supervisor_advisor: live_supervisor_advisor(&live_supervisor),
+            },
         )?;
         ensure_local_run_verified(
             root,
@@ -200,16 +202,18 @@ impl DefaultExperimentRun<'_> {
                         };
                         let previous_out = final_out.clone();
                         final_out = state_layout(&work_dir).runs().join(revision_out_name);
-                        let revision_receipt = run_mixmod_task_with_session_recovery_and_advisor(
+                        let revision_receipt = run_mixmod_task_with_worker_options(
                             &work_dir,
                             DelegationMode::Patch,
                             &revision_task,
                             &final_out,
                             runner.as_ref(),
                             options.require_local,
-                            resume_session_id,
-                            true,
-                            live_supervisor_advisor(&live_supervisor),
+                            WorkerRunOptions {
+                                resume_session_id,
+                                allow_auto_followups: true,
+                                supervisor_advisor: live_supervisor_advisor(&live_supervisor),
+                            },
                         )?;
                         ensure_local_run_verified(
                             root,

@@ -164,15 +164,18 @@ fn recovery_can_be_disabled_for_first_worker_inspection() {
     let runner = EmptyPatchThenPatchRunner::new();
 
     let run_dir = state_layout(root).runs().join("example");
-    let receipt = run_mixmod_task_with_session_and_recovery(
+    let receipt = run_mixmod_task_with_worker_options(
         root,
         DelegationMode::Patch,
         &task,
         &run_dir,
         &runner,
         false,
-        None,
-        false,
+        WorkerRunOptions {
+            resume_session_id: None,
+            allow_auto_followups: false,
+            ..WorkerRunOptions::default()
+        },
     )
     .unwrap();
 
