@@ -3,7 +3,7 @@ use std::path::Path;
 use serde_json::json;
 
 use crate::{
-    LiveSupervisionConfig, LiveWorkerSnapshot, WorkerSupervisorGuidance, get_string_array,
+    LiveSupervisionConfig, LiveWorkerSnapshot, WorkerSupervisorGuidance, get_str, get_string_array,
 };
 
 use super::live::{
@@ -16,6 +16,10 @@ use super::repair::{
     revision_repair_preserves_focus, supervisor_feedback_needs_revision_slice_repair,
     supervisor_feedback_repair_rejection_reason, worker_brief_needs_small_slice_repair,
     worker_brief_repair_rejection_reason,
+};
+use super::turns::{
+    approval_consistency_rejection, approval_consistency_repair_is_accepted,
+    verification_revision_for_inconsistent_approval,
 };
 use super::*;
 
@@ -274,6 +278,93 @@ fn parse_feedback_json_normalizes_object_exact_edits() {
     assert_eq!(
         get_string_array(&parsed, "exact_edits"),
         vec!["In src/lib.rs, update configure: Add the new option to the returned metadata."]
+    );
+}
+
+#[test]
+fn approval_with_required_checks_is_inconsistent() {
+    let feedback = json!({
+        "action": "approve",
+        "message_to_worker": "Looks complete.",
+        "required_checks": ["cargo test -p mixmod"],
+        "deferred_checks": [],
+        "risk": "none"
+    });
+
+    let rejection = approval_consistency_rejection(&feedback).unwrap();
+
+    assert!(rejection.contains("action=approve"));
+    assert!(rejection.contains("required_checks"));
+}
+
+#[test]
+fn approval_with_deferred_checks_or_gate_is_inconsistent() {
+    let feedback = json!({
+        "action": "approve",
+        "message_to_worker": "Looks complete.",
+        "required_checks": [],
+        "deferred_checks": ["cargo test -p mixmod"],
+        "completion_gate": "focused test must pass",
+        "risk": "none"
+    });
+
+    let rejection = approval_consistency_rejection(&feedback).unwrap();
+
+    assert!(rejection.contains("deferred_checks"));
+    assert!(rejection.contains("completion_gate"));
+}
+
+#[test]
+fn clean_approval_has_no_consistency_rejection() {
+    let feedback = json!({
+        "action": "approve",
+        "message_to_worker": "Focused tests passed in artifacts.",
+        "required_checks": [],
+        "deferred_checks": [],
+        "risk": "none"
+    });
+
+    assert!(approval_consistency_rejection(&feedback).is_none());
+}
+
+#[test]
+fn approval_consistency_repair_rejects_stop() {
+    let feedback = json!({
+        "action": "stop",
+        "message_to_worker": "No further worker attempts.",
+        "required_checks": []
+    });
+
+    assert!(!approval_consistency_repair_is_accepted(&feedback));
+}
+
+#[test]
+fn inconsistent_approval_fallback_becomes_verification_revision() {
+    let feedback = json!({
+        "action": "approve",
+        "worker_mode": "context_focus",
+        "focus_files": ["src/lib.rs"],
+        "required_checks": ["cargo test -p mixmod"],
+        "deferred_checks": ["cargo test --doc"],
+        "completion_gate": "focused behavior check must pass"
+    });
+
+    let revision = verification_revision_for_inconsistent_approval(&feedback);
+
+    assert_eq!(get_str(&revision, "action"), Some("revise"));
+    assert_eq!(get_str(&revision, "patch_decision"), Some("revise_current"));
+    assert_eq!(get_str(&revision, "worker_mode"), Some("context_focus"));
+    assert_eq!(
+        get_string_array(&revision, "focus_files"),
+        vec!["src/lib.rs"]
+    );
+    assert_eq!(
+        get_string_array(&revision, "required_checks"),
+        vec![
+            "Completion gate: focused behavior check must pass",
+            "cargo test --doc",
+            "cargo test -p mixmod"
+        ]
     );
 }
 

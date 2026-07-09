@@ -256,6 +256,7 @@ Return only JSON matching this schema:
 Use approve when no more local worker attempts are needed because the accumulated worktree.patch appears to satisfy the original task, not merely because the latest worker turn created a non-empty diff.
 You own final task completeness. The worker owns editing; you must not approve merely because the worker followed the latest slice, compiled, or reported success.
 Before approving, classify whether the accumulated patch changes runtime behavior, parsing/compilation, state mutation, persistence, API contracts, error handling, validation, or control flow. For behavior-changing patches, require concrete evidence from focused task-derived checks that exercise the requested behavior and at least one likely negative or edge case. If artifacts do not show such evidence, return revise with a verification-focused worker turn; the worker should run the smallest relevant probes or tests and edit only if they fail.
+Approval contract: action=approve means no more worker action or checks are needed. On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty. Put already-observed check evidence in message_to_worker or risk; if any important check still needs to run, return revise with a verification-focused worker turn instead.
 Prefer revise after failed, empty, distracted, or incomplete worker attempts, and put the next worker instruction in message_to_worker.
 For tasks involving generated keys, aliases, field names, serializers, deserializers, or validation, do not approve until the patch appears coherent for raw names and configured aliases across the relevant input and output paths. If artifacts do not prove an alias/key variant, revise with a focused source repair or regression check.
 Treat applicable worker-model guidance as part of the supervisor decision contract. If the selected worker guidance says to prefer small_patch_slice, a broad revise is the wrong decision even when the remaining feature is broad. Split the remaining work into the next immediately executable worker slice; if you cannot identify a concrete slice from artifacts or read-only inspection, use stop with a clear risk instead of sending a broad revision.
@@ -292,6 +293,33 @@ Instruction: {instruction}
 "#,
         work_dir = work_dir.display(),
     ))
+}
+
+pub(crate) fn supervisor_feedback_approval_consistency_repair_prompt(
+    work_dir: &Path,
+    artifact_paths: &[PathBuf],
+    worker_guidance: &WorkerSupervisorGuidance,
+    previous_feedback: &Value,
+    rejection_reason: &str,
+) -> Result<String> {
+    let previous_feedback = serde_json::to_string_pretty(previous_feedback)
+        .context("failed to serialize inconsistent supervisor feedback")?;
+    let instruction = format!(
+        r#"Your previous supervisor JSON was internally inconsistent: {rejection_reason}
+
+Previous JSON:
+```json
+{previous_feedback}
+```
+
+Repair only the supervisor decision. Return either:
+- action=approve with required_checks=[], deferred_checks=[], no completion_gate, and compact evidence from artifacts that no further checks or worker turns are needed; or
+- action=revise with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
+
+Do not approve while listing checks that still need to run. Do not solve by editing files."#
+    );
+
+    supervisor_feedback_prompt(work_dir, artifact_paths, &instruction, worker_guidance)
 }
 
 pub(crate) fn supervisor_live_control_prompt(
