@@ -450,6 +450,18 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
             .iter()
             .any(|item| item.contains("raw field names and resolved aliases"))
     );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("end-to-end semantics across slices"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("task-derived probes or focused tests"))
+    );
 
     ModelOverrides::new(None, Some("llama.cpp/qwen/qwen3.6-27b".to_string()))
         .apply_to_config(&mut config)

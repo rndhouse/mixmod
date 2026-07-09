@@ -37,6 +37,10 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("raw names and configured aliases"));
     assert!(prompt.contains("focused source repair or regression check"));
     assert!(prompt.contains("not merely because the latest worker turn created a non-empty diff"));
+    assert!(prompt.contains("You own final task completeness"));
+    assert!(prompt.contains("classify whether the accumulated patch changes runtime behavior"));
+    assert!(prompt.contains("task-derived checks"));
+    assert!(prompt.contains("verification-focused worker turn"));
     assert!(prompt.contains("worker-brief.json used worker_turn_shape=small_patch_slice"));
     assert!(prompt.contains("set worker_turn_shape=small_patch_slice with the next narrow"));
     assert!(prompt.contains("worker-brief.json used worker_turn_shape=bounded_feature_slice"));
@@ -126,6 +130,9 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(feedback_prompt.contains("Do not copy every bullet to the worker"));
     assert!(feedback_prompt.contains("Treat applicable bullets as binding"));
     assert!(feedback_prompt.contains("global environments"));
+    assert!(feedback_prompt.contains("end-to-end semantics across slices"));
+    assert!(feedback_prompt.contains("task-derived probes or focused tests"));
+    assert!(feedback_prompt.contains("entry point actually uses it"));
 
     let task = root.join("task.json");
     atomic_write(
