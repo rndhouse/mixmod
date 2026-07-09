@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::*;
 
 pub(crate) fn codex_only_prompt(work_dir: &Path, task: &Value) -> Result<String> {
@@ -245,6 +247,7 @@ pub(crate) fn supervisor_feedback_prompt(
     worker_guidance: &WorkerSupervisorGuidance,
 ) -> Result<String> {
     let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
+    let review_context = supervisor_feedback_review_context(artifact_paths);
     let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
         r#"You are a terse supervisor reviewing a local worker.
@@ -254,40 +257,7 @@ Read only the files you need for the decision, but always inspect task context a
 {worker_guidance}
 Return only JSON matching this schema:
 {{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
-Use approve when no more local worker attempts are needed because the accumulated worktree.patch appears to satisfy the original task, not merely because the latest worker turn created a non-empty diff.
-You own final task completeness. The worker owns editing; you must not approve merely because the worker followed the latest slice, compiled, or reported success.
-Before approving, classify whether the accumulated patch changes runtime behavior, parsing/compilation, state mutation, persistence, API contracts, error handling, validation, or control flow. For behavior-changing patches, require concrete evidence from focused task-derived checks that exercise the requested behavior and at least one likely negative or edge case. If artifacts do not show such evidence, return revise with a verification-focused worker turn; the worker should run the smallest relevant probes or tests and edit only if they fail.
-Approval contract: action=approve means no more worker action or checks are needed. On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty. Put already-observed check evidence in message_to_worker or risk; if any important check still needs to run, return revise with a verification-focused worker turn instead.
-Prefer revise after failed, empty, distracted, or incomplete worker attempts, and put the next worker instruction in message_to_worker.
-For tasks involving generated keys, aliases, field names, serializers, deserializers, or validation, do not approve until the patch appears coherent for raw names and configured aliases across the relevant input and output paths. If artifacts do not prove an alias/key variant, revise with a focused source repair or regression check.
-Treat applicable worker-model guidance as part of the supervisor decision contract. If the selected worker guidance says to prefer small_patch_slice, a broad revise is the wrong decision even when the remaining feature is broad. Split the remaining work into the next immediately executable worker slice; if you cannot identify a concrete slice from artifacts or read-only inspection, use stop with a clear risk instead of sending a broad revision.
-Use worker_mode=continue to keep the same worker session and let the worker continue with its existing context. Prefer continue for complex tasks because the worker needs accumulated file context.
-Use worker_mode=context_focus to start a new worker session on the same worktree; previous worker context is discarded unless you repeat it in message_to_worker. Use context_focus only when the previous worker context is clearly harmful, confused, or stale.
-If the report or metrics show worker context overflow, treat the worker session as context-saturated. When overflow is paired with no new delta, repeated summary updates, or broad rereading, prefer worker_mode=context_focus, preserve the current worktree patch, and repeat only the essential task state in the next handoff.
-If the report or metrics show a high worker_session_token_peak relative to the worker context window, treat the session as context-pressured even without explicit overflow. Prefer a smaller next slice, or worker_mode=context_focus when another continued turn would require broad rereading or a multi-branch edit.
-Before choosing the next worker_turn_shape, judge whether the previous worker slice was too much, too little, or about right for the selected worker model. If the worker produced a coherent non-destructive delta, the reasoning/report stayed on target, and the selected worker guidance allows broad slices, keep or enlarge the next slice as bounded_feature_slice. If the worker guidance prefers small_patch_slice, keep worker_turn_shape=small_patch_slice; when the worker demonstrates progress, broaden only the anchored source behavior inside that shape unless the guidance explicitly supports bounded_feature_slice. If the worker wandered, produced no new delta after exit, damaged unrelated code, or misunderstood the target, shrink to small_patch_slice for one recovery turn. If the worker solved the task, approve.
-If there are multiple consecutive clean small_patch_slice revisions with non-empty accurate deltas, no context overflow, and moderate worker_session_token_peak, treat that as evidence the previous slices may now be too small. For worker profiles that prefer small_patch_slice, promotion means one coherent anchored source behavior inside small_patch_slice, not a switch to bounded_feature_slice.
-If a nominal small_patch_slice needed supervisor control, hit a high worker_session_token_peak, or required a corrective follow-up, treat the previous slice as too broad or unstable. A large latest_delta_stats/changed_line_count is a sizing signal, not a rollback signal: first inspect which files changed. Generated or checked-in derived files can legitimately expand a focused source change. Judge whether the current worktree.patch matches the requested source behavior before shrinking or rolling back. When shrinking is warranted, use worker_mode=context_focus when context is pressured, and ask for exactly one local source transformation or one focused test update, not a new bundle of validation, optional/default behavior, aliasing, and extra-key handling.
-If a modifier-family slice needed a follow-up fix, finish that modifier or repair its regression before adding another modifier family or defensive validation path. A corrective small_patch_slice is recovery, not promotion.
-Do not spend many supervisor turns on tiny prerequisite or defensive-validation slices after the worker has shown it can follow anchored source edits. Once API plumbing, parsing, or basic validation exists, prefer the first useful end-to-end behavior path unless artifacts show another prerequisite is blocking progress.
-If context overflow appears, also judge whether the previous slice was too large for the worker. Prefer a smaller worker_turn_shape for the next attempt: one concrete source edit, one focused code anchor, and at most one focused test/check after the edit exists.
-If worker-brief.json used worker_turn_shape=bounded_feature_slice, treat a useful incomplete patch as progress. When more work is needed, return action=revise, patch_decision=revise_current, worker_mode=continue, and set worker_turn_shape=bounded_feature_slice with the next coherent behavior, not one mechanical edit.
-If worker-brief.json used worker_turn_shape=small_patch_slice, treat the first non-empty patch as a starter slice. Approve only after comparing worktree.patch to task.json and deciding the original acceptance criteria appear satisfied. If the slice is useful but incomplete, return action=revise, patch_decision=revise_current, usually worker_mode=continue, and set worker_turn_shape=small_patch_slice with the next narrow source/test slice.
-For revision bounded_feature_slice, ask for a complete coherent behavior in one turn: related source edits plus a focused test or compile check when appropriate, usually one to three source files. Use this only when it fits the selected worker guidance and observed worker behavior. Use exact_edits or edit_plan as a concise ordered plan. Avoid splitting tightly coupled pairs such as serialization/deserialization, prefix/rename, or API/source/test when doing them together is the clearer next unit.
-For revision small_patch_slice, make exact_edits immediately executable and concrete; use focus_files for repo source/test paths, defer checks until after another non-empty diff, and include a completion_gate such as "git diff --stat must be non-empty". Treat exact_edits as a queue: the next worker turn executes only the first item, so put one source edit first and leave tests or follow-up edits for later turns. Make the next slice one behavior only: one source file plus at most one focused test file, no validation matrix, no bundled prefix+rename+deserialization work, and no broad "implement the feature" instruction.
-For revision small_patch_slice, write from the current accumulated worktree.patch. Preserve useful existing edits, then name the next delta to add; if patch_decision=revise_previous, assume Mixmod will restore the earlier candidate before the worker turn and describe only the follow-up edit after rollback.
-For large functions or code-generation paths, make the next exact_edit a local transformation near one anchor, such as collecting a field set, adding one branch, or wiring one helper call. If the full behavior requires several branches, ask for the first branch that creates useful progress.
-If prior small slices were clean and the next useful step is naturally a behavior path, do not keep splitting it into isolated validation or setup edits. Use bounded_feature_slice only when the selected worker guidance allows that shape; otherwise make the small_patch_slice exact_edit cover that behavior path with clear anchors and exclusions.
-If your read-only review found the relevant source lines, put the minimal file/symbol/anchor context in edit_packet or source_snippets so the worker can edit before rereading the whole method.
-For source edits inside large functions or code-generation paths, include structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
-For syntax failures in string-literal or generated-code logic, do not guess brittle brace or quote replacements unless your provided artifacts prove the exact replacement. Prefer a compile-driven repair slice: preserve the intended generated code, change the smallest local expression, run the focused parser/compile check, and revise again from that check output if needed.
-When a revision needs source details, inspect repo files read-only before returning JSON and name exact symbols plus a literal nearby code anchor when possible, such as `near the line containing "..."`
-in exact_edits. Do not ask the worker to investigate broadly or complete the whole feature in one revision slice.
-When patch-comparison.json is present, treat it as neutral structural telemetry about the previous candidate, current worktree.patch, and latest worker delta. Mixmod does not judge whether the current patch is better or worse. Large generated or checked-in derived diffs can be normal when they follow from a focused source change; judge them by task context and source intent. Choose patch_decision yourself: use accept_current when the current worktree.patch should stand, revise_current when the current patch should be edited further, and revise_previous only when your own review decides the previous candidate should be restored. Mixmod will restore the previous candidate worktree before the next worker turn. If you choose revise_previous, summarize the focused follow-up edit to apply after rollback in message_to_worker; do not tell the worker to read previous-worktree.patch or any Mixmod artifact.
-Put only repo source/test paths in focus_files. Do not put Mixmod artifacts such as revision-task JSON files in focus_files. Do not ask the worker to inspect Mixmod state or artifact directories.
-Important artifact semantics: worktree.patch is the accumulated current repository diff and is authoritative for deciding whether the patch exists; changes.patch is only the latest worker run delta and may be empty after a verification-only revision.
-When supervision-loop-summary.json is present, treat it as observed cross-turn telemetry only: use it to judge whether worker slices are too small, too large, context-pressured, or making progress, but keep responsibility for the next handoff decision yourself.
-Use stop only to record a blocked or inconclusive worker result when no useful worker path remains. Stop does not permit direct supervisor editing.
+{review_context}
 Working repo: {work_dir}
 Instruction: {instruction}
 
@@ -476,6 +446,190 @@ Artifact index:
 "#,
         work_dir = work_dir.display(),
     ))
+}
+
+#[derive(Default)]
+struct SupervisorFeedbackPromptSignals {
+    artifact_names: BTreeSet<String>,
+    worker_turn_shape: Option<String>,
+    context_overflow: bool,
+    context_pressure: bool,
+    supervisor_control_seen: bool,
+    small_patch_progress_streak: bool,
+}
+
+fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
+    let signals = supervisor_feedback_prompt_signals(artifact_paths);
+    let mut sections = vec![supervisor_feedback_core_context(&signals)];
+
+    if signals.worker_turn_shape.as_deref() == Some("small_patch_slice") {
+        sections.push(
+            r#"Small-patch slice context:
+- Treat a first non-empty delta as progress, not proof of completion.
+- If more work is needed, make the next revision one source behavior with an immediately executable exact_edits item.
+- Write from the current accumulated worktree.patch and preserve useful existing edits.
+- Put checks in deferred_checks until a non-empty patch exists unless artifacts show the edit already exists."#
+                .to_string(),
+        );
+    }
+
+    if signals.worker_turn_shape.as_deref() == Some("bounded_feature_slice") {
+        sections.push(
+            r#"Bounded-feature context:
+- Treat a useful incomplete patch as progress.
+- If more work is needed, ask for the next coherent behavior path rather than one mechanical edit.
+- A bounded revision may include related source, API, and focused check work when those edits belong together."#
+                .to_string(),
+        );
+    }
+
+    if signals.context_overflow || signals.context_pressure {
+        sections.push(
+            r#"Context-pressure context:
+- The worker artifacts indicate context overflow or high token pressure.
+- If another revision is needed, prefer a smaller next slice.
+- Use worker_mode=context_focus when continuing would require broad rereading or the previous context appears stale."#
+                .to_string(),
+        );
+    }
+
+    if signals.supervisor_control_seen {
+        sections.push(
+            r#"Live-control context:
+- Supervisor control already intervened during a worker turn.
+- Judge whether the previous slice was too broad, too vague, or stale before issuing another revision.
+- Prefer one focused repair or verification step over adding a new feature concern in the same handoff."#
+                .to_string(),
+        );
+    }
+
+    if signals.small_patch_progress_streak {
+        sections.push(
+            r#"Slice-sizing context:
+- Multiple recent small-patch turns produced non-empty deltas without context overflow.
+- If the accumulated patch is coherent but incomplete, the next small_patch_slice may cover one larger anchored source behavior.
+- Keep the selected worker profile's preferred shape unless the profile explicitly supports broadening."#
+                .to_string(),
+        );
+    }
+
+    if signals.has_any(&[
+        PATCH_COMPARISON,
+        PREVIOUS_WORKTREE_PATCH,
+        PATCH_ROLLBACK_JSON,
+        ROLLBACK_CURRENT_PATCH,
+        ROLLBACK_RESTORED_PATCH,
+    ]) {
+        sections.push(
+            r#"Patch checkpoint context:
+- Treat patch-comparison.json as neutral structural telemetry; Mixmod is not judging patch quality.
+- Choose patch_decision yourself from the task, current patch, and checkpoint artifacts.
+- Use revise_previous only when your review decides the previous candidate should be restored.
+- If you choose revise_previous, Mixmod restores that candidate before the next worker turn; tell the worker only the focused follow-up edit."#
+                .to_string(),
+        );
+    }
+
+    sections.join("\n\n")
+}
+
+fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -> String {
+    let tool_evidence = if signals.has_any(&[TOOL_EVENTS_JSONL]) {
+        "- Use tool-events.jsonl as command/tool-call evidence when checking worker claims."
+    } else {
+        "- If command evidence is unavailable, rely on report/metrics cautiously and revise for verification when important."
+    };
+    format!(
+        r#"Core review contract:
+- Inspect task.json and worktree.patch before approving.
+- worktree.patch is the accumulated current diff; changes.patch is only the latest worker-turn delta.
+{tool_evidence}
+- Approve only when the accumulated patch appears to satisfy the original task and no worker action or check remains.
+- On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
+- Revise when a useful worker path remains; message_to_worker must be concrete and worker-executable.
+- Stop only for a blocked or inconclusive worker result when no useful worker path remains.
+- The worker owns editing. Do not implement code or solve by editing files.
+- Put only repo source/test paths in focus_files. Do not ask the worker to inspect Mixmod artifacts.
+- worker_mode=continue reuses the current worker session; worker_mode=context_focus starts a fresh worker session on the same worktree.
+- Use patch_decision=revise_previous only when checkpoint artifacts support restoring a previous candidate."#
+    )
+}
+
+fn supervisor_feedback_prompt_signals(
+    artifact_paths: &[PathBuf],
+) -> SupervisorFeedbackPromptSignals {
+    let mut signals = SupervisorFeedbackPromptSignals::default();
+    for path in artifact_paths {
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+            continue;
+        };
+        signals.artifact_names.insert(name.to_string());
+        match name {
+            METRICS_JSON => signals.update_from_metrics(path),
+            SUPERVISION_LOOP_SUMMARY_JSON => signals.update_from_loop_summary(path),
+            WORKER_BRIEF_JSON => signals.update_from_worker_brief(path),
+            _ => {}
+        }
+    }
+    signals
+}
+
+impl SupervisorFeedbackPromptSignals {
+    fn has_any(&self, names: &[&str]) -> bool {
+        names.iter().any(|name| self.artifact_names.contains(*name))
+    }
+
+    fn set_worker_turn_shape(&mut self, value: Option<&str>) {
+        if self.worker_turn_shape.is_none()
+            && let Some(value) = value.filter(|value| !value.trim().is_empty())
+        {
+            self.worker_turn_shape = Some(value.to_string());
+        }
+    }
+
+    fn update_from_metrics(&mut self, path: &Path) {
+        let Ok(metrics) = read_json_file(path) else {
+            return;
+        };
+        self.context_overflow |= get_u64(&metrics, "context_overflow_count").unwrap_or(0) > 0;
+        self.context_pressure |=
+            get_u64(&metrics, "worker_session_token_peak").is_some_and(|tokens| tokens >= 24_000);
+        self.supervisor_control_seen |= get_bool(&metrics, "interrupted_by_supervisor")
+            .unwrap_or(false)
+            || metrics
+                .get("supervisor_control_events")
+                .and_then(Value::as_array)
+                .is_some_and(|items| !items.is_empty());
+    }
+
+    fn update_from_loop_summary(&mut self, path: &Path) {
+        let Ok(summary) = read_json_file(path) else {
+            return;
+        };
+        self.context_overflow |= get_u64(&summary, "context_overflow_total").unwrap_or(0) > 0;
+        self.context_pressure |= get_u64(&summary, "worker_session_token_peak_max")
+            .is_some_and(|tokens| tokens >= 24_000);
+        self.supervisor_control_seen |=
+            get_u64(&summary, "supervisor_control_count").unwrap_or(0) > 0;
+        self.small_patch_progress_streak |=
+            get_u64(&summary, "small_patch_slice_nonempty_delta_streak").unwrap_or(0) >= 2;
+
+        if let Some(turns) = summary.get("turns").and_then(Value::as_array)
+            && let Some(last) = turns.last()
+        {
+            self.set_worker_turn_shape(get_str(last, "worker_turn_shape"));
+            self.context_overflow |= get_u64(last, "context_overflow_count").unwrap_or(0) > 0;
+            self.context_pressure |=
+                get_u64(last, "worker_session_token_peak").is_some_and(|tokens| tokens >= 24_000);
+        }
+    }
+
+    fn update_from_worker_brief(&mut self, path: &Path) {
+        let Ok(brief) = read_json_file(path) else {
+            return;
+        };
+        self.set_worker_turn_shape(get_str(&brief, "worker_turn_shape"));
+    }
 }
 
 fn supervisor_artifact_index(work_dir: &Path, artifact_paths: &[PathBuf]) -> String {

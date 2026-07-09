@@ -12,63 +12,71 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     )
     .unwrap();
 
-    assert!(prompt.contains("worker_mode=continue to keep the same worker session"));
-    assert!(prompt.contains("worker_mode=context_focus to start a new worker session"));
-    assert!(prompt.contains("worker session as context-saturated"));
-    assert!(prompt.contains("prefer worker_mode=context_focus"));
-    assert!(prompt.contains("one concrete source edit"));
+    assert!(prompt.contains("Core review contract"));
+    assert!(prompt.contains("worker_mode=continue reuses the current worker session"));
+    assert!(prompt.contains("worker_mode=context_focus starts a fresh worker session"));
     assert!(prompt.contains("patch_decision"));
     assert!(prompt.contains("revise_previous"));
-    assert!(prompt.contains("Mixmod will restore the previous candidate worktree"));
-    assert!(prompt.contains("focused follow-up edit to apply after rollback"));
-    assert!(prompt.contains("Do not ask the worker to inspect Mixmod state"));
-    assert!(prompt.contains("previous worker context is discarded"));
     assert!(prompt.contains("Do not implement code. Do not edit files."));
     assert!(prompt.contains("Do not ask the user for approval."));
-    assert!(prompt.contains("worker-model guidance as part of the supervisor decision contract"));
-    assert!(prompt.contains("a broad revise is the wrong decision"));
-    assert!(prompt.contains("use stop with a clear risk instead of sending a broad revision"));
-    assert!(
-        prompt.contains(
-            "Prefer revise after failed, empty, distracted, or incomplete worker attempts"
-        )
-    );
-    assert!(prompt.contains("generated keys, aliases, field names"));
-    assert!(prompt.contains("raw names and configured aliases"));
-    assert!(prompt.contains("focused source repair or regression check"));
-    assert!(prompt.contains("not merely because the latest worker turn created a non-empty diff"));
-    assert!(prompt.contains("You own final task completeness"));
-    assert!(prompt.contains("classify whether the accumulated patch changes runtime behavior"));
-    assert!(prompt.contains("task-derived checks"));
-    assert!(prompt.contains("verification-focused worker turn"));
-    assert!(prompt.contains("worker-brief.json used worker_turn_shape=small_patch_slice"));
-    assert!(prompt.contains("set worker_turn_shape=small_patch_slice with the next narrow"));
-    assert!(prompt.contains("worker-brief.json used worker_turn_shape=bounded_feature_slice"));
-    assert!(prompt.contains("judge whether the previous worker slice was too much"));
-    assert!(prompt.contains("previous slices may now be too small"));
-    assert!(prompt.contains("needed supervisor control"));
-    assert!(prompt.contains("A corrective small_patch_slice is recovery, not promotion"));
-    assert!(prompt.contains("not a new bundle of validation"));
-    assert!(prompt.contains("first useful end-to-end behavior path"));
-    assert!(prompt.contains("Use bounded_feature_slice only when the selected worker guidance"));
-    assert!(prompt.contains("keep or enlarge the next slice as bounded_feature_slice"));
-    assert!(prompt.contains("broaden only the anchored source behavior inside that shape"));
-    assert!(prompt.contains(
-        "promotion means one coherent anchored source behavior inside small_patch_slice"
-    ));
+    assert!(prompt.contains("Approve only when the accumulated patch appears to satisfy"));
+    assert!(prompt.contains("Revise when a useful worker path remains"));
+    assert!(prompt.contains("Stop only for a blocked or inconclusive worker result"));
+    assert!(prompt.contains("Put only repo source/test paths in focus_files"));
     assert!(prompt.contains("exact_edits"));
-    assert!(prompt.contains("Make the next slice one behavior only"));
-    assert!(prompt.contains("Treat exact_edits as a queue"));
-    assert!(prompt.contains("put one source edit first"));
-    assert!(prompt.contains("current accumulated worktree.patch"));
-    assert!(prompt.contains("Preserve useful existing edits"));
-    assert!(prompt.contains("local transformation near one anchor"));
-    assert!(prompt.contains("compile-driven repair slice"));
-    assert!(prompt.contains("edit_packet"));
-    assert!(prompt.contains("source_snippets"));
-    assert!(prompt.contains("exact symbols plus a literal nearby code anchor"));
-    assert!(prompt.contains("literal nearby code anchor"));
-    assert!(prompt.contains("Stop does not permit direct supervisor editing."));
+    assert!(!prompt.contains("Context-pressure context"));
+    assert!(!prompt.contains("Small-patch slice context"));
+    assert!(!prompt.contains("Patch checkpoint context"));
+}
+
+#[test]
+fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let worker_brief = root.join(WORKER_BRIEF_JSON);
+    let metrics = root.join(METRICS_JSON);
+    let loop_summary = root.join(SUPERVISION_LOOP_SUMMARY_JSON);
+    let tool_events = root.join(TOOL_EVENTS_JSONL);
+    let patch_comparison = root.join(PATCH_COMPARISON);
+    atomic_write(
+        &worker_brief,
+        br#"{"worker_turn_shape":"small_patch_slice"}"#,
+    )
+    .unwrap();
+    atomic_write(
+        &metrics,
+        br#"{"context_overflow_count":1,"worker_session_token_peak":27000,"interrupted_by_supervisor":true,"supervisor_control_events":[{"action":"interrupt_context_focus"}]}"#,
+    )
+    .unwrap();
+    atomic_write(
+        &loop_summary,
+        br#"{"small_patch_slice_nonempty_delta_streak":2,"turns":[{"worker_turn_shape":"small_patch_slice","context_overflow_count":1,"worker_session_token_peak":27000}]}"#,
+    )
+    .unwrap();
+    atomic_write(&tool_events, b"").unwrap();
+    atomic_write(&patch_comparison, b"{}").unwrap();
+
+    let prompt = supervisor_feedback_prompt(
+        root,
+        &[
+            worker_brief,
+            metrics,
+            loop_summary,
+            tool_events,
+            patch_comparison,
+        ],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Use tool-events.jsonl as command/tool-call evidence"));
+    assert!(prompt.contains("Small-patch slice context"));
+    assert!(prompt.contains("Context-pressure context"));
+    assert!(prompt.contains("Live-control context"));
+    assert!(prompt.contains("Slice-sizing context"));
+    assert!(prompt.contains("Patch checkpoint context"));
+    assert!(prompt.contains("Mixmod restores that candidate before the next worker turn"));
 }
 
 #[test]
