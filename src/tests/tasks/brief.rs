@@ -74,6 +74,12 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("minimize supervisor output"));
     assert!(prompt.contains("compact executable worker handoff"));
     assert!(prompt.contains("exact files, edit target, expected behavior, and checks"));
+    assert!(prompt.contains("Candidate repo file contents are not embedded"));
+    assert!(prompt.contains("Candidate repo files:"));
+    assert!(prompt.contains("checkout.py"));
+    assert!(prompt.contains("listed by task"));
+    assert!(!prompt.contains("def total(items):"));
+    assert!(!prompt.contains("return sum(items)"));
     assert!(prompt.contains(r#"Default to "guided""#));
     assert!(prompt.contains("Guided means terse and executable"));
     assert!(prompt.contains("target <=120 output tokens"));

@@ -31,24 +31,14 @@ pub(crate) fn supervisor_worker_brief_prompt(
     let visible_task = agent_visible_task_value(&task_value);
     let task = serde_json::to_string_pretty(&visible_task)
         .context("failed to serialize agent-visible task for worker brief prompt")?;
-    let mut file_context = String::new();
-    for file in get_string_array(&visible_task, "files") {
-        let path = work_dir.join(&file);
-        if !path.exists() || path.is_dir() {
-            continue;
-        }
-        let text = fs::read_to_string(&path).unwrap_or_else(|error| format!("missing: {error}"));
-        file_context.push_str(&format!(
-            "\n## {file}\n\n```text\n{}\n```\n",
-            truncate_for_report(&text, 2200)
-        ));
-    }
+    let candidate_files = supervisor_candidate_file_index(work_dir, &visible_task);
     let worker_guidance = render_worker_guidance(worker_guidance);
     let init_instructions = worker_brief_init_instructions(init_mode);
     Ok(format!(
         r#"You are the supervisor model for a Mixmod worker.
 {init_instructions}
 The worker receives the original task JSON and can inspect, edit, and test the repo.
+Candidate repo file contents are not embedded in this prompt. Inspect listed repo files read-only when useful before writing the handoff.
 Use supervisor reasoning freely, but minimize supervisor output.
 {worker_guidance}
 Treat applicable worker-model guidance as handoff constraints, not optional background. If the guidance names a preferred worker_turn_shape or known failure mode, adapt the handoff shape to that worker unless no patch is needed.
@@ -78,8 +68,8 @@ Task JSON:
 {task}
 ```
 
-File context:
-{file_context}
+Candidate repo files:
+{candidate_files}
 "#,
         work_dir = work_dir.display(),
     ))
@@ -197,10 +187,30 @@ Rejected repair:
     ))
 }
 
+fn supervisor_candidate_file_index(work_dir: &Path, task: &Value) -> String {
+    let files = get_string_array(task, "files");
+    if files.is_empty() {
+        return "- none listed in task".to_string();
+    }
+    files
+        .into_iter()
+        .map(|file| {
+            let path = work_dir.join(&file);
+            let status = match fs::metadata(&path) {
+                Ok(metadata) if metadata.is_dir() => "directory".to_string(),
+                Ok(metadata) => format!("file, {} bytes", metadata.len()),
+                Err(error) => format!("missing: {error}"),
+            };
+            format!("- `{file}` ({status}) - listed by task")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
     match init_mode {
         SupervisorInitMode::Compact => {
-            r#"Use the provided file context. Do not edit files. Do not run tests. Do not implement the patch. Do not ask the user for approval.
+            r#"Use the task JSON and candidate repo file paths. Do not edit files. Do not run tests. Do not implement the patch. Do not ask the user for approval.
 Default to "guided". Guided means terse and executable, not advisory:
 - target <=120 output tokens for the whole JSON on normal tasks
 - one command-style message_to_worker, ideally <=45 words
