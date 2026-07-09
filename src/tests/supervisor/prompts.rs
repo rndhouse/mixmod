@@ -72,6 +72,33 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
 }
 
 #[test]
+fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let report = root.join(REPORT_MD);
+    let patch = root.join(WORKTREE_PATCH);
+    atomic_write(&report, b"SECRET_ARTIFACT_BODY_SHOULD_NOT_BE_EMBEDDED").unwrap();
+    atomic_write(&patch, b"diff --git a/src/lib.rs b/src/lib.rs\n").unwrap();
+
+    let prompt = supervisor_feedback_prompt(
+        root,
+        &[report.clone(), patch.clone()],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Artifact index:"));
+    assert!(prompt.contains("Inspect the listed artifact files directly"));
+    assert!(prompt.contains("report.md"));
+    assert!(prompt.contains("compact worker-run summary"));
+    assert!(prompt.contains("worktree.patch"));
+    assert!(prompt.contains("accumulated current repository diff"));
+    assert!(!prompt.contains("SECRET_ARTIFACT_BODY_SHOULD_NOT_BE_EMBEDDED"));
+    assert!(!prompt.contains("diff --git a/src/lib.rs b/src/lib.rs"));
+}
+
+#[test]
 fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -115,6 +142,10 @@ fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
     assert!(prompt.contains("If previous feedback named one focus file"));
     assert!(prompt.contains("exact_edits must be an array with exactly one string item"));
     assert!(prompt.contains("Do not invent a different file/symbol pair"));
+    assert!(prompt.contains("Artifact index:"));
+    assert!(prompt.contains("worktree.patch"));
+    assert!(!prompt.contains("flatten_prefix"));
+    assert!(!prompt.contains("flatten_rename"));
 }
 
 #[test]

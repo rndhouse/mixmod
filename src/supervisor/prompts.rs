@@ -234,22 +234,13 @@ pub(crate) fn supervisor_feedback_prompt(
     instruction: &str,
     worker_guidance: &WorkerSupervisorGuidance,
 ) -> Result<String> {
-    let mut artifacts = String::new();
-    for path in artifact_paths {
-        let name = path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or("artifact");
-        let text = fs::read_to_string(path).unwrap_or_else(|error| format!("missing: {error}"));
-        artifacts.push_str(&format!(
-            "\n## {name}\n\n```text\n{}\n```\n",
-            truncate_for_report(&text, 6000)
-        ));
-    }
+    let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
     let worker_guidance = render_worker_guidance(worker_guidance);
     Ok(format!(
         r#"You are a terse supervisor reviewing a local worker.
 Do not implement code. Do not edit files. Do not ask the user for approval.
+Inspect the listed artifact files directly before deciding. Do not rely on this prompt as artifact content; it only names where the review evidence lives.
+Read only the files you need for the decision, but always inspect task context and the accumulated worktree.patch before approving.
 {worker_guidance}
 Return only JSON matching this schema:
 {{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
@@ -289,7 +280,9 @@ When supervision-loop-summary.json is present, treat it as observed cross-turn t
 Use stop only to record a blocked or inconclusive worker result when no useful worker path remains. Stop does not permit direct supervisor editing.
 Working repo: {work_dir}
 Instruction: {instruction}
-{artifacts}
+
+Artifact index:
+{artifact_index}
 "#,
         work_dir = work_dir.display(),
     ))
@@ -369,18 +362,7 @@ pub(crate) fn supervisor_feedback_repair_prompt(
     worker_guidance: &WorkerSupervisorGuidance,
     previous_feedback: &Value,
 ) -> Result<String> {
-    let mut artifacts = String::new();
-    for path in artifact_paths {
-        let name = path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or("artifact");
-        let text = fs::read_to_string(path).unwrap_or_else(|error| format!("missing: {error}"));
-        artifacts.push_str(&format!(
-            "\n## {name}\n\n```text\n{}\n```\n",
-            truncate_for_report(&text, 4000)
-        ));
-    }
+    let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
     let previous = serde_json::to_string_pretty(previous_feedback)
         .context("failed to serialize previous supervisor feedback for repair prompt")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
@@ -389,6 +371,7 @@ pub(crate) fn supervisor_feedback_repair_prompt(
 Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
 Your previous revision decision did not fit the selected worker profile. The selected worker needs a smaller, patch-first revision slice than the previous feedback provided.
 Mixmod is not designing a replacement slice for you. You are responsible for adapting the decision to the worker-model guidance below.
+Inspect the listed artifact files directly when you need evidence. This prompt lists artifact paths and roles, not artifact contents.
 {worker_guidance}
 Return a corrected revise decision with:
 - "action":"revise"
@@ -420,8 +403,8 @@ Previous feedback:
 {previous}
 ```
 
-Artifacts:
-{artifacts}
+Artifact index:
+{artifact_index}
 "#,
         work_dir = work_dir.display(),
     ))
@@ -435,18 +418,7 @@ pub(crate) fn supervisor_feedback_repair_retry_prompt(
     rejected_repair: &Value,
     rejection_reason: &str,
 ) -> Result<String> {
-    let mut artifacts = String::new();
-    for path in artifact_paths {
-        let name = path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or("artifact");
-        let text = fs::read_to_string(path).unwrap_or_else(|error| format!("missing: {error}"));
-        artifacts.push_str(&format!(
-            "\n## {name}\n\n```text\n{}\n```\n",
-            truncate_for_report(&text, 4000)
-        ));
-    }
+    let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
     let previous = serde_json::to_string_pretty(previous_feedback)
         .context("failed to serialize previous supervisor feedback for repair retry prompt")?;
     let rejected = serde_json::to_string_pretty(rejected_repair)
@@ -457,6 +429,7 @@ pub(crate) fn supervisor_feedback_repair_retry_prompt(
 Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
 The previous repair still did not fit the selected worker profile: {rejection_reason}
 Mixmod is not designing a replacement slice for you. You are responsible for adapting the decision to the worker-model guidance below.
+Inspect the listed artifact files directly when you need evidence. This prompt lists artifact paths and roles, not artifact contents.
 {worker_guidance}
 Return one corrected revise decision with:
 - "action":"revise"
@@ -488,11 +461,58 @@ Rejected repair:
 {rejected}
 ```
 
-Artifacts:
-{artifacts}
+Artifact index:
+{artifact_index}
 "#,
         work_dir = work_dir.display(),
     ))
+}
+
+fn supervisor_artifact_index(work_dir: &Path, artifact_paths: &[PathBuf]) -> String {
+    if artifact_paths.is_empty() {
+        return "- none".to_string();
+    }
+    artifact_paths
+        .iter()
+        .map(|path| {
+            let name = path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .unwrap_or("artifact");
+            let size = fs::metadata(path)
+                .map(|metadata| format!("{} bytes", metadata.len()))
+                .unwrap_or_else(|error| format!("missing: {error}"));
+            format!(
+                "- `{}` ({name}, {size}) - {}",
+                display_path(work_dir, path),
+                supervisor_artifact_role(name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn supervisor_artifact_role(name: &str) -> &'static str {
+    match name {
+        TASK_JSON => "original task context",
+        WORKER_BRIEF_JSON => "supervisor handoff given to the worker",
+        WORKER_TASK_JSON => "worker-visible task and handoff",
+        SUPERVISION_LOOP_SUMMARY_JSON => "cross-turn worker-loop telemetry",
+        RECEIPT_JSON => "worker-run status and artifact locations",
+        REPORT_MD => "compact worker-run summary",
+        REASONING_TRACE_JSONL => "worker reasoning events extracted from structured output",
+        WORKTREE_PATCH => "accumulated current repository diff",
+        CHANGES_PATCH => "latest worker-turn diff",
+        INTERVENTIONS_JSONL => "Mixmod intervention audit log",
+        METRICS_JSON => "worker-run metrics and signals",
+        PATCH_COMPARISON => "neutral patch checkpoint comparison",
+        PREVIOUS_WORKTREE_PATCH => "previous candidate patch available for rollback decisions",
+        PATCH_ROLLBACK_JSON => "rollback receipt for revise_previous",
+        ROLLBACK_CURRENT_PATCH => "discarded patch saved before rollback",
+        ROLLBACK_RESTORED_PATCH => "patch captured after rollback restore",
+        SUPERVISOR_CONTROL_LOG => "live supervisor control events",
+        _ => "review artifact",
+    }
 }
 
 fn render_worker_guidance(worker_guidance: &WorkerSupervisorGuidance) -> String {
