@@ -545,6 +545,7 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
 - worktree.patch is the accumulated current diff; changes.patch is only the latest worker-turn delta.
 {tool_evidence}
 - Approve only when the accumulated patch appears to satisfy the original task and no worker action or check remains.
+- Treat a false approval as a terminal correctness failure. If evidence is missing for the main requested behavior or a likely edge case, choose revise for a targeted verification or repair turn.
 - On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
 - Revise when a useful worker path remains; message_to_worker must be concrete and worker-executable.
 - Stop only for a blocked or inconclusive worker result when no useful worker path remains.

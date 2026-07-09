@@ -20,6 +20,8 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("Do not implement code. Do not edit files."));
     assert!(prompt.contains("Do not ask the user for approval."));
     assert!(prompt.contains("Approve only when the accumulated patch appears to satisfy"));
+    assert!(prompt.contains("false approval as a terminal correctness failure"));
+    assert!(prompt.contains("main requested behavior or a likely edge case"));
     assert!(prompt.contains("Revise when a useful worker path remains"));
     assert!(prompt.contains("Stop only for a blocked or inconclusive worker result"));
     assert!(prompt.contains("Put only repo source/test paths in focus_files"));
