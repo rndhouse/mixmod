@@ -20,7 +20,7 @@ pub(crate) use report::build_run_summary;
 #[cfg(test)]
 pub(crate) use report::opencode_exit_status_label;
 use report::{RunReportInput, build_run_report};
-use session::{build_reasoning_trace_jsonl, build_session_jsonl};
+use session::{build_reasoning_trace_jsonl, build_session_jsonl, build_tool_events_jsonl};
 
 pub fn run_mixmod_task(
     root: &Path,
@@ -471,6 +471,8 @@ impl MixmodRun<'_> {
             &out_dir.join(REASONING_TRACE_JSONL),
             reasoning_trace.as_bytes(),
         )?;
+        let (tool_events, tool_event_count) = build_tool_events_jsonl(&output.stdout)?;
+        atomic_write(&out_dir.join(TOOL_EVENTS_JSONL), tool_events.as_bytes())?;
         let context_overflow = worker_context_signals(&output.stdout);
         if context_overflow.context_overflow_count > 0 {
             notes.push(format!(
@@ -527,6 +529,7 @@ impl MixmodRun<'_> {
         let worktree_patch_bytes = file_len(&out_dir.join(WORKTREE_PATCH))?;
         let session_bytes = file_len(&out_dir.join(SESSION_JSONL))?;
         let reasoning_trace_bytes = file_len(&out_dir.join(REASONING_TRACE_JSONL))?;
+        let tool_events_bytes = file_len(&out_dir.join(TOOL_EVENTS_JSONL))?;
         let mut metrics = RunMetrics {
             start_timestamp: start_timestamp.to_rfc3339(),
             end_timestamp: end_timestamp.to_rfc3339(),
@@ -576,6 +579,8 @@ impl MixmodRun<'_> {
             worker_session_token_peak,
             reasoning_trace_bytes,
             reasoning_trace_event_count,
+            tool_events_bytes,
+            tool_event_count,
             report_bytes,
             patch_bytes,
             worktree_patch_bytes,

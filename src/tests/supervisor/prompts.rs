@@ -77,12 +77,18 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
     let root = temp.path();
     let report = root.join(REPORT_MD);
     let patch = root.join(WORKTREE_PATCH);
+    let tool_events = root.join(TOOL_EVENTS_JSONL);
     atomic_write(&report, b"SECRET_ARTIFACT_BODY_SHOULD_NOT_BE_EMBEDDED").unwrap();
     atomic_write(&patch, b"diff --git a/src/lib.rs b/src/lib.rs\n").unwrap();
+    atomic_write(
+        &tool_events,
+        br#"{"type":"tool_use","part":{"tool":"bash"}}"#,
+    )
+    .unwrap();
 
     let prompt = supervisor_feedback_prompt(
         root,
-        &[report.clone(), patch.clone()],
+        &[report.clone(), patch.clone(), tool_events.clone()],
         "decide",
         &WorkerSupervisorGuidance::default(),
     )
@@ -94,8 +100,11 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
     assert!(prompt.contains("compact worker-run summary"));
     assert!(prompt.contains("worktree.patch"));
     assert!(prompt.contains("accumulated current repository diff"));
+    assert!(prompt.contains("tool-events.jsonl"));
+    assert!(prompt.contains("worker tool-call events extracted from structured output"));
     assert!(!prompt.contains("SECRET_ARTIFACT_BODY_SHOULD_NOT_BE_EMBEDDED"));
     assert!(!prompt.contains("diff --git a/src/lib.rs b/src/lib.rs"));
+    assert!(!prompt.contains("\"tool\":\"bash\""));
 }
 
 #[test]
@@ -233,4 +242,5 @@ fn supervisor_review_artifacts_include_task_and_handoff_context() {
     );
     assert!(paths.contains(&WORKTREE_PATCH.to_string()));
     assert!(paths.contains(&CHANGES_PATCH.to_string()));
+    assert!(paths.contains(&TOOL_EVENTS_JSONL.to_string()));
 }

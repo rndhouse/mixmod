@@ -8,6 +8,8 @@ pub(crate) struct WorkerMetricsSummary {
     pub(crate) local_stderr_bytes: u64,
     pub(crate) local_reasoning_trace_bytes: u64,
     pub(crate) local_reasoning_trace_event_count: u64,
+    pub(crate) local_tool_events_bytes: u64,
+    pub(crate) local_tool_event_count: u64,
     pub(crate) opencode_session_ids: Vec<String>,
     pub(crate) opencode_session_labels: Vec<String>,
     pub(crate) worker_session_reuse_count: u64,
@@ -31,6 +33,8 @@ impl WorkerMetricsSummary {
                 worker_metrics,
                 "reasoning_trace_event_count",
             ),
+            local_tool_events_bytes: sum_u64(worker_metrics, "tool_events_bytes"),
+            local_tool_event_count: sum_u64(worker_metrics, "tool_event_count"),
             opencode_session_ids: collect_strings(worker_metrics, "opencode_session_id"),
             opencode_session_labels: collect_strings(worker_metrics, "opencode_session_label"),
             worker_session_reuse_count: worker_metrics

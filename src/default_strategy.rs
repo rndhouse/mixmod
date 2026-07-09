@@ -341,6 +341,8 @@ impl DefaultStrategyRun<'_> {
             "local_worker_text_bytes": worker_summary.local_stdout_bytes + worker_summary.local_stderr_bytes,
             "local_worker_reasoning_trace_bytes": worker_summary.local_reasoning_trace_bytes,
             "local_worker_reasoning_trace_event_count": worker_summary.local_reasoning_trace_event_count,
+            "local_worker_tool_events_bytes": worker_summary.local_tool_events_bytes,
+            "local_worker_tool_event_count": worker_summary.local_tool_event_count,
             "artifact_byte_sizes": artifact_byte_sizes(&out_dir)?,
             "patch_bytes": final_patch.len() as u64,
             "changed_files": stats.files,

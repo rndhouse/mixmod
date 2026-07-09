@@ -48,6 +48,8 @@ pub const INTERVENTIONS_JSONL: &str = "interventions.jsonl";
 pub const SUPERVISOR_CONTROL_LOG: &str = "supervisor-control.jsonl";
 /// Extracted worker reasoning events from structured OpenCode output.
 pub const REASONING_TRACE_JSONL: &str = "reasoning-trace.jsonl";
+/// Extracted worker tool-call events from structured OpenCode output.
+pub const TOOL_EVENTS_JSONL: &str = "tool-events.jsonl";
 /// Compact cross-turn telemetry for the supervisor's worker loop.
 pub const SUPERVISION_LOOP_SUMMARY_JSON: &str = "supervision-loop-summary.json";
 
@@ -56,6 +58,7 @@ pub const RUN_COMPACT_ARTIFACTS: &[&str] = &[
     RECEIPT_JSON,
     REPORT_MD,
     REASONING_TRACE_JSONL,
+    TOOL_EVENTS_JSONL,
     WORKTREE_PATCH,
     CHANGES_PATCH,
     INTERVENTIONS_JSONL,
@@ -92,6 +95,7 @@ pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
     WORKTREE_PATCH,
     CHANGES_PATCH,
     REASONING_TRACE_JSONL,
+    TOOL_EVENTS_JSONL,
     INTERVENTIONS_JSONL,
     METRICS_JSON,
     PATCH_COMPARISON,
@@ -111,6 +115,7 @@ pub const WORKER_RUN_ARTIFACTS: &[&str] = &[
     REPORT_MD,
     SESSION_JSONL,
     REASONING_TRACE_JSONL,
+    TOOL_EVENTS_JSONL,
     WORKTREE_PATCH,
     CHANGES_PATCH,
     INTERVENTIONS_JSONL,

@@ -501,6 +501,7 @@ fn supervisor_artifact_role(name: &str) -> &'static str {
         RECEIPT_JSON => "worker-run status and artifact locations",
         REPORT_MD => "compact worker-run summary",
         REASONING_TRACE_JSONL => "worker reasoning events extracted from structured output",
+        TOOL_EVENTS_JSONL => "worker tool-call events extracted from structured output",
         WORKTREE_PATCH => "accumulated current repository diff",
         CHANGES_PATCH => "latest worker-turn diff",
         INTERVENTIONS_JSONL => "Mixmod intervention audit log",

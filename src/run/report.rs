@@ -89,6 +89,12 @@ pub(super) fn build_run_report(input: RunReportInput<'_>) -> String {
         .lines()
         .filter(|line| !line.trim().is_empty())
         .count();
+    let tool_events_path = out_dir.join(TOOL_EVENTS_JSONL);
+    let tool_events = fs::read_to_string(&tool_events_path).unwrap_or_default();
+    let tool_event_count = tool_events
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
     let files = if stats.files.is_empty() {
         "- none captured".to_string()
     } else {
@@ -153,8 +159,8 @@ Changed lines: {changed_lines} ({added} added, {removed} removed)
 ## Checks
 
 Mixmod does not execute project test commands directly in worker runs.
-Worker-run checks, if any, are part of the worker stdout/stderr and remain
-untrusted until supervisor review or an external evaluator confirms the patch.
+Worker-run checks, if any, are captured in worker tool events and stdout/stderr.
+They remain untrusted until supervisor review or an external evaluator confirms the patch.
 
 Worker-facing check guidance from task metadata:
 
@@ -168,6 +174,11 @@ Worker-facing check guidance from task metadata:
 ```jsonl
 {reasoning_trace_excerpt}
 ```
+
+## Worker Tool Events
+
+- Events: {tool_event_count}
+- Artifact: `{tool_events_artifact}`
 
 ## Worker Stdout Excerpt
 
@@ -185,6 +196,8 @@ Worker-facing check guidance from task metadata:
 
 - `{receipt}`
 - `{report}`
+- `{reasoning_trace_artifact}`
+- `{tool_events_artifact}`
 - `{worktree_patch}`
 - `{patch}`
 - `{interventions}`
@@ -235,6 +248,8 @@ Heartbeat log: `{heartbeat}`
         reasoning_event_count = reasoning_event_count,
         reasoning_trace_artifact = display_path(root, &reasoning_trace_path),
         reasoning_trace_excerpt = truncate_for_report(&reasoning_trace, 6000),
+        tool_event_count = tool_event_count,
+        tool_events_artifact = display_path(root, &tool_events_path),
         stdout_excerpt = truncate_for_report(&stdout, 4000),
         stderr_excerpt = truncate_for_report(&stderr, 4000),
         receipt = display_path(root, &out_dir.join(RECEIPT_JSON)),

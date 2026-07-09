@@ -39,6 +39,8 @@ fn run_writes_full_artifact_bundle() {
         "task.json",
         "report.md",
         "session.jsonl",
+        "reasoning-trace.jsonl",
+        "tool-events.jsonl",
         "worktree.patch",
         "changes.patch",
         "interventions.jsonl",

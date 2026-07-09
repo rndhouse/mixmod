@@ -311,6 +311,7 @@ fn worker_runs(worker_root: &Path) -> Result<Vec<Value>> {
             let mut artifact_sizes = BTreeMap::new();
             for name in [
                 "reasoning-trace.jsonl",
+                "tool-events.jsonl",
                 "report.md",
                 "metrics.json",
                 "changes.patch",
