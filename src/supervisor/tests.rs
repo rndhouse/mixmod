@@ -254,7 +254,7 @@ fn live_control_message_drops_mixmod_task_reference() {
 
     assert!(!message.contains("worker-task.json"));
     assert!(message.contains("src/lib.rs"));
-    assert!(message.contains("git diff --stat"));
+    assert!(!message.contains("git diff --stat"));
 }
 
 #[test]

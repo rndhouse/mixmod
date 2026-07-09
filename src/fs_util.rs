@@ -161,11 +161,7 @@ fn revision_handoff_from_supervisor_control(
         deferred_checks: get_string_array(control, "deferred_checks"),
         defer_checks_until_patch_exists: get_bool(control, "defer_checks_until_patch_exists")
             .or_else(|| auto_revision_no_delta.then_some(true)),
-        completion_gate: get_str(control, "completion_gate")
-            .map(ToOwned::to_owned)
-            .or_else(|| {
-                auto_revision_no_delta.then(|| "git diff --stat must be non-empty".to_string())
-            }),
+        completion_gate: get_str(control, "completion_gate").map(ToOwned::to_owned),
         forbidden_actions: {
             let mut actions = get_string_array(control, "forbidden_actions");
             if auto_revision_no_delta {

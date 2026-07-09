@@ -48,11 +48,10 @@ pub(crate) fn build_opencode_instruction(
     };
     let completion_self_check = if small_patch_slice {
         r#"Before finalizing, do a completion self-check:
-- Did you modify repository files?
-- Did `git diff --stat` show a non-empty patch?
-- If the diff is empty, continue editing instead of finalizing.
+- Did you follow the supervisor's current instruction?
+- If any requested edit or check remains incomplete, say exactly what remains incomplete.
 
-Do not claim success if the repository diff is empty."#
+Do not claim success if requested work remains incomplete."#
     } else {
         r#"Before finalizing, do a completion self-check:
 - Did you complete every edit you intended to make?
@@ -64,10 +63,9 @@ Do not claim success if intended edits or intended checks are incomplete."#
     let output_contract = if small_patch_slice {
         r#"Keep the final stdout response compact and include:
 - Changed files
-- Diff non-empty: yes/no
 - Risks or blocker, if any
 
-Do not mention tests unless you actually ran one by mistake.
+Mention checks only if you actually ran one.
 Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and session artifacts on disk."#
     } else {
         r#"Keep the final stdout response compact and include:
@@ -179,7 +177,6 @@ Focus files:
 Required checks:
 {checks}
 
-Before finalizing after an edit, run `git diff --stat` and make sure the current patch differs from the previous candidate.
 Keep the final response compact.
 "#,
         mode = mode,
@@ -224,16 +221,9 @@ fn build_small_patch_slice_revision_noop_followup_instruction(
         .revision_handoff
         .completion_gate
         .as_deref()
-        .filter(|gate| !gate.trim().is_empty())
-        .unwrap_or("git diff --stat must be non-empty");
-    let mut hard_rules = vec![
-        "Do not ask questions.".to_string(),
-        "Do not run tests in this turn.".to_string(),
-        "Do not inspect unrelated behavior outside this one edit.".to_string(),
-        "Do not restate the plan.".to_string(),
-        "Do not finalize unless repository files are modified.".to_string(),
-        "If the edit is impossible, return exactly `BLOCKED: <reason>`.".to_string(),
-    ];
+        .map(str::trim)
+        .filter(|gate| !gate.is_empty());
+    let mut hard_rules = Vec::new();
     for action in &revision.revision_handoff.forbidden_actions {
         let action = action.trim().trim_end_matches('.');
         if action.is_empty() {
@@ -248,6 +238,17 @@ fn build_small_patch_slice_revision_noop_followup_instruction(
             hard_rules.push(rule);
         }
     }
+    let hard_rules_note = if hard_rules.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nSupervisor worker limits:\n{}\n",
+            plain_string_list_or_none(&hard_rules)
+        )
+    };
+    let completion_gate_note = completion_gate
+        .map(|gate| format!("\nSupervisor completion gate:\n{gate}\n"))
+        .unwrap_or_default();
 
     format!(
         r#"# Revision No-Op Follow-Up
@@ -259,31 +260,26 @@ Mixmod-managed state lives outside this repository. Do not inspect Mixmod state 
 
 Your previous revision turn made no new repository delta. That turn is incomplete.
 
-Continue in the existing worktree and make exactly one small patch slice now.
-
-Hard rules:
-{hard_rules}
+Continue in the existing worktree and follow the supervisor's requested patch slice now.
+{hard_rules_note}
 
 Patch slice goal: {turn_goal}
 
-Make only this edit:
+Supervisor-requested edit:
 1. {first_edit}
 
 Focus files:
 {files}
 
 Do not expand beyond this one edit. Do not implement neighboring behavior, validation, aliases, serialization/deserialization variants, or tests unless that exact edit explicitly requires it.
-
-After editing, run exactly: git diff --stat
-If git diff --stat is empty, return exactly `BLOCKED: no repository delta`.
-Completion gate: {completion_gate}
+{completion_gate_note}
 
 Final response format:
 Changed files: <comma-separated list>
-Diff non-empty: yes/no
 "#,
         mode = mode,
-        hard_rules = plain_string_list_or_none(&hard_rules),
+        hard_rules_note = hard_rules_note,
+        completion_gate_note = completion_gate_note,
     )
 }
 
@@ -424,7 +420,7 @@ mod tests {
                 edit_plan: vec![],
                 deferred_checks: vec![],
                 defer_checks_until_patch_exists: Some(true),
-                completion_gate: Some("git diff --stat must be non-empty".to_string()),
+                completion_gate: Some("worker-visible gate from supervisor".to_string()),
                 forbidden_actions: vec!["run tests before editing".to_string()],
             },
             focus_files: vec!["builder.py".to_string()],
@@ -436,12 +432,14 @@ mod tests {
         let instruction =
             build_revision_noop_followup_instruction(DelegationMode::Patch, &task, &revision);
 
-        assert!(instruction.contains("make exactly one small patch slice now"));
-        assert!(instruction.contains("Make only this edit:"));
+        assert!(instruction.contains("follow the supervisor's requested patch slice now"));
+        assert!(instruction.contains("Supervisor-requested edit:"));
         assert!(instruction.contains("Edit builder.py around the packer loop only."));
-        assert!(instruction.contains("Do not run tests in this turn."));
-        assert!(instruction.contains("Diff non-empty: yes/no"));
+        assert!(instruction.contains("Do not run tests before editing."));
+        assert!(instruction.contains("Supervisor completion gate:"));
+        assert!(instruction.contains("worker-visible gate from supervisor"));
         assert!(!instruction.contains("Required checks:"));
         assert!(!instruction.contains("Tests run and results"));
+        assert!(!instruction.contains("Diff non-empty: yes/no"));
     }
 }

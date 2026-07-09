@@ -38,19 +38,3 @@ pub(super) fn numbered_list(items: &[String]) -> String {
 pub(super) fn non_empty_or<T>(value: Vec<T>, fallback: Vec<T>) -> Vec<T> {
     if value.is_empty() { fallback } else { value }
 }
-
-pub(super) fn immediate_small_patch_exact_edits(
-    all_exact_edits: &[String],
-    turn_goal: &str,
-) -> Vec<String> {
-    all_exact_edits
-        .iter()
-        .find(|edit| !edit.trim().is_empty())
-        .cloned()
-        .or_else(|| {
-            let turn_goal = turn_goal.trim();
-            (!turn_goal.is_empty()).then(|| turn_goal.to_string())
-        })
-        .into_iter()
-        .collect()
-}

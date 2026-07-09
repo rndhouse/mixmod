@@ -173,7 +173,7 @@ fn worker_task_surfaces_supervisor_investigation_notes() {
 }
 
 #[test]
-fn small_patch_slice_worker_task_uses_noninteractive_diff_gate() {
+fn small_patch_slice_worker_task_preserves_explicit_supervisor_gate() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("task.json");
@@ -224,26 +224,23 @@ fn small_patch_slice_worker_task_uses_noninteractive_diff_gate() {
     let instructions = get_str(&worker_task, "instructions").unwrap();
     assert!(instructions.contains("Noninteractive coding task"));
     assert!(instructions.contains("No user will answer questions"));
-    assert!(
-        instructions
-            .contains("Your only goal in this turn is to create a non-empty repository patch.")
-    );
     assert!(instructions.contains("Do not ask questions."));
-    assert!(instructions.contains("Do not run tests in this turn."));
-    assert!(instructions.contains("Do not stop after reading files."));
+    assert!(instructions.contains("Do not run tests before editing."));
     assert!(instructions.contains("Patch slice goal: Create the first metadata plumbing patch."));
     assert!(instructions.contains("1. Add flatten: bool = False to field_options."));
-    assert!(!instructions.contains("Add flatten_prefix: Optional"));
-    assert!(instructions.contains("additional edit(s)"));
-    assert!(instructions.contains("Do not do them now."));
-    assert!(instructions.contains("Make exactly this first small patch:"));
+    assert!(instructions.contains("2. Add flatten_prefix: Optional"));
+    assert!(instructions.contains("3. Add flatten_rename: Optional"));
+    assert!(instructions.contains("4. Return all three keys in the metadata dict."));
+    assert!(instructions.contains("5. Update tests/test_helper.py expectations"));
+    assert!(instructions.contains("Supervisor-requested patch slice:"));
     assert!(instructions.contains("Worker edit packet:"));
     assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
     assert!(
         instructions.contains("If a listed item is a directory, do not read the whole directory")
     );
+    assert!(instructions.contains("Supervisor completion gate:"));
     assert!(instructions.contains("git diff --stat"));
-    assert!(instructions.contains("Diff non-empty: yes/no"));
+    assert!(!instructions.contains("Diff non-empty: yes/no"));
     assert!(!instructions.contains("Supervisor handoff JSON"));
     assert!(!instructions.contains("python -m pytest tests/test_helper.py"));
     assert_eq!(worker_task["context"]["worker_brief"], brief);

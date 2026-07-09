@@ -206,10 +206,9 @@ fn small_patch_no_delta_interrupt_control(target: &SmallPatchNoDeltaTarget) -> V
         "turn_goal": "make the first no-delta recovery edit",
         "exact_edits": [first_edit],
         "defer_checks_until_patch_exists": true,
-        "completion_gate": "git diff --stat must be non-empty",
         "forbidden_actions": ["ask questions", "run tests before editing"],
         "message_to_worker": format!(
-            "You have not modified files in this {phase}. Make only this edit now in {first_file}: {first_edit} Then run git diff --stat and stop with Diff non-empty: yes/no. Do not run tests."
+            "You have not modified files in this {phase}. Make only this edit now in {first_file}: {first_edit} Do not run tests."
         ),
         "focus_files": target.focus_files.clone(),
         "required_checks": [],

@@ -143,13 +143,14 @@ pub(super) fn run_revision_noop_followup(
     })?;
     let small_patch_slice = revision.revision_handoff.is_small_patch_slice();
     let acceptance = if small_patch_slice {
-        vec![
-            revision
-                .revision_handoff
-                .completion_gate
-                .clone()
-                .unwrap_or_else(|| "git diff --stat must be non-empty".to_string()),
-        ]
+        revision
+            .revision_handoff
+            .completion_gate
+            .as_deref()
+            .map(str::trim)
+            .filter(|gate| !gate.is_empty())
+            .map(|gate| vec![gate.to_string()])
+            .unwrap_or_default()
     } else {
         vec![
             "Make a new repository diff relative to the previous candidate patch, or return BLOCKED with a concrete reason."

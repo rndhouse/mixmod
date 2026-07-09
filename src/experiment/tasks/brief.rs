@@ -7,8 +7,7 @@ use crate::*;
 
 use super::edit_packet::small_patch_edit_packet_from_value;
 use super::format::{
-    append_handoff_list, bullet_list, hard_rule_from_forbidden_action,
-    immediate_small_patch_exact_edits, non_empty_or, numbered_list,
+    append_handoff_list, bullet_list, hard_rule_from_forbidden_action, non_empty_or, numbered_list,
 };
 use super::types::{WorkerBriefTask, WorkerBriefTaskContext};
 
@@ -69,11 +68,6 @@ pub(crate) fn write_worker_brief_task(
     if small_patch_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
-        constraints.push(
-            "Do not run tests in this worker turn; checks are deferred until a patch exists."
-                .to_string(),
-        );
-        constraints.push("Do not finalize until git diff --stat is non-empty.".to_string());
     } else if bounded_feature_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and continue.".to_string());
@@ -106,11 +100,13 @@ pub(crate) fn write_worker_brief_task(
     } else {
         format!("\n\nSupervisor investigation:\n{supervisor_investigation}")
     };
-    let completion_gate = get_str(brief, "completion_gate")
-        .filter(|gate| !gate.trim().is_empty())
-        .unwrap_or("git diff --stat must be non-empty");
+    let explicit_completion_gate = get_str(brief, "completion_gate")
+        .map(str::trim)
+        .filter(|gate| !gate.is_empty());
     let acceptance = if small_patch_slice {
-        vec![completion_gate.to_string()]
+        explicit_completion_gate
+            .map(|gate| vec![gate.to_string()])
+            .unwrap_or_default()
     } else {
         non_empty_or(checks.clone(), get_string_array(&original, "acceptance"))
     };
@@ -120,7 +116,7 @@ pub(crate) fn write_worker_brief_task(
             &original,
             brief,
             &target_files,
-            completion_gate,
+            explicit_completion_gate,
             &codex_message,
         )
     } else if bounded_feature_slice {
@@ -161,7 +157,7 @@ fn small_patch_slice_instructions(
     original: &Value,
     brief: &Value,
     target_files: &[String],
-    completion_gate: &str,
+    completion_gate: Option<&str>,
     fallback_message: &str,
 ) -> String {
     let title = get_str(original, "title").unwrap_or("the task");
@@ -172,26 +168,12 @@ fn small_patch_slice_instructions(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(fallback_message)
         .trim();
-    let all_exact_edits =
-        first_non_empty_string_array(brief, &["exact_edits", "edit_plan", "implementation_steps"]);
-    let exact_edits = immediate_small_patch_exact_edits(&all_exact_edits, turn_goal);
-    let deferred_edit_note = if all_exact_edits.len() > exact_edits.len() {
-        format!(
-            "The supervisor supplied {} additional edit(s); Mixmod is intentionally deferring them to later turns. Do not do them now.\n",
-            all_exact_edits.len() - exact_edits.len()
-        )
-    } else {
-        String::new()
-    };
+    let exact_edits = non_empty_or(
+        first_non_empty_string_array(brief, &["exact_edits", "edit_plan", "implementation_steps"]),
+        vec![turn_goal.to_string()],
+    );
 
-    let mut hard_rules = vec![
-        "Do not ask questions.".to_string(),
-        "Do not run tests in this turn.".to_string(),
-        "Do not stop after reading files.".to_string(),
-        "Do not inspect unrelated behavior outside this slice.".to_string(),
-        "Do not final-answer until repository files are modified.".to_string(),
-        "If something is ambiguous, make a reasonable assumption and continue editing.".to_string(),
-    ];
+    let mut hard_rules = Vec::new();
     for action in get_string_array(brief, "forbidden_actions") {
         let rule = hard_rule_from_forbidden_action(&action);
         if !hard_rules.contains(&rule) {
@@ -215,22 +197,28 @@ fn small_patch_slice_instructions(
         brief,
         &["edit_packet", "source_snippets", "anchors", "evidence"],
     );
+    let hard_rules_note = if hard_rules.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nSupervisor worker limits:\n{}\n",
+            bullet_list(&hard_rules)
+        )
+    };
+    let completion_gate_note = completion_gate
+        .map(|gate| format!("\nSupervisor completion gate:\n{gate}\n"))
+        .unwrap_or_default();
 
     format!(
         r#"Noninteractive coding task. This is the full instruction. No user will answer questions.
 
 Original task: {title}
 
-Your only goal in this turn is to create a non-empty repository patch.
-
-Hard rules:
-{hard_rules}
-
 Patch slice goal: {turn_goal}
+{hard_rules_note}
 
-Make exactly this first small patch:
+Supervisor-requested patch slice:
 {exact_edits}
-{deferred_edit_note}
 
 Worker edit packet:
 {edit_packet}
@@ -243,20 +231,15 @@ Use concrete files from this list. If a listed item is a directory, do not read 
 Do not read an entire large file before the first edit unless the exact edit cannot be applied from the packet and focused anchor searches.
 Do not expand beyond this first patch slice unless one of the exact edits requires it.
 If a listed file is missing, continue with the remaining exact edits; create a missing file only when an exact edit requires it.
-Checks are intentionally deferred until after a non-empty patch exists.
 When editing an existing source function, preserve surrounding control flow and indentation. Do not rewrite the whole function. Do not delete or reindent unrelated branches. Make the smallest local edit that satisfies this slice.
-
-After editing, run exactly: git diff --stat
-If git diff --stat is empty, you failed; edit files before finalizing.
-Completion gate: {completion_gate}
+{completion_gate_note}
 
 Final response format:
 Changed files: <comma-separated list>
-Diff non-empty: yes/no
 "#,
-        hard_rules = bullet_list(&hard_rules),
+        hard_rules_note = hard_rules_note,
         exact_edits = numbered_list(&exact_edits),
-        deferred_edit_note = deferred_edit_note,
+        completion_gate_note = completion_gate_note,
     )
 }
 
@@ -330,7 +313,6 @@ Rules:
 - Preserve surrounding control flow and indentation in large functions.
 - Do not rewrite unrelated code.
 - Do not inspect Mixmod state or artifact directories.
-- Do not commit.
 
 Checks after a patch exists:
 {checks}

@@ -96,10 +96,9 @@ fn small_patch_slice_opencode_instruction_uses_patch_only_output_contract() {
     )
     .unwrap();
 
-    assert!(instruction.contains("Did you modify repository files?"));
-    assert!(instruction.contains("Did `git diff --stat` show a non-empty patch?"));
-    assert!(instruction.contains("Diff non-empty: yes/no"));
-    assert!(instruction.contains("Do not mention tests unless you actually ran one by mistake."));
+    assert!(instruction.contains("Did you follow the supervisor's current instruction?"));
+    assert!(instruction.contains("Mention checks only if you actually ran one."));
+    assert!(!instruction.contains("Diff non-empty: yes/no"));
     assert!(!instruction.contains("Tests run and results"));
     assert!(!instruction.contains("Stop immediately after the requested tests pass"));
 }
@@ -142,9 +141,9 @@ fn revision_small_patch_slice_opencode_instruction_uses_patch_only_output_contra
     )
     .unwrap();
 
-    assert!(instruction.contains("Did you modify repository files?"));
-    assert!(instruction.contains("Diff non-empty: yes/no"));
-    assert!(instruction.contains("Do not mention tests unless you actually ran one by mistake."));
+    assert!(instruction.contains("Did you follow the supervisor's current instruction?"));
+    assert!(instruction.contains("Mention checks only if you actually ran one."));
+    assert!(!instruction.contains("Diff non-empty: yes/no"));
     assert!(!instruction.contains("Tests run and results"));
     assert!(!instruction.contains("Stop immediately after the requested tests pass"));
 }

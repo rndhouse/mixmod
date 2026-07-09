@@ -171,7 +171,7 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
 }
 
 #[test]
-fn small_patch_slice_revision_task_uses_noninteractive_delta_gate() {
+fn small_patch_slice_revision_task_preserves_explicit_supervisor_gate() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("task.json");
@@ -232,29 +232,18 @@ fn small_patch_slice_revision_task_uses_noninteractive_delta_gate() {
         get_string_array(&revision, "acceptance"),
         vec!["git diff --stat must be non-empty"]
     );
-    let constraints = get_string_array(&revision, "constraints");
-    assert!(
-        constraints
-            .iter()
-            .any(|constraint| constraint.contains("Do not run tests in this revision turn"))
-    );
     let instructions = get_str(&revision, "instructions").unwrap();
     assert!(instructions.contains("Noninteractive coding revision"));
     assert!(instructions.contains("Current accumulated patch is useful but not yet accepted"));
-    assert!(
-        instructions.contains(
-            "Your only goal in this revision turn is to add a non-empty repository delta"
-        )
-    );
-    assert!(instructions.contains("Make exactly this next small patch"));
+    assert!(instructions.contains("Supervisor-requested patch slice:"));
     assert!(instructions.contains("Worker edit packet:"));
     assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
     assert!(instructions.contains("nested item discount branch"));
-    assert!(!instructions.contains("add one assertion for a nested discounted item"));
-    assert!(instructions.contains("additional edit(s)"));
-    assert!(instructions.contains("Do not do them now."));
+    assert!(instructions.contains("add one assertion for a nested discounted item"));
     assert!(instructions.contains("Do not run broad tests before editing."));
-    assert!(instructions.contains("After editing, run exactly: git diff --stat"));
+    assert!(instructions.contains("Supervisor completion gate:"));
+    assert!(instructions.contains("git diff --stat must be non-empty"));
+    assert!(!instructions.contains("After editing, run exactly: git diff --stat"));
     assert_eq!(
         get_str(&revision["context"]["revision"], "worker_turn_shape"),
         Some("small_patch_slice")

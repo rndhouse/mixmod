@@ -53,7 +53,7 @@ Set "expect_patch": true when the worker should normally produce repository edit
 Use exactly {{"handoff":"as_given"}} only when the original task already names the relevant files, desired behavior, and checks clearly enough for the worker.
 Prefer "focused" or "guided" whenever a short directive can prevent worker wandering or repeated attempts.
 For expected-patch tasks where the selected worker guidance prefers "bounded_feature_slice", choose one coherent feature chunk: usually one to three source files, related API/source/test edits that belong together, and focused checks after the patch exists. Use exact_edits or edit_plan as a short ordered plan, not as one-line micromanagement.
-For expected-patch tasks with workers that still need very small recovery steps, "worker_turn_shape":"small_patch_slice" means a first patch seed, not the full implementation. Use one focused source file when possible, list one immediately executable source exact_edit, defer checks until after a non-empty diff, and include a completion_gate such as "git diff --stat must be non-empty".
+For expected-patch tasks with workers that still need very small recovery steps, "worker_turn_shape":"small_patch_slice" means a first patch seed, not the full implementation. Use one focused source file when possible, list immediately executable source exact_edits, and put checks in deferred_checks when you do not want them run before editing.
 When worker guidance prefers small_patch_slice for broad expected-patch tasks, satisfy that contract in the first JSON turn: set "expect_patch":true, "worker_turn_shape":"small_patch_slice", one concrete repo file, exact_edits as exactly one string source edit, defer_checks_until_patch_exists:true, and checks only in deferred_checks.
 Good small_patch_slice choices are repo-generic seed patches: public API/options plumbing plus a narrow test, one parser/config branch plus a narrow test, one validation branch plus a narrow test, or one localized source edit plus a regression test. Bad small_patch_slice choices ask for a whole feature, core algorithm, validation, aliases, optional/default behavior, and full tests in one turn.
 For option or behavior families with a base path plus modifiers, make the base path the first useful source slice. Add one modifier family per later slice only after the base diff exists, unless prior worker turns show this worker can safely combine them.
@@ -62,7 +62,7 @@ For small_patch_slice, exact_edits must be immediately executable edit commands.
 For small_patch_slice, include edit_packet or source_snippets when your read-only investigation found the relevant code. Keep it short: file path, symbol, literal nearby anchor, and at most a few lines of useful context. The worker should be able to make the first edit from this packet before broad file exploration.
 For source edits inside large functions or code-generation paths, add structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
 Optional fields; omit empty fields:
-{{"expect_patch":true,"worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"direct message for the worker","files":["optional paths"],"exact_edits":["concrete edit"],"edit_packet":["optional file/symbol/anchor snippet for the first edit"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"checks":["optional checks"],"deferred_checks":["checks to run after a patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"git diff --stat must be non-empty","forbidden_actions":["ask questions","run tests before editing"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+{{"expect_patch":true,"worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"direct message for the worker","files":["optional paths"],"exact_edits":["concrete edits"],"edit_packet":["optional file/symbol/anchor snippet for the first edit"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"checks":["optional checks"],"deferred_checks":["checks to run after a patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional worker-visible gate you intentionally want","forbidden_actions":["ask questions","run tests before editing"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -107,7 +107,7 @@ Return a corrected expected-patch handoff with:
 - edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your read-only investigation
 - no checks unless listed in deferred_checks
 - defer_checks_until_patch_exists:true
-- completion_gate:"git diff --stat must be non-empty"
+- completion_gate only if you intentionally want a worker-visible completion gate
 - forbidden_actions including "ask questions" and "run tests before editing"
 Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
 Include a concrete symbol and a literal nearby code anchor when possible, such as `near the line containing "..."`.
@@ -163,7 +163,7 @@ Return one corrected expected-patch handoff with:
 - edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your read-only investigation
 - no required checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
-- completion_gate:"git diff --stat must be non-empty"
+- completion_gate only if you intentionally want a worker-visible completion gate
 - forbidden_actions including "ask questions" and "run tests before editing"
 Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
@@ -364,7 +364,7 @@ Return a corrected revise decision with:
 - edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
-- completion_gate mentioning git diff --stat
+- completion_gate only if you intentionally want a worker-visible completion gate
 - forbidden_actions including "ask questions" and "run tests before editing"
 The one exact edit must be atomic: one function or branch, one direction, one source behavior. If the previous edit bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
 Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong. Repair the size/shape of that requested next slice; do not rewind to an earlier completed slice.
@@ -421,7 +421,7 @@ Return one corrected revise decision with:
 - edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
-- completion_gate mentioning git diff --stat
+- completion_gate only if you intentionally want a worker-visible completion gate
 - forbidden_actions including "ask questions" and "run tests before editing"
 Repair the size/shape of the previous requested next slice. Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong.
 Do not rewind to an earlier completed slice. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.

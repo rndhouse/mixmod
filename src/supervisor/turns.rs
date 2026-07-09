@@ -300,7 +300,7 @@ pub(super) fn verification_revision_for_inconsistent_approval(feedback: &Value) 
         "verdict": "revise",
         "worker_mode": normalize_worker_mode(typed_feedback.worker_mode.as_deref()),
         "patch_decision": "revise_current",
-        "message_to_worker": "Run the pending focused checks. If any fail, make only targeted fixes for the original task; otherwise report passing evidence. Do not commit.",
+        "message_to_worker": "Run the pending focused checks. If any fail, make only targeted fixes for the original task; otherwise report passing evidence.",
         "focus_files": typed_feedback.focus_files,
         "required_checks": checks,
         "risk": "Supervisor approval listed pending checks without evidence.",
@@ -310,7 +310,7 @@ pub(super) fn verification_revision_for_inconsistent_approval(feedback: &Value) 
             check_summary,
             "If a check fails, make the smallest targeted source or test fix needed for the original task."
         ],
-        "forbidden_actions": ["commit changes", "inspect verifier internals"]
+        "forbidden_actions": ["inspect verifier internals"]
     })
 }
 

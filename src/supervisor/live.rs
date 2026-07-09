@@ -335,7 +335,7 @@ fn live_control_message_mentions_mixmod_artifact(message: &str) -> bool {
 
 fn fallback_live_control_message(focus_files: &[String]) -> String {
     if focus_files.is_empty() {
-        "Continue from the current repo state. Make one focused source edit for the requested behavior, then verify git diff --stat is non-empty before checks."
+        "Continue from the current repo state. Make one focused source edit for the requested behavior."
             .to_string()
     } else {
         let mut displayed_files = focus_files.iter().take(3).cloned().collect::<Vec<_>>();
@@ -343,7 +343,7 @@ fn fallback_live_control_message(focus_files: &[String]) -> String {
             displayed_files.push("...".to_string());
         }
         format!(
-            "Focus on {}. Make one focused source edit for the requested behavior, then verify git diff --stat is non-empty before checks.",
+            "Focus on {}. Make one focused source edit for the requested behavior.",
             displayed_files.join(", ")
         )
     }

@@ -7,10 +7,7 @@ use crate::*;
 
 use super::edit_packet::small_patch_edit_packet_from_decision;
 use super::focus::split_worker_focus_files;
-use super::format::{
-    bullet_list, hard_rule_from_forbidden_action, immediate_small_patch_exact_edits, non_empty_or,
-    numbered_list,
-};
+use super::format::{bullet_list, hard_rule_from_forbidden_action, non_empty_or, numbered_list};
 use super::types::{RevisionTask, RevisionTaskContext, RevisionTaskDetails};
 
 pub(crate) fn write_revision_task(
@@ -51,14 +48,16 @@ pub(crate) fn write_revision_task(
         .revision_handoff
         .defer_checks_until_patch_exists
         .unwrap_or(small_patch_slice);
-    let completion_gate = decision
+    let explicit_completion_gate = decision
         .revision_handoff
         .completion_gate
         .as_deref()
-        .filter(|gate| !gate.trim().is_empty())
-        .unwrap_or("git diff --stat must be non-empty");
+        .map(str::trim)
+        .filter(|gate| !gate.is_empty());
     let acceptance = if small_patch_slice {
-        vec![completion_gate.to_string()]
+        explicit_completion_gate
+            .map(|gate| vec![gate.to_string()])
+            .unwrap_or_default()
     } else {
         non_empty_or(
             decision.required_checks.clone(),
@@ -71,13 +70,6 @@ pub(crate) fn write_revision_task(
     if small_patch_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
-        if defer_checks_until_patch_exists {
-            constraints.push(
-                "Do not run tests in this revision turn; checks are deferred until a patch exists."
-                    .to_string(),
-            );
-        }
-        constraints.push("Do not finalize until git diff --stat is non-empty.".to_string());
     } else if bounded_feature_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and continue.".to_string());
@@ -107,9 +99,8 @@ pub(crate) fn write_revision_task(
             decision,
             focus_files: &focus_files,
             focus_note: &focus_note,
-            completion_gate,
+            completion_gate: explicit_completion_gate,
             patch_decision_note,
-            defer_checks_until_patch_exists,
         })
     } else if decision.worker_mode == "context_focus" {
         format!(
@@ -196,9 +187,8 @@ struct SmallPatchSliceRevisionInput<'a> {
     decision: &'a SupervisorFeedbackTurn,
     focus_files: &'a [String],
     focus_note: &'a str,
-    completion_gate: &'a str,
+    completion_gate: Option<&'a str>,
     patch_decision_note: &'a str,
-    defer_checks_until_patch_exists: bool,
 }
 
 fn small_patch_slice_revision_instructions(input: SmallPatchSliceRevisionInput<'_>) -> String {
@@ -210,7 +200,6 @@ fn small_patch_slice_revision_instructions(input: SmallPatchSliceRevisionInput<'
         focus_note,
         completion_gate,
         patch_decision_note,
-        defer_checks_until_patch_exists,
     } = input;
     let title = get_str(original, "title").unwrap_or("the task");
     let original_instructions = get_str(original, "instructions")
@@ -237,28 +226,11 @@ fn small_patch_slice_revision_instructions(input: SmallPatchSliceRevisionInput<'
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(fallback_goal)
         .trim();
-    let all_exact_edits = decision.revision_handoff.exact_edits.clone();
-    let exact_edits = immediate_small_patch_exact_edits(&all_exact_edits, turn_goal);
-    let deferred_edit_note = if all_exact_edits.len() > exact_edits.len() {
-        format!(
-            "The supervisor supplied {} additional edit(s); Mixmod is intentionally deferring them to later turns. Do not do them now.\n",
-            all_exact_edits.len() - exact_edits.len()
-        )
-    } else {
-        String::new()
-    };
-    let mut hard_rules = vec![
-        "Do not ask questions.".to_string(),
-        "Do not stop after reading files.".to_string(),
-        "Do not inspect unrelated behavior outside this slice.".to_string(),
-        "Do not final-answer until repository files are modified.".to_string(),
-        "If something is ambiguous, make a reasonable assumption and continue editing.".to_string(),
-    ];
-    if defer_checks_until_patch_exists {
-        hard_rules.push("Do not run tests in this turn.".to_string());
-    } else {
-        hard_rules.push("Make the code/test edit before running any check.".to_string());
-    }
+    let exact_edits = non_empty_or(
+        decision.revision_handoff.exact_edits.clone(),
+        vec![turn_goal.to_string()],
+    );
+    let mut hard_rules = Vec::new();
     for action in &decision.revision_handoff.forbidden_actions {
         let rule = hard_rule_from_forbidden_action(action);
         if !hard_rules.contains(&rule) {
@@ -282,13 +254,21 @@ fn small_patch_slice_revision_instructions(input: SmallPatchSliceRevisionInput<'
         decision.required_checks.clone(),
     );
     let checks_note = if checks.is_empty() {
-        "Deferred checks: none specified.".to_string()
+        String::new()
+    } else {
+        format!("\nSupervisor-provided checks:\n{}", bullet_list(&checks))
+    };
+    let hard_rules_note = if hard_rules.is_empty() {
+        String::new()
     } else {
         format!(
-            "Deferred checks after a non-empty patch exists:\n{}",
-            bullet_list(&checks)
+            "\nSupervisor worker limits:\n{}\n",
+            bullet_list(&hard_rules)
         )
     };
+    let completion_gate_note = completion_gate
+        .map(|gate| format!("\nSupervisor completion gate:\n{gate}\n"))
+        .unwrap_or_default();
 
     format!(
         r#"Noninteractive coding revision. This is the full instruction. No user will answer questions.
@@ -297,16 +277,11 @@ Original task: {title}{original_context}
 Current accumulated patch is useful but not yet accepted as the full solution.
 Continue from the current working tree; do not revert existing correct edits.{patch_decision_note}
 
-Your only goal in this revision turn is to add a non-empty repository delta for the next small patch slice.
-
-Hard rules:
-{hard_rules}
-
 Patch slice goal: {turn_goal}
+{hard_rules_note}
 
-Make exactly this next small patch:
+Supervisor-requested patch slice:
 {exact_edits}
-{deferred_edit_note}
 
 Worker edit packet:
 {edit_packet}
@@ -321,18 +296,14 @@ Do not read an entire large file before the first edit unless the exact edit can
 Do not expand beyond this patch slice unless one of the exact edits requires it.
 If a listed file is missing, continue with the remaining exact edits; create a missing file only when an exact edit requires it.
 {checks_note}
-
-After editing, run exactly: git diff --stat
-If git diff --stat is empty, you failed; edit files before finalizing.
-Completion gate: {completion_gate}
+{completion_gate_note}
 
 Final response format:
 Changed files: <comma-separated list>
-Diff non-empty: yes/no
 "#,
-        hard_rules = bullet_list(&hard_rules),
+        hard_rules_note = hard_rules_note,
         exact_edits = numbered_list(&exact_edits),
-        deferred_edit_note = deferred_edit_note,
+        completion_gate_note = completion_gate_note,
     )
 }
 
@@ -421,7 +392,6 @@ Rules:
 - Make repository edits before running broad checks.
 - Preserve surrounding control flow and indentation in large functions.
 - Do not rewrite unrelated code.
-- Do not commit.
 
 Checks after a patch exists:
 {checks}
