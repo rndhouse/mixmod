@@ -17,13 +17,17 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("worker_mode=context_focus starts a fresh worker session"));
     assert!(prompt.contains("patch_decision"));
     assert!(prompt.contains("revise_previous"));
-    assert!(prompt.contains("Do not implement code. Do not edit files."));
+    assert!(prompt.contains("Workspace access is for supervision, not implementation"));
+    assert!(prompt.contains("git status"));
+    assert!(prompt.contains("Do not author task-solving source edits"));
     assert!(prompt.contains("Do not ask the user for approval."));
     assert!(prompt.contains("Approve only when the accumulated patch appears to satisfy"));
     assert!(prompt.contains("false approval as a terminal correctness failure"));
     assert!(prompt.contains("main requested behavior or a likely edge case"));
     assert!(prompt.contains("Revise when a useful worker path remains"));
     assert!(prompt.contains("Stop only for a blocked or inconclusive worker result"));
+    assert!(prompt.contains("The worker owns implementation"));
+    assert!(prompt.contains("Prefer patch_decision for rollback control"));
     assert!(prompt.contains("Put only repo source/test paths in focus_files"));
     assert!(prompt.contains("exact_edits"));
     assert!(!prompt.contains("Context-pressure context"));

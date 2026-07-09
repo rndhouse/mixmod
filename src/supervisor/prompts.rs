@@ -23,6 +23,10 @@ Task JSON:
     ))
 }
 
+fn supervisor_worktree_policy() -> &'static str {
+    "Workspace access is for supervision, not implementation. You may use git/worktree commands such as `git status`, `git diff`, `git show`, `git grep`, and checkpoint-oriented `git restore` or `git apply` when needed to inspect or manage state. Do not author task-solving source edits, rewrite code, or create the solution patch yourself; the worker owns implementation."
+}
+
 pub(crate) fn supervisor_worker_brief_prompt(
     work_dir: &Path,
     task_path: &Path,
@@ -36,11 +40,13 @@ pub(crate) fn supervisor_worker_brief_prompt(
     let candidate_files = supervisor_candidate_file_index(work_dir, &visible_task);
     let worker_guidance = render_worker_guidance(worker_guidance);
     let init_instructions = worker_brief_init_instructions(init_mode);
+    let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
         r#"You are the supervisor model for a Mixmod worker.
 {init_instructions}
 The worker receives the original task JSON and can inspect, edit, and test the repo.
-Candidate repo file contents are not embedded in this prompt. Inspect listed repo files read-only when useful before writing the handoff.
+{worktree_policy}
+Candidate repo file contents are not embedded in this prompt. Inspect listed repo files or git state when useful before writing the handoff.
 Use supervisor reasoning freely, but minimize supervisor output.
 {worker_guidance}
 Treat applicable worker-model guidance as handoff constraints, not optional background. If the guidance names a preferred worker_turn_shape or known failure mode, adapt the handoff shape to that worker unless no patch is needed.
@@ -59,7 +65,7 @@ Good small_patch_slice choices are repo-generic seed patches: public API/options
 For option or behavior families with a base path plus modifiers, make the base path the first useful source slice. Add one modifier family per later slice only after the base diff exists, unless prior worker turns show this worker can safely combine them.
 For complex source tasks involving generated code, alias/key behavior, validation matrices, serializers/deserializers, pack/unpack paths, parser/compiler behavior, or multiple cross-cutting flows, do not use worker_turn_shape="default" for the initial worker. Prefer bounded_feature_slice for capable workers; use small_patch_slice only when the selected worker guidance asks for it or a previous turn was confused, destructive, or empty.
 For small_patch_slice, exact_edits must be immediately executable edit commands. Do not write "locate", "investigate", "understand", or broad algorithm work as an exact edit. The files array must contain concrete repo file paths, not directories; include the file that defines any function, option, flag, or public API named in exact_edits.
-For small_patch_slice, include edit_packet or source_snippets when your read-only investigation found the relevant code. Keep it short: file path, symbol, literal nearby anchor, and at most a few lines of useful context. The worker should be able to make the first edit from this packet before broad file exploration.
+For small_patch_slice, include edit_packet or source_snippets when your repo investigation found the relevant code. Keep it short: file path, symbol, literal nearby anchor, and at most a few lines of useful context. The worker should be able to make the first edit from this packet before broad file exploration.
 For source edits inside large functions or code-generation paths, add structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
 Optional fields; omit empty fields:
 {{"expect_patch":true,"worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"direct message for the worker","files":["optional paths"],"exact_edits":["concrete edits"],"edit_packet":["optional file/symbol/anchor snippet for the first edit"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"checks":["optional checks"],"deferred_checks":["checks to run after a patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional worker-visible gate you intentionally want","forbidden_actions":["ask questions","run tests before editing"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
@@ -74,6 +80,7 @@ Candidate repo files:
 {candidate_files}
 "#,
         work_dir = work_dir.display(),
+        worktree_policy = worktree_policy,
     ))
 }
 
@@ -90,9 +97,11 @@ pub(crate) fn supervisor_worker_brief_repair_prompt(
     let previous = serde_json::to_string_pretty(previous_brief)
         .context("failed to serialize previous worker brief for repair prompt")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
+    let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
         r#"You are revising your Mixmod supervisor handoff before the worker sees it.
-Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
+{worktree_policy}
+Do not run tests. Emit minified JSON only; no markdown and no explanation.
 Your previous handoff did not fit the selected worker profile because it either omitted worker_turn_shape=small_patch_slice or used a small_patch_slice that still bundled too much work.
 Mixmod is not designing a replacement slice for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
 {worker_guidance}
@@ -104,7 +113,7 @@ Return a corrected expected-patch handoff with:
 - <=2 concrete repo file paths when possible
 - exact_edits must be an array with exactly one string item; do not use objects
 - exactly one source exact_edits item, plus no test edit in exact_edits
-- edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your read-only investigation
+- edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your repo investigation
 - no checks unless listed in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
@@ -127,6 +136,7 @@ Rejected previous handoff:
 ```
 "#,
         work_dir = work_dir.display(),
+        worktree_policy = worktree_policy,
     ))
 }
 
@@ -147,9 +157,11 @@ pub(crate) fn supervisor_worker_brief_repair_retry_prompt(
     let rejected = serde_json::to_string_pretty(rejected_repair)
         .context("failed to serialize rejected worker brief repair")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
+    let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
         r#"You are retrying your Mixmod supervisor handoff revision.
-Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
+{worktree_policy}
+Do not run tests. Emit minified JSON only; no markdown and no explanation.
 The previous repair still did not fit the selected worker profile: {rejection_reason}
 Mixmod is not designing a replacement slice for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
 {worker_guidance}
@@ -160,7 +172,7 @@ Return one corrected expected-patch handoff with:
 - one turn_goal for the first patch slice only
 - <=2 concrete repo file paths when possible
 - exact_edits as an array with exactly one string item; do not use objects
-- edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your read-only investigation
+- edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your repo investigation
 - no required checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
@@ -186,6 +198,7 @@ Rejected repair:
 ```
 "#,
         work_dir = work_dir.display(),
+        worktree_policy = worktree_policy,
     ))
 }
 
@@ -212,7 +225,7 @@ fn supervisor_candidate_file_index(work_dir: &Path, task: &Value) -> String {
 fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
     match init_mode {
         SupervisorInitMode::Compact => {
-            r#"Use the task JSON and candidate repo file paths. Do not edit files. Do not run tests. Do not implement the patch. Do not ask the user for approval.
+            r#"Use the task JSON and candidate repo file paths. Do not run tests. Do not implement the patch. Do not ask the user for approval.
 Default to "guided". Guided means terse and executable, not advisory:
 - target <=120 output tokens for the whole JSON on normal tasks
 - one command-style message_to_worker, ideally <=45 words
@@ -224,7 +237,7 @@ Default to "guided". Guided means terse and executable, not advisory:
 Assume the local worker is capable but prone to setup rabbit holes, broad exploration, and delayed edits."#
         }
         SupervisorInitMode::Investigate => {
-            r#"First do a read-only repo investigation before writing the handoff. You may inspect source/test files and run read-only discovery commands such as `rg`, `find`, `ls`, `sed`, or `git grep`. Do not edit files. Do not run tests. Do not install dependencies. Do not inspect Mixmod state/artifact directories. Do not ask the user for approval.
+            r#"First do a repo investigation before writing the handoff. You may inspect source/test files and run discovery commands such as `rg`, `find`, `ls`, `sed`, `git status`, `git diff`, or `git grep`. Do not run tests. Do not install dependencies. Do not inspect Mixmod state/artifact directories. Do not ask the user for approval.
 Default to "guided". Guided means concrete enough for a weaker worker to edit without broad exploration:
 - target <=500 output tokens for the whole JSON
 - one command-style message_to_worker, ideally <=70 words
@@ -249,11 +262,13 @@ pub(crate) fn supervisor_feedback_prompt(
     let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
     let review_context = supervisor_feedback_review_context(artifact_paths);
     let worker_guidance = render_worker_guidance(worker_guidance);
+    let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
         r#"You are a terse supervisor reviewing a local worker.
-Do not implement code. Do not edit files. Do not ask the user for approval.
+{worktree_policy}
+Do not ask the user for approval.
 Inspect the listed artifact files directly before deciding. Do not rely on this prompt as artifact content; it only names where the review evidence lives.
-Read only the files you need for the decision, but always inspect task context and the accumulated worktree.patch before approving.
+Inspect only the files you need for the decision, but always inspect task context and the accumulated worktree.patch before approving.
 {worker_guidance}
 Return only JSON matching this schema:
 {{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
@@ -265,6 +280,7 @@ Artifact index:
 {artifact_index}
 "#,
         work_dir = work_dir.display(),
+        worktree_policy = worktree_policy,
     ))
 }
 
@@ -289,7 +305,7 @@ Repair only the supervisor decision. Return either:
 - action=approve with required_checks=[], deferred_checks=[], no completion_gate, and compact evidence from artifacts that no further checks or worker turns are needed; or
 - action=revise with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
 
-Do not approve while listing checks that still need to run. Do not solve by editing files."#
+Do not approve while listing checks that still need to run. Do not solve by authoring source changes."#
     );
 
     supervisor_feedback_prompt(work_dir, artifact_paths, &instruction, worker_guidance)
@@ -303,9 +319,11 @@ pub(crate) fn supervisor_live_control_prompt(
     let snapshot_json = serde_json::to_string_pretty(snapshot)
         .context("failed to serialize live worker snapshot")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
+    let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
         r#"You are the Mixmod supervisor inspecting a worker turn while it is still running.
-Do not edit files. Do not run tests. Do not ask the user for approval.
+{worktree_policy}
+Do not run tests. Do not ask the user for approval.
 {worker_guidance}
 Return only JSON matching this schema:
 {{"action":"wait|interrupt_continue|interrupt_context_focus|stop","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
@@ -314,7 +332,7 @@ Use wait when the worker is making useful progress or when the evidence is ambig
 Use interrupt_continue to stop the current worker process and resume the same worker session with a sharper instruction.
 Use interrupt_context_focus to stop the current worker process and start a fresh worker session on the same worktree. Prefer this after context overflow, repeated no-delta rereading, or stale/harmful worker context.
 Use stop only when the worker loop is clearly blocked and another worker turn is unlikely to help.
-Do not solve the task yourself. Your job is process control: decide whether to keep waiting or steer the worker.
+Do not solve the task yourself by editing source. Your job is process control: decide whether to keep waiting or steer the worker.
 The worker can read and edit only the working repo. It cannot read Mixmod task, state, log, or artifact paths.
 Do not mention worker-task.json, revision task files, /tmp/mixmod*, /tmp/mixmod-state, or artifact/log paths in message_to_worker or focus_files.
 Put only repo source/test paths in focus_files. If you interrupt, restate the next repo edit directly instead of telling the worker to inspect a task or artifact file.
@@ -332,7 +350,8 @@ Live worker snapshot:
 {snapshot_json}
 ```
 "#,
-        work_dir = work_dir.display()
+        work_dir = work_dir.display(),
+        worktree_policy = worktree_policy
     ))
 }
 
@@ -346,9 +365,11 @@ pub(crate) fn supervisor_feedback_repair_prompt(
     let previous = serde_json::to_string_pretty(previous_feedback)
         .context("failed to serialize previous supervisor feedback for repair prompt")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
+    let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
         r#"You are revising your Mixmod supervisor revision decision before the worker sees it.
-Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
+{worktree_policy}
+Do not run tests. Emit minified JSON only; no markdown and no explanation.
 Your previous revision decision did not fit the selected worker profile. The selected worker needs a smaller, patch-first revision slice than the previous feedback provided.
 Mixmod is not designing a replacement slice for you. You are responsible for adapting the decision to the worker-model guidance below.
 Inspect the listed artifact files directly when you need evidence. This prompt lists artifact paths and roles, not artifact contents.
@@ -387,6 +408,7 @@ Artifact index:
 {artifact_index}
 "#,
         work_dir = work_dir.display(),
+        worktree_policy = worktree_policy,
     ))
 }
 
@@ -404,9 +426,11 @@ pub(crate) fn supervisor_feedback_repair_retry_prompt(
     let rejected = serde_json::to_string_pretty(rejected_repair)
         .context("failed to serialize rejected supervisor feedback repair")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
+    let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
         r#"You are retrying your Mixmod supervisor revision decision.
-Do not edit files. Do not run tests. Emit minified JSON only; no markdown and no explanation.
+{worktree_policy}
+Do not run tests. Emit minified JSON only; no markdown and no explanation.
 The previous repair still did not fit the selected worker profile: {rejection_reason}
 Mixmod is not designing a replacement slice for you. You are responsible for adapting the decision to the worker-model guidance below.
 Inspect the listed artifact files directly when you need evidence. This prompt lists artifact paths and roles, not artifact contents.
@@ -445,6 +469,7 @@ Artifact index:
 {artifact_index}
 "#,
         work_dir = work_dir.display(),
+        worktree_policy = worktree_policy,
     ))
 }
 
@@ -549,10 +574,11 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
 - On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
 - Revise when a useful worker path remains; message_to_worker must be concrete and worker-executable.
 - Stop only for a blocked or inconclusive worker result when no useful worker path remains.
-- The worker owns editing. Do not implement code or solve by editing files.
+- The worker owns implementation. Do not author task-solving source changes.
 - Put only repo source/test paths in focus_files. Do not ask the worker to inspect Mixmod artifacts.
 - worker_mode=continue reuses the current worker session; worker_mode=context_focus starts a fresh worker session on the same worktree.
-- Use patch_decision=revise_previous only when checkpoint artifacts support restoring a previous candidate."#
+- Use patch_decision=revise_previous only when checkpoint artifacts support restoring a previous candidate.
+- Prefer patch_decision for rollback control; use direct git restore/apply only for state management, not to create a solution patch."#
     )
 }
 

@@ -104,7 +104,7 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
 }
 
 #[test]
-fn investigative_worker_brief_prompt_allows_read_only_file_pass() {
+fn investigative_worker_brief_prompt_allows_repo_investigation_pass() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("task.json");
@@ -127,8 +127,10 @@ fn investigative_worker_brief_prompt_allows_read_only_file_pass() {
     )
     .unwrap();
 
-    assert!(prompt.contains("read-only repo investigation"));
+    assert!(prompt.contains("repo investigation"));
+    assert!(prompt.contains("Workspace access is for supervision, not implementation"));
     assert!(prompt.contains("rg"));
+    assert!(prompt.contains("git status"));
     assert!(prompt.contains("target <=500 output tokens"));
     assert!(prompt.contains("investigation_summary"));
     assert!(prompt.contains("edit_plan"));

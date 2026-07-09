@@ -90,7 +90,7 @@ pub enum SupervisorInitMode {
     #[default]
     #[value(name = "compact")]
     Compact,
-    /// Let the supervisor inspect files read-only and pass focused findings to the worker.
+    /// Let the supervisor inspect repo state and pass focused findings to the worker.
     #[value(name = "investigate")]
     Investigate,
 }

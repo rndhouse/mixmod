@@ -548,11 +548,18 @@ fn model_overrides_reject_invalid_supervisor_effort() {
 }
 
 #[test]
-fn codex_supervision_turns_use_read_only_app_server_policy() {
-    let policy = CodexSandbox::ReadOnly.as_turn_policy(Path::new("/tmp/work"));
+fn codex_supervision_turns_use_workspace_write_app_server_policy() {
+    let policy = CodexSandbox::WorkspaceWrite.as_turn_policy(Path::new("/tmp/work"));
 
-    assert_eq!(CodexSandbox::ReadOnly.as_thread_arg(), "read-only");
-    assert_eq!(get_str(&policy, "type"), Some("readOnly"));
+    assert_eq!(
+        CodexSandbox::WorkspaceWrite.as_thread_arg(),
+        "workspace-write"
+    );
+    assert_eq!(get_str(&policy, "type"), Some("workspaceWrite"));
+    assert_eq!(
+        get_string_array(&policy, "writableRoots"),
+        vec!["/tmp/work"]
+    );
     assert_eq!(get_bool(&policy, "networkAccess"), Some(false));
 }
 
