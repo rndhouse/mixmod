@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
-use crate::harness::opencode::control::tail_text;
 use crate::harness::{AgentRequest, LiveWorkerSnapshot};
 use crate::worker_telemetry::llama_server;
 use crate::{
@@ -44,6 +43,8 @@ pub(super) fn build_live_worker_snapshot(
     let segment_stdout = &stdout[segment_start..];
     Ok(LiveWorkerSnapshot {
         out_dir: input.out_dir.to_string_lossy().to_string(),
+        stdout_log_path: input.stdout_path.to_string_lossy().to_string(),
+        stderr_log_path: input.stderr_path.to_string_lossy().to_string(),
         tool_events_path: input.tool_events_path.to_string_lossy().to_string(),
         mode: input.request.mode.to_string(),
         task_path: input.request.task_path.to_string_lossy().to_string(),
@@ -66,8 +67,6 @@ pub(super) fn build_live_worker_snapshot(
         context_overflow_count: count_context_overflow(segment_stdout),
         worker_session_token_peak: worker_session_token_peak(segment_stdout),
         worker_backend_telemetry: llama_server::collect_for_opencode_worker(input.worker_provider),
-        stdout_tail: tail_text(input.stdout_path, 6000),
-        stderr_tail: tail_text(input.stderr_path, 2000),
     })
 }
 

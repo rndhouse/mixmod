@@ -138,10 +138,6 @@ pub struct LiveSupervisionConfig {
     pub stale_after_seconds: u64,
     /// Maximum live supervisor checks per worker run.
     pub max_checks_per_worker: u64,
-    /// Maximum stdout bytes exposed to a live supervisor check.
-    pub stdout_tail_bytes: usize,
-    /// Maximum stderr bytes exposed to a live supervisor check.
-    pub stderr_tail_bytes: usize,
 }
 
 impl Default for LiveSupervisionConfig {
@@ -152,8 +148,6 @@ impl Default for LiveSupervisionConfig {
             check_interval_seconds: 120,
             stale_after_seconds: 90,
             max_checks_per_worker: 3,
-            stdout_tail_bytes: 6000,
-            stderr_tail_bytes: 2000,
         }
     }
 }

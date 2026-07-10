@@ -154,6 +154,12 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
     let snapshot = LiveWorkerSnapshot {
         out_dir: "/tmp/mixmod-state/projects/app/runs/run-1/worker-runs/proposal".to_string(),
         task_path: "/tmp/mixmod-state/projects/app/runs/run-1/worker-task.json".to_string(),
+        stdout_log_path:
+            "/tmp/mixmod-state/projects/app/runs/run-1/worker-runs/proposal/logs/opencode.stdout.txt"
+                .to_string(),
+        stderr_log_path:
+            "/tmp/mixmod-state/projects/app/runs/run-1/worker-runs/proposal/logs/opencode.stderr.txt"
+                .to_string(),
         tool_events_path:
             "/tmp/mixmod-state/projects/app/runs/run-1/worker-runs/proposal/tool-events.jsonl"
                 .to_string(),
@@ -197,13 +203,19 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
     assert!(prompt.contains("worker_backend_telemetry"));
     assert!(prompt.contains("tokens_max_observed"));
     assert!(prompt.contains("27142"));
+    assert!(prompt.contains("stdout_log_path"));
+    assert!(prompt.contains("stderr_log_path"));
+    assert!(prompt.contains("opencode.stdout.txt"));
+    assert!(prompt.contains("opencode.stderr.txt"));
     assert!(prompt.contains("tool_events_path"));
     assert!(prompt.contains("tool-events.jsonl"));
-    assert!(prompt.contains("If you need detailed tool-call history"));
+    assert!(prompt.contains("If you need detailed stdout, stderr, or tool-call history"));
     assert!(prompt.contains("Do not invent a different cleanup, bug, or objective"));
     assert!(prompt.contains("abort_worker_turn"));
     assert!(!prompt.contains("worker_context_pressure"));
     assert!(!prompt.contains("prefer an interrupt"));
+    assert!(!prompt.contains("stdout_tail"));
+    assert!(!prompt.contains("stderr_tail"));
     assert!(!prompt.contains("recent_tool_events"));
     assert!(!prompt.contains("Prefer this after"));
     assert!(!prompt.contains("prefer interrupt_context_focus"));

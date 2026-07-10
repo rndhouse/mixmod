@@ -334,15 +334,15 @@ Available actions:
 - interrupt_context_focus: stop the current worker process and start a fresh worker session on the same worktree with a focused instruction.
 - abort_worker_turn: stop only the active worker process and return to the ordinary supervisor review.
 Base the action on the live evidence. Do not assume an intervention is required because a risk signal is present.
-Use new_delta_bytes, stdout_tail, tool_events_path, context_overflow_count, worker_session_token_peak, worker_backend_telemetry, elapsed time, and last output age only as evidence for worker progress, confusion, or blockage.
-If you need detailed tool-call history, inspect tool_events_path yourself. Do not pass that artifact path to the worker.
+Use new_delta_bytes, stdout_log_path, stderr_log_path, tool_events_path, context_overflow_count, worker_session_token_peak, worker_backend_telemetry, elapsed time, and last output age only as evidence for worker progress, confusion, or blockage.
+If you need detailed stdout, stderr, or tool-call history, inspect stdout_log_path, stderr_log_path, or tool_events_path yourself. Do not pass those artifact paths to the worker.
 If you interrupt, keep message_to_worker bounded to worker_instruction_excerpt, the live evidence, and the selected worker guidance. For small_patch_slice workers, keep any interrupt patch-first: one repo file, one concrete source edit, deferred checks, and no broad feature instruction.
 Do not solve the task yourself by editing source. Your job is process control: decide whether to keep waiting, interrupt, or abort the worker turn.
 The worker can read and edit only the working repo. It cannot read Mixmod task, state, log, or artifact paths.
 Do not mention worker-task.json, revision task files, /tmp/mixmod*, /tmp/mixmod-state, or artifact/log paths in message_to_worker or focus_files.
 Put only repo source/test paths in focus_files. If you interrupt, restate the next repo edit directly instead of telling the worker to inspect a task or artifact file.
 Keep every intervention anchored to worker_instruction_excerpt, which is the current worker task.
-Do not invent a different cleanup, bug, or objective from code snippets in stdout_tail or tool event artifacts.
+Do not invent a different cleanup, bug, or objective from log or tool event artifacts.
 Working repo: {work_dir}
 
 Live worker snapshot:

@@ -92,10 +92,6 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
         let mut bounded_snapshot = snapshot_for_live_supervisor_prompt(snapshot);
         bounded_snapshot.live_control_check_index = check_index;
         bounded_snapshot.live_control_check_limit = self.config.max_checks_per_worker;
-        bounded_snapshot.stdout_tail =
-            truncate_for_report(&bounded_snapshot.stdout_tail, self.config.stdout_tail_bytes);
-        bounded_snapshot.stderr_tail =
-            truncate_for_report(&bounded_snapshot.stderr_tail, self.config.stderr_tail_bytes);
         let prompt = supervisor_live_control_prompt(
             &self.work_dir,
             &bounded_snapshot,
@@ -166,6 +162,8 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
                 "worker_backend_telemetry": bounded_snapshot.worker_backend_telemetry,
                 "live_control_check_index": bounded_snapshot.live_control_check_index,
                 "live_control_check_limit": bounded_snapshot.live_control_check_limit,
+                "stdout_log_path": bounded_snapshot.stdout_log_path,
+                "stderr_log_path": bounded_snapshot.stderr_log_path,
                 "tool_events_path": bounded_snapshot.tool_events_path,
             },
             "codex_exit_status": result.exit_status,
