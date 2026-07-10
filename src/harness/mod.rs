@@ -92,10 +92,6 @@ pub struct LiveWorkerSnapshot {
     pub stderr_bytes: u64,
     /// Milliseconds since the worker last emitted stdout or stderr.
     pub last_output_age_ms: u64,
-    /// Whether GPU activity has been observed by local verification.
-    pub gpu_activity_observed: bool,
-    /// Whether the configured backend endpoint appears active.
-    pub backend_activity_observed: bool,
     /// Current repository diff size relative to the start of this worker run.
     pub new_delta_bytes: u64,
     /// Files touched by the current repository diff relative to this worker run.

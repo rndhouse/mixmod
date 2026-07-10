@@ -305,8 +305,6 @@ impl LocalVerificationRun<'_> {
                         stdout_bytes: stdout_bytes.load(Ordering::Relaxed),
                         stderr_bytes: stderr_bytes.load(Ordering::Relaxed),
                         last_output_age,
-                        gpu_activity_observed: gpu_activity_seen,
-                        backend_activity_observed: backend_activity_seen,
                     }) {
                         Ok(snapshot) => match advisor.advise(&snapshot) {
                             Ok(Some(control)) => {

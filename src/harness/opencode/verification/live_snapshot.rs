@@ -31,8 +31,6 @@ pub(super) struct LiveWorkerSnapshotInput<'a> {
     pub(super) stdout_bytes: u64,
     pub(super) stderr_bytes: u64,
     pub(super) last_output_age: u64,
-    pub(super) gpu_activity_observed: bool,
-    pub(super) backend_activity_observed: bool,
 }
 
 pub(super) fn build_live_worker_snapshot(
@@ -62,8 +60,6 @@ pub(super) fn build_live_worker_snapshot(
         stdout_bytes: input.stdout_bytes,
         stderr_bytes: input.stderr_bytes,
         last_output_age_ms: input.last_output_age,
-        gpu_activity_observed: input.gpu_activity_observed,
-        backend_activity_observed: input.backend_activity_observed,
         new_delta_bytes: new_delta.len() as u64,
         new_delta_files: stats.files,
         new_delta_changed_line_count: stats.changed_line_count,
