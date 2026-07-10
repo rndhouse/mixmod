@@ -106,8 +106,8 @@ pub struct LiveWorkerSnapshot {
     pub worker_session_token_peak: Option<u64>,
     /// Raw backend telemetry from the worker inference server, when available.
     pub worker_backend_telemetry: Option<WorkerBackendTelemetry>,
-    /// Recent compact tool events from structured worker stdout.
-    pub recent_tool_events: Vec<String>,
+    /// Live-updated JSONL artifact containing structured worker tool-call events.
+    pub tool_events_path: String,
     /// Bounded tail of worker stdout.
     pub stdout_tail: String,
     /// Bounded tail of worker stderr.

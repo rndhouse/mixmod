@@ -20,7 +20,7 @@ pub(crate) use report::build_run_summary;
 #[cfg(test)]
 pub(crate) use report::opencode_exit_status_label;
 use report::{RunReportInput, build_run_report};
-use session::{build_reasoning_trace_jsonl, build_session_jsonl, build_tool_events_jsonl};
+use session::{build_reasoning_trace_jsonl, build_session_jsonl};
 
 pub fn run_mixmod_task(
     root: &Path,

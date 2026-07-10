@@ -3,20 +3,19 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use serde_json::Value;
 
+use crate::harness::opencode::control::tail_text;
 use crate::harness::{AgentRequest, LiveWorkerSnapshot};
 use crate::worker_telemetry::llama_server;
 use crate::{
-    diff_without_unchanged_blocks, get_str, git_diff_with_untracked, patch_stats,
-    truncate_for_report, worker_session_token_peak,
+    diff_without_unchanged_blocks, git_diff_with_untracked, patch_stats, truncate_for_report,
+    worker_session_token_peak,
 };
-
-use crate::harness::opencode::control::tail_text;
 
 pub(super) struct LiveWorkerSnapshotInput<'a> {
     pub(super) request: &'a AgentRequest,
     pub(super) out_dir: &'a Path,
+    pub(super) tool_events_path: &'a Path,
     pub(super) stdout_path: &'a Path,
     pub(super) stderr_path: &'a Path,
     pub(super) baseline_diff: &'a str,
@@ -43,9 +42,9 @@ pub(super) fn build_live_worker_snapshot(
     let stdout = fs::read(input.stdout_path).unwrap_or_default();
     let segment_start = (input.segment_stdout_start as usize).min(stdout.len());
     let segment_stdout = &stdout[segment_start..];
-    let recent_tool_events = recent_tool_events(segment_stdout);
     Ok(LiveWorkerSnapshot {
         out_dir: input.out_dir.to_string_lossy().to_string(),
+        tool_events_path: input.tool_events_path.to_string_lossy().to_string(),
         mode: input.request.mode.to_string(),
         task_path: input.request.task_path.to_string_lossy().to_string(),
         session_label: input.segment_label.to_string(),
@@ -67,7 +66,6 @@ pub(super) fn build_live_worker_snapshot(
         context_overflow_count: count_context_overflow(segment_stdout),
         worker_session_token_peak: worker_session_token_peak(segment_stdout),
         worker_backend_telemetry: llama_server::collect_for_opencode_worker(input.worker_provider),
-        recent_tool_events,
         stdout_tail: tail_text(input.stdout_path, 6000),
         stderr_tail: tail_text(input.stderr_path, 2000),
     })
@@ -75,59 +73,6 @@ pub(super) fn build_live_worker_snapshot(
 
 fn millis_u64(duration: Duration) -> u64 {
     duration.as_millis().try_into().unwrap_or(u64::MAX)
-}
-
-fn recent_tool_events(stdout: &[u8]) -> Vec<String> {
-    let mut recent = Vec::new();
-    let text = String::from_utf8_lossy(stdout);
-    for line in text.lines() {
-        let Ok(event) = serde_json::from_str::<Value>(line.trim()) else {
-            continue;
-        };
-        if get_str(&event, "type") != Some("tool_use") {
-            continue;
-        }
-        let tool = event
-            .pointer("/part/tool")
-            .and_then(Value::as_str)
-            .unwrap_or("?");
-        let input = tool_input_summary(&event);
-        let status = event
-            .pointer("/part/state/status")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let event_summary = if status.is_empty() {
-            format!("{tool}: {input}")
-        } else {
-            format!("{tool}: {input} => {status}")
-        };
-        recent.push(event_summary);
-        if recent.len() > 20 {
-            recent.remove(0);
-        }
-    }
-    recent
-}
-
-fn tool_input_summary(event: &Value) -> String {
-    let value = event
-        .pointer("/part/state/input/filePath")
-        .or_else(|| event.pointer("/part/state/input/pattern"))
-        .or_else(|| event.pointer("/part/state/input/path"))
-        .or_else(|| event.pointer("/part/state/input/command"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    truncate_tool_input(value)
-}
-
-fn truncate_tool_input(value: &str) -> String {
-    let value = value.trim().replace('\n', " ");
-    if value.chars().count() <= 180 {
-        return value;
-    }
-    let mut truncated = value.chars().take(180).collect::<String>();
-    truncated.push_str("...");
-    truncated
 }
 
 fn count_context_overflow(stdout: &[u8]) -> u64 {

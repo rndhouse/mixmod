@@ -12,8 +12,9 @@ use serde_json::json;
 use crate::harness::AgentRequest;
 use crate::{
     LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OpenCodeConfig, SUPERVISOR_CONTROL_FILE,
-    SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, append_file, append_jsonl, atomic_write,
-    env_u64, get_str, get_string_array, git_diff_with_untracked, write_pretty_json,
+    SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, TOOL_EVENTS_JSONL, append_file, append_jsonl,
+    atomic_write, build_tool_events_jsonl, env_u64, get_str, get_string_array,
+    git_diff_with_untracked, write_pretty_json,
 };
 
 use crate::harness::opencode::args::{prepare_opencode_control_args, redact_runtime_opencode_arg};
@@ -92,10 +93,12 @@ impl LocalVerificationRun<'_> {
         let live_status_path = out_dir.join(LIVE_STATUS_FILE);
         let supervisor_control_path = out_dir.join(SUPERVISOR_CONTROL_FILE);
         let supervisor_control_log_path = out_dir.join(SUPERVISOR_CONTROL_LOG);
+        let tool_events_path = out_dir.join(TOOL_EVENTS_JSONL);
         atomic_write(&stdout_path, b"")?;
         atomic_write(&stderr_path, b"")?;
         atomic_write(&heartbeat_path, b"")?;
         atomic_write(&supervisor_control_log_path, b"")?;
+        atomic_write(&tool_events_path, b"")?;
         let _ = fs::remove_file(&supervisor_control_path);
 
         let before_gpu = if verification_config.enabled {
@@ -288,9 +291,17 @@ impl LocalVerificationRun<'_> {
                 if !supervisor_control_path.exists()
                     && let Some(advisor) = request.supervisor_advisor.as_ref()
                 {
+                    let stdout = fs::read(&stdout_path).unwrap_or_default();
+                    match build_tool_events_jsonl(&stdout) {
+                        Ok((events, _count)) => atomic_write(&tool_events_path, events.as_bytes())?,
+                        Err(error) => {
+                            notes.push(format!("Unable to update live tool events: {error}"))
+                        }
+                    }
                     match build_live_worker_snapshot(LiveWorkerSnapshotInput {
                         request,
                         out_dir,
+                        tool_events_path: &tool_events_path,
                         stdout_path: &stdout_path,
                         stderr_path: &stderr_path,
                         baseline_diff: &live_supervision_baseline_diff,

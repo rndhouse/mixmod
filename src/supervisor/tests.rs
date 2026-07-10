@@ -154,6 +154,9 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
     let snapshot = LiveWorkerSnapshot {
         out_dir: "/tmp/mixmod-state/projects/app/runs/run-1/worker-runs/proposal".to_string(),
         task_path: "/tmp/mixmod-state/projects/app/runs/run-1/worker-task.json".to_string(),
+        tool_events_path:
+            "/tmp/mixmod-state/projects/app/runs/run-1/worker-runs/proposal/tool-events.jsonl"
+                .to_string(),
         worker_instruction_excerpt:
             "Original task instructions: Add a flatten option to field_options.".to_string(),
         live_control_check_index: 3,
@@ -194,13 +197,18 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
     assert!(prompt.contains("worker_backend_telemetry"));
     assert!(prompt.contains("tokens_max_observed"));
     assert!(prompt.contains("27142"));
+    assert!(prompt.contains("tool_events_path"));
+    assert!(prompt.contains("tool-events.jsonl"));
+    assert!(prompt.contains("If you need detailed tool-call history"));
     assert!(prompt.contains("Do not invent a different cleanup, bug, or objective"));
     assert!(prompt.contains("abort_worker_turn"));
     assert!(!prompt.contains("worker_context_pressure"));
     assert!(!prompt.contains("prefer an interrupt"));
+    assert!(!prompt.contains("recent_tool_events"));
     assert!(!prompt.contains("Prefer this after"));
     assert!(!prompt.contains("prefer interrupt_context_focus"));
-    assert!(!prompt.contains("/tmp/mixmod-state/projects/app/runs/run-1"));
+    assert!(!prompt.contains("\"out_dir\": \"/tmp/mixmod-state"));
+    assert!(!prompt.contains("\"task_path\": \"/tmp/mixmod-state"));
     assert!(prompt.contains("[redacted: Mixmod artifact directory]"));
     assert!(prompt.contains("[redacted: Mixmod worker task artifact]"));
 }

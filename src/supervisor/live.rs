@@ -166,7 +166,7 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
                 "worker_backend_telemetry": bounded_snapshot.worker_backend_telemetry,
                 "live_control_check_index": bounded_snapshot.live_control_check_index,
                 "live_control_check_limit": bounded_snapshot.live_control_check_limit,
-                "recent_tool_events": bounded_snapshot.recent_tool_events,
+                "tool_events_path": bounded_snapshot.tool_events_path,
             },
             "codex_exit_status": result.exit_status,
             "supervisor_model": result.model.clone(),

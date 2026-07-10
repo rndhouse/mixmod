@@ -34,6 +34,7 @@ mod supervisor;
 mod task;
 #[cfg(test)]
 mod tests;
+mod tool_events;
 mod worker;
 mod worker_telemetry;
 
@@ -132,6 +133,7 @@ pub(crate) use supervisor::{
     normalize_feedback_value, supervisor_feedback_prompt, supervisor_feedback_repair_prompt,
     supervisor_worker_brief_prompt,
 };
+pub(crate) use tool_events::build_tool_events_jsonl;
 pub use worker::WorkerModelProfile;
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
 pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};
