@@ -148,7 +148,6 @@ enabled = true
 min_elapsed_seconds = 120
 check_interval_seconds = 120
 stale_after_seconds = 90
-repeated_read_threshold = 4
 max_checks_per_worker = 3
 stdout_tail_bytes = 6000
 stderr_tail_bytes = 2000

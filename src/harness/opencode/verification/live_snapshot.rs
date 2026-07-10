@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -44,7 +43,7 @@ pub(super) fn build_live_worker_snapshot(
     let stdout = fs::read(input.stdout_path).unwrap_or_default();
     let segment_start = (input.segment_stdout_start as usize).min(stdout.len());
     let segment_stdout = &stdout[segment_start..];
-    let tool_activity = summarize_live_tool_activity(segment_stdout);
+    let recent_tool_events = recent_tool_events(segment_stdout);
     Ok(LiveWorkerSnapshot {
         out_dir: input.out_dir.to_string_lossy().to_string(),
         mode: input.request.mode.to_string(),
@@ -68,9 +67,7 @@ pub(super) fn build_live_worker_snapshot(
         context_overflow_count: count_context_overflow(segment_stdout),
         worker_session_token_peak: worker_session_token_peak(segment_stdout),
         worker_backend_telemetry: llama_server::collect_for_opencode_worker(input.worker_provider),
-        repeated_read_signature: tool_activity.repeated_read_signature,
-        repeated_read_count: tool_activity.repeated_read_count,
-        recent_tool_events: tool_activity.recent_tool_events,
+        recent_tool_events,
         stdout_tail: tail_text(input.stdout_path, 6000),
         stderr_tail: tail_text(input.stderr_path, 2000),
     })
@@ -80,15 +77,7 @@ fn millis_u64(duration: Duration) -> u64 {
     duration.as_millis().try_into().unwrap_or(u64::MAX)
 }
 
-#[derive(Debug, Default)]
-struct LiveToolActivity {
-    repeated_read_signature: Option<String>,
-    repeated_read_count: u64,
-    recent_tool_events: Vec<String>,
-}
-
-fn summarize_live_tool_activity(stdout: &[u8]) -> LiveToolActivity {
-    let mut counts = BTreeMap::<String, u64>::new();
+fn recent_tool_events(stdout: &[u8]) -> Vec<String> {
     let mut recent = Vec::new();
     let text = String::from_utf8_lossy(stdout);
     for line in text.lines() {
@@ -116,22 +105,8 @@ fn summarize_live_tool_activity(stdout: &[u8]) -> LiveToolActivity {
         if recent.len() > 20 {
             recent.remove(0);
         }
-        if is_read_like_tool(tool) {
-            *counts.entry(format!("{tool}: {input}")).or_default() += 1;
-        }
     }
-
-    let (repeated_read_signature, repeated_read_count) = counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(signature, count)| (Some(signature), count))
-        .unwrap_or((None, 0));
-
-    LiveToolActivity {
-        repeated_read_signature,
-        repeated_read_count,
-        recent_tool_events: recent,
-    }
+    recent
 }
 
 fn tool_input_summary(event: &Value) -> String {
@@ -153,10 +128,6 @@ fn truncate_tool_input(value: &str) -> String {
     let mut truncated = value.chars().take(180).collect::<String>();
     truncated.push_str("...");
     truncated
-}
-
-fn is_read_like_tool(tool: &str) -> bool {
-    matches!(tool, "read" | "grep" | "glob" | "list")
 }
 
 fn count_context_overflow(stdout: &[u8]) -> u64 {

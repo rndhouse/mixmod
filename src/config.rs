@@ -136,8 +136,6 @@ pub struct LiveSupervisionConfig {
     pub check_interval_seconds: u64,
     /// Last-output age that makes a quiet worker eligible for inspection.
     pub stale_after_seconds: u64,
-    /// Repeated read/search count that makes a worker eligible for inspection.
-    pub repeated_read_threshold: u64,
     /// Maximum live supervisor checks per worker run.
     pub max_checks_per_worker: u64,
     /// Maximum stdout bytes exposed to a live supervisor check.
@@ -153,7 +151,6 @@ impl Default for LiveSupervisionConfig {
             min_elapsed_seconds: 120,
             check_interval_seconds: 120,
             stale_after_seconds: 90,
-            repeated_read_threshold: 4,
             max_checks_per_worker: 3,
             stdout_tail_bytes: 6000,
             stderr_tail_bytes: 2000,

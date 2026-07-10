@@ -106,10 +106,6 @@ pub struct LiveWorkerSnapshot {
     pub worker_session_token_peak: Option<u64>,
     /// Raw backend telemetry from the worker inference server, when available.
     pub worker_backend_telemetry: Option<WorkerBackendTelemetry>,
-    /// Most repeated read/search-like tool signature observed in this segment.
-    pub repeated_read_signature: Option<String>,
-    /// Count for the most repeated read/search-like tool signature.
-    pub repeated_read_count: u64,
     /// Recent compact tool events from structured worker stdout.
     pub recent_tool_events: Vec<String>,
     /// Bounded tail of worker stdout.

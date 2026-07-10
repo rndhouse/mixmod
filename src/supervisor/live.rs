@@ -164,8 +164,6 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
                 "context_overflow_count": bounded_snapshot.context_overflow_count,
                 "worker_session_token_peak": bounded_snapshot.worker_session_token_peak,
                 "worker_backend_telemetry": bounded_snapshot.worker_backend_telemetry,
-                "repeated_read_signature": bounded_snapshot.repeated_read_signature,
-                "repeated_read_count": bounded_snapshot.repeated_read_count,
                 "live_control_check_index": bounded_snapshot.live_control_check_index,
                 "live_control_check_limit": bounded_snapshot.live_control_check_limit,
                 "recent_tool_events": bounded_snapshot.recent_tool_events,
@@ -340,10 +338,5 @@ pub(super) fn live_supervision_snapshot_should_check(
     let stale_with_output = snapshot.last_output_age_ms
         >= config.stale_after_seconds.saturating_mul(1000)
         && snapshot.stdout_bytes > 0;
-    if snapshot.repeated_read_count >= config.repeated_read_threshold
-        && (snapshot.new_delta_bytes == 0 || stale_with_output)
-    {
-        return true;
-    }
     stale_with_output
 }
