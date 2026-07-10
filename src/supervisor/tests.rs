@@ -187,8 +187,14 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
 
     assert!(prompt.contains("It cannot read Mixmod task, state, log, or artifact paths"));
     assert!(prompt.contains("Original task instructions: Add a flatten option"));
+    assert!(prompt.contains("Available actions:"));
+    assert!(prompt.contains("Base the action on the live evidence"));
+    assert!(prompt.contains("Do not assume an intervention is required"));
     assert!(prompt.contains("Do not invent a different cleanup, bug, or objective"));
     assert!(prompt.contains("abort_worker_turn"));
+    assert!(!prompt.contains("prefer an interrupt"));
+    assert!(!prompt.contains("Prefer this after"));
+    assert!(!prompt.contains("prefer interrupt_context_focus"));
     assert!(!prompt.contains("/tmp/mixmod-state/projects/app/runs/run-1"));
     assert!(prompt.contains("[redacted: Mixmod artifact directory]"));
     assert!(prompt.contains("[redacted: Mixmod worker task artifact]"));
