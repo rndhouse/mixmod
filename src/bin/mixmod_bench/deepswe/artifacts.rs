@@ -310,6 +310,7 @@ fn worker_runs(worker_root: &Path) -> Result<Vec<Value>> {
         .map(|worker_dir| {
             let mut artifact_sizes = BTreeMap::new();
             for name in [
+                "opencode-instructions.md",
                 "reasoning-trace.jsonl",
                 "tool-events.jsonl",
                 "report.md",
@@ -558,6 +559,11 @@ mod tests {
             "thinking\n",
         )
         .unwrap();
+        fs::write(
+            trial_dir.join("agent/worker-runs/proposal/opencode-instructions.md"),
+            "rendered prompt\n",
+        )
+        .unwrap();
         fs::write(trial_dir.join("artifacts/model.patch"), "diff\n").unwrap();
 
         let bundles = normalize_pier_job(&pool, &job_dir, &[]).unwrap();
@@ -565,7 +571,17 @@ mod tests {
         let bundle_dir = pool.join("tasks/mashumaro-flattened-dataclass-fields");
         assert!(bundle_dir.join("artifact-manifest.json").exists());
         assert!(bundle_dir.join("agent/supervisor-feedback.jsonl").exists());
+        assert!(
+            bundle_dir
+                .join("agent/worker-runs/proposal/opencode-instructions.md")
+                .exists()
+        );
         assert!(bundle_dir.join("artifacts/model.patch").exists());
+        let manifest = load_json(&bundle_dir.join("artifact-manifest.json"));
+        assert_eq!(
+            manifest["worker_runs"][0]["artifact_sizes"]["opencode-instructions.md"],
+            json!(16)
+        );
         assert!(pool.join("artifact-bundles.json").exists());
         assert_eq!(
             fs::read_to_string(pool.parent().unwrap().join("latest.txt")).unwrap(),

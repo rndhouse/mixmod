@@ -37,6 +37,7 @@ fn run_writes_full_artifact_bundle() {
     for artifact in [
         "receipt.json",
         "task.json",
+        "opencode-instructions.md",
         "report.md",
         "session.jsonl",
         "reasoning-trace.jsonl",

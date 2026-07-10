@@ -325,7 +325,9 @@ if worker_root.exists():
         target = agent_dir / "worker-runs" / worker_dir.relative_to(worker_root)
         target.mkdir(parents=True, exist_ok=True)
         for name in [
+            "opencode-instructions.md",
             "reasoning-trace.jsonl",
+            "tool-events.jsonl",
             "report.md",
             "metrics.json",
             "changes.patch",
