@@ -69,6 +69,68 @@ fn revision_task_preserves_codex_focus_files() {
 }
 
 #[test]
+fn inspect_revision_role_does_not_expect_delta() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": ["checkout.py"],
+  "tests": ["python -m unittest -q"],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "context_focus".to_string(),
+        patch_decision: "revise_current".to_string(),
+        hint: "Find the checkout total path and the narrowest focused test.".to_string(),
+        revision_handoff: RevisionHandoff {
+            worker_role: Some("inspect".to_string()),
+            turn_goal: Some("trace checkout total behavior".to_string()),
+            ..RevisionHandoff::default()
+        },
+        focus_files: vec!["checkout.py".to_string(), "test_checkout.py".to_string()],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 1).unwrap();
+    let revision = read_json_file(&path).unwrap();
+
+    assert_eq!(get_bool(&revision, "expect_patch"), Some(false));
+    assert_eq!(get_string_array(&revision, "tests"), Vec::<String>::new());
+    assert_eq!(get_bool(&revision["context"], "expect_patch"), Some(false));
+    assert_eq!(
+        get_bool(&revision["context"]["revision"], "delta_expected"),
+        Some(false)
+    );
+    assert_eq!(
+        get_str(&revision["context"]["revision"], "worker_role"),
+        Some("inspect")
+    );
+    let instructions = get_str(&revision, "instructions").unwrap();
+    assert!(instructions.contains("Worker role: inspect"));
+    assert!(instructions.contains("Expected repository patch: no"));
+    assert!(instructions.contains("Do not modify repository files."));
+}
+
+#[test]
 fn context_focus_revision_task_uses_focused_prompt() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -195,6 +257,7 @@ fn small_patch_slice_revision_task_preserves_explicit_supervisor_gate() {
         hint: "Add the nested item discount branch and one focused assertion.".to_string(),
         revision_handoff: RevisionHandoff {
             worker_turn_shape: Some("small_patch_slice".to_string()),
+            worker_role: Some("patch_slice".to_string()),
             turn_goal: Some("nested item discount branch".to_string()),
             exact_edits: vec![
                 "In checkout.py, add the branch that applies item discounts inside nested checkout items.".to_string(),

@@ -157,6 +157,7 @@ fn revision_handoff_from_supervisor_control(
     }
     RevisionHandoff {
         worker_turn_shape,
+        worker_role: get_str(control, "worker_role").map(ToOwned::to_owned),
         turn_goal: get_str(control, "turn_goal")
             .map(ToOwned::to_owned)
             .or_else(|| {

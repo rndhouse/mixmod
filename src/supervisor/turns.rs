@@ -522,10 +522,17 @@ pub(crate) fn run_supervisor_feedback_turn(
     }
     let worker_mode = normalize_worker_mode(typed_feedback.worker_mode.as_deref());
     let patch_decision = normalize_patch_decision(typed_feedback.patch_decision.as_deref());
-    let revision_handoff = RevisionHandoff::from_feedback(&typed_feedback);
+    let mut revision_handoff = RevisionHandoff::from_feedback(&typed_feedback);
+    if revision_handoff.worker_role.is_none() {
+        revision_handoff.worker_role = Some("patch_slice".to_string());
+    }
     if let Value::Object(map) = &mut parsed_feedback {
         map.insert("worker_mode".to_string(), json!(worker_mode.clone()));
         map.insert("patch_decision".to_string(), json!(patch_decision.clone()));
+        map.insert(
+            "worker_role".to_string(),
+            json!(revision_handoff.worker_role.clone().unwrap_or_default()),
+        );
     }
     let turn = SupervisorFeedbackTurn {
         verdict,

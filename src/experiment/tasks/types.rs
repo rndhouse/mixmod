@@ -16,6 +16,7 @@ pub(super) struct WorkerBriefTask<'a> {
 #[derive(Serialize)]
 pub(super) struct WorkerBriefTaskContext<'a> {
     pub(super) expect_patch: bool,
+    pub(super) worker_role: &'a str,
     pub(super) worker_brief: &'a Value,
 }
 
@@ -49,6 +50,7 @@ pub(super) struct RevisionTaskDetails<'a> {
     pub(super) worker_mode: &'a str,
     pub(super) patch_decision: &'a str,
     pub(super) worker_turn_shape: Option<&'a str>,
+    pub(super) worker_role: Option<&'a str>,
     pub(super) turn_goal: Option<&'a str>,
     pub(super) exact_edits: &'a [String],
     pub(super) edit_plan: &'a [String],

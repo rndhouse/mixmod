@@ -20,4 +20,6 @@ pub(crate) use prompts::{
     supervisor_worker_brief_prompt,
 };
 pub(crate) use turns::{run_supervisor_brief_turn, run_supervisor_feedback_turn};
-pub(crate) use types::{RevisionHandoff, SupervisorFeedbackTurn, aggregate_supervisor_usage};
+pub(crate) use types::{
+    RevisionHandoff, SupervisorFeedbackTurn, aggregate_supervisor_usage, worker_role_expects_patch,
+};

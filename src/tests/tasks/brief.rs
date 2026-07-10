@@ -339,9 +339,62 @@ fn focused_worker_brief_overrides_files_and_adds_supplemental_checks() {
             .contains(&"Avoid: broad refactor".to_string())
     );
     let instructions = get_str(&worker_task, "instructions").unwrap();
-    assert!(instructions.contains("Supervisor message to worker:"));
+    assert!(instructions.contains("Worker role: inspect"));
     assert!(instructions.contains("Preserve public return shapes."));
-    assert!(instructions.contains("Files:"));
+    assert!(instructions.contains("Relevant files:"));
+    assert!(instructions.contains("Do not modify repository files."));
+}
+
+#[test]
+fn inspect_worker_role_creates_no_patch_work_order() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Inspect handoff",
+  "instructions": "Fix the checkout bug.",
+  "files": ["catalog.py", "checkout.py"],
+  "tests": ["python -m unittest -q"],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "worker_role": "inspect",
+        "turn_goal": "Find where totals are computed and where discounts are tested.",
+        "files": ["checkout.py", "test_checkout.py"],
+        "success_criteria": "Return exact functions and line anchors."
+    });
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+
+    assert_eq!(get_bool(&worker_task, "expect_patch"), Some(false));
+    assert_eq!(
+        get_str(&worker_task["context"], "worker_role"),
+        Some("inspect")
+    );
+    assert_eq!(
+        get_string_array(&worker_task, "files"),
+        vec!["checkout.py", "test_checkout.py"]
+    );
+    assert_eq!(
+        get_string_array(&worker_task, "tests"),
+        Vec::<String>::new()
+    );
+    let constraints = get_string_array(&worker_task, "constraints");
+    assert!(constraints.contains(&"Do not edit repository files in this worker role.".to_string()));
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+    assert!(instructions.contains("Worker role: inspect"));
+    assert!(instructions.contains("Expected repository patch: no"));
+    assert!(instructions.contains("Do not modify repository files."));
+    assert!(instructions.contains("Return compact JSON"));
+    assert!(instructions.contains("Return exact functions and line anchors."));
 }
 
 #[test]

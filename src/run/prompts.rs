@@ -412,6 +412,7 @@ mod tests {
             message_to_worker: "Make one builder edit.".to_string(),
             revision_handoff: RevisionHandoff {
                 worker_turn_shape: Some("small_patch_slice".to_string()),
+                worker_role: Some("patch_slice".to_string()),
                 turn_goal: Some("first builder edit".to_string()),
                 exact_edits: vec![
                     "Edit builder.py around the packer loop only.".to_string(),

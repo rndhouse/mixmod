@@ -106,6 +106,7 @@ pub(crate) fn live_control(
         risk: risk.unwrap_or("").to_string(),
         source: "mixmod control send".to_string(),
         worker_turn_shape: None,
+        worker_role: Some("patch_slice".to_string()),
         turn_goal: None,
         exact_edits: Vec::new(),
         edit_plan: Vec::new(),

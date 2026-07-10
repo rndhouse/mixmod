@@ -127,6 +127,7 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
         let message_to_worker = sanitize_live_control_message(&raw_message_to_worker, &focus_files);
         let required_checks = get_string_array(&parsed, "required_checks");
         let worker_turn_shape = get_str(&parsed, "worker_turn_shape").map(ToOwned::to_owned);
+        let worker_role = get_str(&parsed, "worker_role").map(ToOwned::to_owned);
         let turn_goal = get_str(&parsed, "turn_goal").map(ToOwned::to_owned);
         let exact_edits = get_string_array(&parsed, "exact_edits");
         let edit_plan = get_string_array(&parsed, "edit_plan");
@@ -211,6 +212,7 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             risk,
             source: "codex_live_supervisor".to_string(),
             worker_turn_shape,
+            worker_role,
             turn_goal,
             exact_edits,
             edit_plan,

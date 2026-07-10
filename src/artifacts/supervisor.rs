@@ -14,6 +14,8 @@ pub struct SupervisorControlCommand {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worker_turn_shape: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_goal: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exact_edits: Vec<String>,
@@ -68,6 +70,8 @@ pub struct SupervisorFeedback {
     #[serde(default)]
     pub worker_turn_shape: Option<String>,
     #[serde(default)]
+    pub worker_role: Option<String>,
+    #[serde(default)]
     pub turn_goal: Option<String>,
     #[serde(default)]
     pub exact_edits: Vec<String>,
@@ -97,6 +101,8 @@ pub struct WorkerBrief {
     pub expect_patch: Option<bool>,
     #[serde(default)]
     pub worker_turn_shape: Option<String>,
+    #[serde(default)]
+    pub worker_role: Option<String>,
     #[serde(default)]
     pub turn_goal: Option<String>,
     #[serde(default)]

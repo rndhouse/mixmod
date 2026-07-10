@@ -33,7 +33,12 @@ pub(crate) fn write_worker_brief_task(
         explicit_focus_files.clone(),
         get_string_array(&original, "files"),
     );
-    let expect_patch = typed_brief.expect_patch.unwrap_or(handoff != "blocked");
+    let requested_worker_role = get_str(brief, "worker_role");
+    let default_expect_patch = requested_worker_role
+        .map(|role| worker_role_expects_patch(Some(role)))
+        .unwrap_or(handoff != "blocked");
+    let expect_patch = typed_brief.expect_patch.unwrap_or(default_expect_patch);
+    let worker_role = normalize_worker_role(requested_worker_role, expect_patch);
     let worker_turn_shape = get_str(brief, "worker_turn_shape").unwrap_or("");
     let small_patch_slice = expect_patch && worker_turn_shape.trim() == "small_patch_slice";
     let bounded_feature_slice = expect_patch && worker_turn_shape.trim() == "bounded_feature_slice";
@@ -43,7 +48,9 @@ pub(crate) fn write_worker_brief_task(
         merged_string_arrays(brief, &["tests", "required_tests"]),
         get_string_array(&original, "tests"),
     );
-    let required_tests = if small_patch_slice && defer_checks_until_patch_exists {
+    let required_tests = if !expect_patch && worker_role != "run_checks" {
+        Vec::new()
+    } else if small_patch_slice && defer_checks_until_patch_exists {
         Vec::new()
     } else {
         original_required_tests.clone()
@@ -68,6 +75,9 @@ pub(crate) fn write_worker_brief_task(
     if small_patch_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
+    } else if !expect_patch {
+        constraints.push("Do not edit repository files in this worker role.".to_string());
+        constraints.push("Return compact findings for supervisor review.".to_string());
     } else if bounded_feature_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and continue.".to_string());
@@ -119,6 +129,16 @@ pub(crate) fn write_worker_brief_task(
             explicit_completion_gate,
             &codex_message,
         )
+    } else if !expect_patch {
+        no_patch_role_instructions(NoPatchRoleInput {
+            original: &original,
+            brief,
+            target_files: &target_files,
+            worker_role: &worker_role,
+            fallback_message: &codex_message,
+            supervisor_investigation_section: &supervisor_investigation_section,
+            brief_json: &brief_json,
+        })
     } else if bounded_feature_slice {
         bounded_feature_slice_instructions(
             &original,
@@ -144,12 +164,23 @@ pub(crate) fn write_worker_brief_task(
         acceptance,
         context: WorkerBriefTaskContext {
             expect_patch,
+            worker_role: &worker_role,
             worker_brief: brief,
         },
     };
     let path = default_dir.join(WORKER_TASK_JSON);
     write_pretty_json(&path, &worker_task, "worker task")?;
     Ok(path)
+}
+
+fn normalize_worker_role(requested: Option<&str>, expect_patch: bool) -> String {
+    match requested.map(str::trim).filter(|role| !role.is_empty()) {
+        Some("inspect" | "run_checks" | "patch_slice" | "repair_error" | "summarize") => {
+            requested.unwrap().trim().to_string()
+        }
+        _ if expect_patch => "patch_slice".to_string(),
+        _ => "inspect".to_string(),
+    }
 }
 
 fn small_patch_slice_instructions(
@@ -321,6 +352,113 @@ Supervisor handoff JSON:
 {brief_json}
 "#,
         plan = numbered_list(&plan),
+    )
+}
+
+struct NoPatchRoleInput<'a> {
+    original: &'a Value,
+    brief: &'a Value,
+    target_files: &'a [String],
+    worker_role: &'a str,
+    fallback_message: &'a str,
+    supervisor_investigation_section: &'a str,
+    brief_json: &'a str,
+}
+
+fn no_patch_role_instructions(input: NoPatchRoleInput<'_>) -> String {
+    let NoPatchRoleInput {
+        original,
+        brief,
+        target_files,
+        worker_role,
+        fallback_message,
+        supervisor_investigation_section,
+        brief_json,
+    } = input;
+    let original_instructions = get_str(original, "instructions").unwrap_or("").trim();
+    let objective = get_str(brief, "turn_goal")
+        .or_else(|| get_str(brief, "objective"))
+        .or_else(|| get_str(brief, "message_to_worker"))
+        .or_else(|| get_str(brief, "message"))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_message)
+        .trim();
+    let file_list = if target_files.is_empty() {
+        "- none specified".to_string()
+    } else {
+        target_files
+            .iter()
+            .map(|file| format!("- {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let checks = merged_string_arrays(
+        brief,
+        &[
+            "checks",
+            "must_check",
+            "required_checks",
+            "acceptance_checks",
+        ],
+    );
+    let check_note = if checks.is_empty() {
+        "- none specified".to_string()
+    } else {
+        numbered_list(&checks)
+    };
+    let success_criteria = get_str(brief, "success_criteria")
+        .or_else(|| get_str(brief, "completion_gate"))
+        .unwrap_or(match worker_role {
+            "run_checks" => "Return each command, exit status, and the smallest useful failure excerpt.",
+            "summarize" => "Return a compact summary with uncertainties and source artifact paths.",
+            _ => "Return exact files, symbols, line anchors, and uncertainty. Do not propose broad architecture unless asked.",
+        });
+    let role_rules = match worker_role {
+        "run_checks" => {
+            "Run only the requested checks or the narrowest command needed to answer the supervisor question. Do not edit files."
+        }
+        "summarize" => {
+            "Summarize only the requested repo/artifact evidence. Do not edit files or run broad discovery."
+        }
+        _ => {
+            "Inspect only the requested files/patterns. Use rg/sed/git status style commands. Do not edit files or run tests unless explicitly requested."
+        }
+    };
+
+    format!(
+        r#"Noninteractive local worker role. This is the full instruction. No user will answer questions.
+
+Worker role: {worker_role}
+Expected repository patch: no
+
+Original task instructions:
+{original_instructions}
+
+Supervisor objective:
+{objective}
+{supervisor_investigation_section}
+
+Relevant files:
+{file_list}
+
+Requested checks or commands:
+{check_note}
+
+Role rules:
+- {role_rules}
+- Do not modify repository files.
+- Do not inspect Mixmod state or artifact directories.
+- Keep output compact and evidence-based.
+
+Success criteria:
+{success_criteria}
+
+Output format:
+Return compact JSON with keys "summary", "findings", "commands_run", "uncertainty", and "recommended_next_worker_role".
+
+Supervisor handoff JSON:
+{brief_json}
+"#,
     )
 }
 

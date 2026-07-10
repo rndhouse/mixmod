@@ -44,6 +44,7 @@ pub(crate) fn write_revision_task(
     );
     let small_patch_slice = decision.revision_handoff.is_small_patch_slice();
     let bounded_feature_slice = decision.revision_handoff.is_bounded_feature_slice();
+    let expect_patch = decision.revision_handoff.expects_patch();
     let defer_checks_until_patch_exists = decision
         .revision_handoff
         .defer_checks_until_patch_exists
@@ -70,6 +71,9 @@ pub(crate) fn write_revision_task(
     if small_patch_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
+    } else if !expect_patch {
+        constraints.push("Do not edit repository files in this worker role.".to_string());
+        constraints.push("Return compact findings for supervisor review.".to_string());
     } else if bounded_feature_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and continue.".to_string());
@@ -102,6 +106,14 @@ pub(crate) fn write_revision_task(
             completion_gate: explicit_completion_gate,
             patch_decision_note,
         })
+    } else if !expect_patch {
+        no_patch_role_revision_instructions(
+            &task_value,
+            decision,
+            &focus_files,
+            &focus_note,
+            patch_decision_note,
+        )
     } else if decision.worker_mode == "context_focus" {
         format!(
             "Original task instructions:\n{original_instructions}\n\nThe supervisor requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nSupervisor message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
@@ -128,10 +140,10 @@ pub(crate) fn write_revision_task(
             get_str(&task_value, "title").unwrap_or(experiment_name)
         ),
         instructions,
-        expect_patch: true,
+        expect_patch,
         worker_mode: &decision.worker_mode,
         files: focus_files,
-        tests: if small_patch_slice && defer_checks_until_patch_exists {
+        tests: if !expect_patch || (small_patch_slice && defer_checks_until_patch_exists) {
             Vec::new()
         } else {
             get_string_array(&task_value, "tests")
@@ -139,7 +151,7 @@ pub(crate) fn write_revision_task(
         constraints,
         acceptance,
         context: RevisionTaskContext {
-            expect_patch: true,
+            expect_patch,
             codex_focus_files: &decision.focus_files,
             repo_focus_files: &repo_focus_files,
             patch_decision: &decision.patch_decision,
@@ -149,6 +161,7 @@ pub(crate) fn write_revision_task(
                 worker_mode: &decision.worker_mode,
                 patch_decision: &decision.patch_decision,
                 worker_turn_shape: decision.revision_handoff.worker_turn_shape.as_deref(),
+                worker_role: decision.revision_handoff.worker_role.as_deref(),
                 turn_goal: decision.revision_handoff.turn_goal.as_deref(),
                 exact_edits: &decision.revision_handoff.exact_edits,
                 edit_plan: &decision.revision_handoff.edit_plan,
@@ -405,8 +418,106 @@ Tests/checks: <commands and result, or not run with reason>
     )
 }
 
+fn no_patch_role_revision_instructions(
+    original: &Value,
+    decision: &SupervisorFeedbackTurn,
+    focus_files: &[String],
+    focus_note: &str,
+    patch_decision_note: &str,
+) -> String {
+    let original_instructions = get_str(original, "instructions")
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let original_context = if original_instructions.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nOriginal task context, for alignment only:\n{}\n",
+            truncate_for_report(&original_instructions, 1200)
+        )
+    };
+    let worker_role = decision
+        .revision_handoff
+        .worker_role
+        .as_deref()
+        .unwrap_or("inspect");
+    let objective = decision
+        .revision_handoff
+        .turn_goal
+        .as_deref()
+        .filter(|goal| !goal.trim().is_empty())
+        .unwrap_or_else(|| {
+            if decision.hint.trim().is_empty() {
+                "Gather compact evidence requested by the supervisor."
+            } else {
+                decision.hint.trim()
+            }
+        });
+    let file_list = if focus_files.is_empty() {
+        "- none specified".to_string()
+    } else {
+        focus_files
+            .iter()
+            .map(|file| format!("- {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let checks = non_empty_or(
+        decision.revision_handoff.deferred_checks.clone(),
+        decision.required_checks.clone(),
+    );
+    let checks = if checks.is_empty() {
+        "- none specified".to_string()
+    } else {
+        numbered_list(&checks)
+    };
+    let role_rules = match worker_role {
+        "run_checks" => {
+            "Run only the requested checks or the narrowest command needed to answer the supervisor question. Do not edit files."
+        }
+        "summarize" => {
+            "Summarize only the requested repo/artifact evidence. Do not edit files or run broad discovery."
+        }
+        _ => {
+            "Inspect only the requested files/patterns. Use rg/sed/git status style commands. Do not edit files or run tests unless explicitly requested."
+        }
+    };
+
+    format!(
+        r#"Noninteractive local worker revision. This is the full instruction. No user will answer questions.
+
+Worker role: {worker_role}
+Expected repository patch: no
+
+Original task:{original_context}
+Current accumulated patch may be incomplete. Do not modify it in this role.{patch_decision_note}
+
+Supervisor objective:
+{objective}
+
+Relevant files:
+{file_list}
+
+{focus_note}
+Requested checks or commands:
+{checks}
+
+Role rules:
+- {role_rules}
+- Do not modify repository files.
+- Do not inspect Mixmod state or artifact directories.
+- Keep output compact and evidence-based.
+
+Output format:
+Return compact JSON with keys "summary", "findings", "commands_run", "uncertainty", and "recommended_next_worker_role".
+"#,
+    )
+}
+
 fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {
-    decision.verdict == "revise"
-        || decision.patch_decision == "revise_current"
-        || decision.patch_decision == "revise_previous"
+    decision.revision_handoff.expects_patch()
+        && (decision.verdict == "revise"
+            || decision.patch_decision == "revise_current"
+            || decision.patch_decision == "revise_previous")
 }

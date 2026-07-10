@@ -28,6 +28,7 @@ pub(crate) struct SupervisorFeedbackTurn {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RevisionHandoff {
     pub(crate) worker_turn_shape: Option<String>,
+    pub(crate) worker_role: Option<String>,
     pub(crate) turn_goal: Option<String>,
     pub(crate) exact_edits: Vec<String>,
     pub(crate) edit_plan: Vec<String>,
@@ -41,6 +42,7 @@ impl RevisionHandoff {
     pub(crate) fn from_feedback(feedback: &SupervisorFeedback) -> Self {
         Self {
             worker_turn_shape: feedback.worker_turn_shape.clone(),
+            worker_role: feedback.worker_role.clone(),
             turn_goal: feedback.turn_goal.clone(),
             exact_edits: feedback.exact_edits.clone(),
             edit_plan: feedback.edit_plan.clone(),
@@ -61,6 +63,17 @@ impl RevisionHandoff {
         self.worker_turn_shape
             .as_deref()
             .is_some_and(|shape| shape.trim() == "bounded_feature_slice")
+    }
+
+    pub(crate) fn expects_patch(&self) -> bool {
+        worker_role_expects_patch(self.worker_role.as_deref())
+    }
+}
+
+pub(crate) fn worker_role_expects_patch(worker_role: Option<&str>) -> bool {
+    match worker_role.map(|role| role.trim()) {
+        Some("inspect" | "run_checks" | "summarize") => false,
+        Some("patch_slice" | "repair_error") | None | Some(_) => true,
     }
 }
 

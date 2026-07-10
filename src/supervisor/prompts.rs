@@ -49,12 +49,16 @@ The worker receives the original task JSON and can inspect, edit, and test the r
 Candidate repo file contents are not embedded in this prompt. Inspect listed repo files or git state when useful before writing the handoff.
 Use supervisor reasoning freely, but minimize supervisor output.
 {worker_guidance}
+Choose a worker_role for the next local work order: "inspect", "run_checks", "patch_slice", "repair_error", or "summarize".
+Use inspect/run_checks/summarize when local repo facts, command output, or artifact condensation would reduce supervisor context cost before another edit. These roles must set "expect_patch":false.
+Use patch_slice or repair_error only when the worker should edit repository files. These roles should set "expect_patch":true.
 Treat applicable worker-model guidance as handoff constraints, not optional background. If the guidance names a preferred worker_turn_shape or known failure mode, adapt the handoff shape to that worker unless no patch is needed.
 If the remaining task is broad, choose the first executable slice for this worker. Do not choose a broader worker_turn_shape merely because the full task spans multiple source paths.
 When the selected worker guidance says broad expected-patch tasks should use small_patch_slice, set worker_turn_shape="small_patch_slice" for the handoff. If you need a larger slice later, make the exact source edit more coherent inside small_patch_slice rather than switching shape.
 Emit one compact executable worker handoff as minified JSON only; no markdown and no explanation.
 Do not restate the original task. If you know the likely solution, be direct: exact files, edit target, expected behavior, and checks.
 Required field: "handoff" = "as_given" | "focused" | "guided" | "blocked".
+Required field for guided/focused handoffs: "worker_role".
 Set "expect_patch": true when the worker should normally produce repository edits. Set false for investigation/no-change handoffs.
 Use exactly {{"handoff":"as_given"}} only when the original task already names the relevant files, desired behavior, and checks clearly enough for the worker.
 Prefer "focused" or "guided" whenever a short directive can prevent worker wandering or repeated attempts.
@@ -68,7 +72,7 @@ For small_patch_slice, exact_edits must be immediately executable edit commands.
 For small_patch_slice, include edit_packet or source_snippets when your repo investigation found the relevant code. Keep it short: file path, symbol, literal nearby anchor, and at most a few lines of useful context. The worker should be able to make the first edit from this packet before broad file exploration.
 For source edits inside large functions or code-generation paths, add structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
 Optional fields; omit empty fields:
-{{"expect_patch":true,"worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"direct message for the worker","files":["optional paths"],"exact_edits":["concrete edits"],"edit_packet":["optional file/symbol/anchor snippet for the first edit"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"checks":["optional checks"],"deferred_checks":["checks to run after a patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional worker-visible gate you intentionally want","forbidden_actions":["ask questions","run tests before editing"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+{{"expect_patch":true,"worker_role":"inspect|run_checks|patch_slice|repair_error|summarize","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"direct message for the worker","files":["optional paths"],"exact_edits":["concrete edits"],"edit_packet":["optional file/symbol/anchor snippet for the first edit"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"checks":["optional checks"],"deferred_checks":["checks to run after a patch exists"],"defer_checks_until_patch_exists":true,"success_criteria":"optional no-patch role success criteria","completion_gate":"optional worker-visible gate you intentionally want","forbidden_actions":["ask questions","run tests before editing"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -271,7 +275,7 @@ Inspect the listed artifact files directly before deciding. Do not rely on this 
 Inspect only the files you need for the decision, but always inspect task context and the accumulated worktree.patch before approving.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_role":"inspect|run_checks|patch_slice|repair_error|summarize","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"success_criteria":"optional no-patch role success criteria","completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 {review_context}
 Working repo: {work_dir}
 Instruction: {instruction}
@@ -326,7 +330,7 @@ pub(crate) fn supervisor_live_control_prompt(
 Do not run tests. Do not ask the user for approval.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_role":"inspect|run_checks|patch_slice|repair_error|summarize","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"success_criteria":"optional no-patch role success criteria","completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Treat applicable worker-model guidance as context for shaping message_to_worker if you choose to interrupt.
 Available actions:
 - wait: let the worker continue.
