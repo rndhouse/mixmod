@@ -157,39 +157,44 @@ fn live_supervisor_no_delta_control_becomes_small_patch_revision() {
 }
 
 #[test]
-fn auto_no_delta_stop_control_classifies_worker_stall() {
+fn stop_control_waits_for_supervisor_review() {
     let temp = TempDir::new().unwrap();
     let run_dir = temp.path().join("run");
     fs::create_dir_all(&run_dir).unwrap();
     atomic_write(
         &run_dir.join("metrics.json"),
         serde_json::to_vec_pretty(&json!({
-            "supervisor_control_events": [{
-                "action": "stop",
-                "worker_mode": "continue",
-                "message_to_worker": "Worker made no repository delta after no-delta recovery.",
-                "focus_files": ["builder.py"],
-                "required_checks": [],
-                "risk": "worker_stalled_no_delta",
-                "control": {
-                    "source": "auto_revision_no_delta_stop"
+            "supervisor_control_events": [
+                {
+                    "action": "interrupt_context_focus",
+                    "worker_mode": "context_focus",
+                    "message_to_worker": "Patch only builder.py.",
+                    "focus_files": ["builder.py"],
+                    "required_checks": [],
+                    "risk": "context overflow",
+                    "control": {
+                        "source": "codex_live_supervisor"
+                    }
+                },
+                {
+                    "action": "stop",
+                    "worker_mode": "continue",
+                    "message_to_worker": "Worker made no repository delta after no-delta recovery.",
+                    "focus_files": ["builder.py"],
+                    "required_checks": [],
+                    "risk": "worker_stalled_no_delta",
+                    "control": {
+                        "source": "auto_revision_no_delta_stop"
+                    }
                 }
-            }]
+            ]
         }))
         .unwrap()
         .as_slice(),
     )
     .unwrap();
 
-    let decision = supervisor_control_decision_from_metrics(&run_dir)
-        .unwrap()
-        .unwrap();
+    let decision = supervisor_control_decision_from_metrics(&run_dir).unwrap();
 
-    assert_eq!(decision.verdict, "stop");
-    assert_eq!(decision.worker_mode, "continue");
-    assert_eq!(decision.patch_decision, "accept_current");
-    assert_eq!(
-        get_str(&decision.feedback, "risk"),
-        Some("worker_stalled_no_delta")
-    );
+    assert!(decision.is_none());
 }

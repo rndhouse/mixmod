@@ -62,6 +62,11 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         return Ok(None);
     };
     let action = get_str(event, "action").unwrap_or("wait");
+    // Worker-control stop ends the active worker process only. The ordinary
+    // supervisor review should decide whether the overall loop is done.
+    if action == "stop" {
+        return Ok(None);
+    }
     let run_interrupted = get_bool(&metrics, "interrupted_by_supervisor").unwrap_or(false);
     if !run_interrupted
         && matches!(action, "interrupt_continue" | "interrupt_context_focus")
@@ -70,7 +75,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
     {
         return Ok(None);
     }
-    let verdict = if action == "stop" { "stop" } else { "revise" };
+    let verdict = "revise";
     let control = event.get("control").unwrap_or(event);
     let control_source = get_str(control, "source")
         .or_else(|| get_str(event, "source"))
