@@ -124,10 +124,10 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             .unwrap_or("")
             .trim()
             .to_string();
-        let forced_final_no_delta_stop =
-            should_force_final_no_delta_live_stop(&bounded_snapshot, &action);
-        if forced_final_no_delta_stop {
-            action = "stop".to_string();
+        let forced_final_no_delta_abort =
+            should_force_final_no_delta_live_abort(&bounded_snapshot, &action);
+        if forced_final_no_delta_abort {
+            action = "abort_worker_turn".to_string();
             worker_mode =
                 normalize_supervisor_control_worker_mode(&action, Some(worker_mode.as_str()));
         }
@@ -135,8 +135,8 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             &self.work_dir,
             get_string_array(&parsed, "focus_files"),
         );
-        let message_to_worker = if forced_final_no_delta_stop {
-            "Stopping: final live check reached with no repository delta after prior interventions."
+        let message_to_worker = if forced_final_no_delta_abort {
+            "Aborting worker turn: final live check reached with no repository delta after prior interventions."
                 .to_string()
         } else {
             sanitize_live_control_message(&raw_message_to_worker, &focus_files)
@@ -158,14 +158,14 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
                 json!(message_to_worker.clone()),
             );
             object.insert("focus_files".to_string(), json!(focus_files.clone()));
-            if forced_final_no_delta_stop {
+            if forced_final_no_delta_abort {
                 object.insert(
                     "enforced_action".to_string(),
-                    json!("final_no_delta_live_stop"),
+                    json!("final_no_delta_live_abort"),
                 );
             }
         }
-        let risk = if forced_final_no_delta_stop {
+        let risk = if forced_final_no_delta_abort {
             "worker_stalled_no_delta".to_string()
         } else {
             get_str(&parsed, "risk").unwrap_or("").trim().to_string()
@@ -369,11 +369,11 @@ pub(super) fn live_supervision_snapshot_should_check(
     stale_with_output
 }
 
-pub(super) fn should_force_final_no_delta_live_stop(
+pub(super) fn should_force_final_no_delta_live_abort(
     snapshot: &LiveWorkerSnapshot,
     action: &str,
 ) -> bool {
-    action != "stop"
+    action != "abort_worker_turn"
         && snapshot.live_control_check_limit > 0
         && snapshot.live_control_check_index >= snapshot.live_control_check_limit
         && snapshot.opencode_segment > 1

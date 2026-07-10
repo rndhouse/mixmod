@@ -18,10 +18,10 @@ pub(super) struct SmallPatchNoDeltaIntervention {
     threshold: Duration,
     baseline_diff: String,
     interrupt_control: Value,
-    stop_control: Value,
+    abort_control: Value,
     interrupt_count: u64,
     max_interrupts: u64,
-    stopped: bool,
+    aborted: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,10 +70,10 @@ impl SmallPatchNoDeltaIntervention {
             threshold: Duration::from_secs(threshold_seconds),
             baseline_diff,
             interrupt_control: small_patch_no_delta_interrupt_control(&target),
-            stop_control: small_patch_no_delta_stop_control(&target),
+            abort_control: small_patch_no_delta_abort_control(&target),
             interrupt_count: 0,
             max_interrupts,
-            stopped: false,
+            aborted: false,
         })
     }
 
@@ -93,7 +93,7 @@ impl SmallPatchNoDeltaIntervention {
         elapsed: Duration,
         last_output_age: Duration,
     ) -> Option<Value> {
-        if self.stopped || elapsed < self.threshold || last_output_age < self.threshold {
+        if self.aborted || elapsed < self.threshold || last_output_age < self.threshold {
             return None;
         }
         let new_delta = diff_without_unchanged_blocks(current_diff, &self.baseline_diff);
@@ -104,8 +104,8 @@ impl SmallPatchNoDeltaIntervention {
             self.interrupt_count += 1;
             return Some(self.interrupt_control.clone());
         }
-        self.stopped = true;
-        Some(self.stop_control.clone())
+        self.aborted = true;
+        Some(self.abort_control.clone())
     }
 }
 
@@ -216,7 +216,7 @@ fn small_patch_no_delta_interrupt_control(target: &SmallPatchNoDeltaTarget) -> V
     })
 }
 
-fn small_patch_no_delta_stop_control(target: &SmallPatchNoDeltaTarget) -> Value {
+fn small_patch_no_delta_abort_control(target: &SmallPatchNoDeltaTarget) -> Value {
     let first_edit = target
         .exact_edits
         .first()
@@ -228,15 +228,15 @@ fn small_patch_no_delta_stop_control(target: &SmallPatchNoDeltaTarget) -> Value 
         .unwrap_or("the requested small-patch edit")
         .trim();
     let source = match target.kind {
-        SmallPatchNoDeltaKind::Initial => "auto_initial_no_delta_stop",
-        SmallPatchNoDeltaKind::Revision => "auto_revision_no_delta_stop",
+        SmallPatchNoDeltaKind::Initial => "auto_initial_no_delta_abort",
+        SmallPatchNoDeltaKind::Revision => "auto_revision_no_delta_abort",
     };
     json!({
-        "action": "stop",
+        "action": "abort_worker_turn",
         "worker_mode": "continue",
         "source": source,
         "message_to_worker": format!(
-            "Worker made no repository delta after no-delta recovery. Stopping after failing to apply: {first_edit}"
+            "Worker made no repository delta after no-delta recovery. Aborting worker turn after failing to apply: {first_edit}"
         ),
         "focus_files": target.focus_files.clone(),
         "required_checks": [],

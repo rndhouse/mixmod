@@ -157,7 +157,7 @@ fn live_supervisor_no_delta_control_becomes_small_patch_revision() {
 }
 
 #[test]
-fn stop_control_waits_for_supervisor_review() {
+fn abort_control_waits_for_supervisor_review() {
     let temp = TempDir::new().unwrap();
     let run_dir = temp.path().join("run");
     fs::create_dir_all(&run_dir).unwrap();
@@ -177,14 +177,14 @@ fn stop_control_waits_for_supervisor_review() {
                     }
                 },
                 {
-                    "action": "stop",
+                    "action": "abort_worker_turn",
                     "worker_mode": "continue",
                     "message_to_worker": "Worker made no repository delta after no-delta recovery.",
                     "focus_files": ["builder.py"],
                     "required_checks": [],
                     "risk": "worker_stalled_no_delta",
                     "control": {
-                        "source": "auto_revision_no_delta_stop"
+                        "source": "auto_revision_no_delta_abort"
                     }
                 }
             ]

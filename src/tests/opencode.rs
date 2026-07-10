@@ -207,21 +207,21 @@ fn context_focus_args_start_fresh_titled_session_with_control_message() {
     );
 }
 
-struct StaticStopAdvisor;
+struct StaticAbortWorkerTurnAdvisor;
 
-impl SupervisorAdvisor for StaticStopAdvisor {
+impl SupervisorAdvisor for StaticAbortWorkerTurnAdvisor {
     fn advise(&self, snapshot: &LiveWorkerSnapshot) -> Result<Option<Value>> {
         assert_eq!(snapshot.new_delta_bytes, 0);
         Ok(Some(json!({
-            "action": "stop",
-            "message_to_worker": "Stop this stalled turn.",
-            "risk": "test_stop"
+            "action": "abort_worker_turn",
+            "message_to_worker": "Abort this stalled turn.",
+            "risk": "test_abort_worker_turn"
         })))
     }
 }
 
 #[test]
-fn live_advisor_control_stops_running_opencode() {
+fn live_advisor_control_aborts_running_opencode() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let fake_opencode = root.join("fake-opencode.sh");
@@ -251,8 +251,9 @@ exec sleep 30
         fs::set_permissions(&fake_opencode, perms).unwrap();
     }
 
-    let out_dir = state_layout(root).runs().join("live-advisor-stop-test");
-    let advisor: std::sync::Arc<dyn SupervisorAdvisor> = std::sync::Arc::new(StaticStopAdvisor);
+    let out_dir = state_layout(root).runs().join("live-advisor-abort-test");
+    let advisor: std::sync::Arc<dyn SupervisorAdvisor> =
+        std::sync::Arc::new(StaticAbortWorkerTurnAdvisor);
     let request = AgentRequest {
         root: root.to_path_buf(),
         mode: DelegationMode::Patch,
@@ -292,11 +293,14 @@ exec sleep 30
     .unwrap();
 
     assert!(output.interrupted_by_supervisor);
-    assert_eq!(output.supervisor_control_action.as_deref(), Some("stop"));
+    assert_eq!(
+        output.supervisor_control_action.as_deref(),
+        Some("abort_worker_turn")
+    );
     assert_eq!(output.supervisor_control_events.len(), 1);
     assert_eq!(
         output.supervisor_control_events[0].risk.as_str(),
-        "test_stop"
+        "test_abort_worker_turn"
     );
 }
 

@@ -38,7 +38,7 @@ fn initial_slice_task() -> Value {
 }
 
 #[test]
-fn small_patch_no_delta_guard_interrupts_then_stops_after_thresholds() {
+fn small_patch_no_delta_guard_interrupts_then_aborts_after_thresholds() {
     let mut guard =
         SmallPatchNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 2, 1)
             .unwrap();
@@ -62,15 +62,15 @@ fn small_patch_no_delta_guard_interrupts_then_stops_after_thresholds() {
             .unwrap()
             .contains("Add only the flatten=True serialization branch.")
     );
-    let stop = guard
+    let abort = guard
         .maybe_control_for_diff("", Duration::from_secs(2), Duration::from_secs(2))
         .unwrap();
-    assert_eq!(get_str(&stop, "action"), Some("stop"));
+    assert_eq!(get_str(&abort, "action"), Some("abort_worker_turn"));
     assert_eq!(
-        get_str(&stop, "source"),
-        Some("auto_revision_no_delta_stop")
+        get_str(&abort, "source"),
+        Some("auto_revision_no_delta_abort")
     );
-    assert_eq!(get_str(&stop, "risk"), Some("worker_stalled_no_delta"));
+    assert_eq!(get_str(&abort, "risk"), Some("worker_stalled_no_delta"));
     assert!(
         guard
             .maybe_control_for_diff("", Duration::from_secs(3), Duration::from_secs(3))
@@ -113,7 +113,7 @@ fn small_patch_no_delta_guard_waits_during_recent_worker_output() {
 }
 
 #[test]
-fn small_patch_no_delta_guard_does_not_stop_after_recovery_delta() {
+fn small_patch_no_delta_guard_does_not_abort_after_recovery_delta() {
     let mut guard =
         SmallPatchNoDeltaIntervention::from_task(&revision_slice_task(), String::new(), 1, 1)
             .unwrap();

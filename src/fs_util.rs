@@ -56,15 +56,18 @@ pub(crate) fn supervisor_control_decision_from_metrics(
     let Some(event) = events.iter().rev().find(|event| {
         matches!(
             get_str(event, "action"),
-            Some("interrupt_continue") | Some("interrupt_context_focus") | Some("stop")
+            Some("interrupt_continue")
+                | Some("interrupt_context_focus")
+                | Some("abort_worker_turn")
+                | Some("stop")
         )
     }) else {
         return Ok(None);
     };
     let action = get_str(event, "action").unwrap_or("wait");
-    // Worker-control stop ends the active worker process only. The ordinary
+    // Worker-control abort ends the active worker process only. The ordinary
     // supervisor review should decide whether the overall loop is done.
-    if action == "stop" {
+    if matches!(action, "abort_worker_turn" | "stop") {
         return Ok(None);
     }
     let run_interrupted = get_bool(&metrics, "interrupted_by_supervisor").unwrap_or(false);

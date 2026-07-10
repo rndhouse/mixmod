@@ -8,7 +8,7 @@ use crate::{
 
 use super::live::{
     live_supervision_snapshot_should_check, normalize_live_control_focus_files,
-    sanitize_live_control_message, should_force_final_no_delta_live_stop,
+    sanitize_live_control_message, should_force_final_no_delta_live_abort,
     snapshot_for_live_supervisor_prompt,
 };
 use super::normalize::parse_feedback_json;
@@ -167,7 +167,7 @@ fn live_supervision_checks_no_delta_context_overflow() {
 }
 
 #[test]
-fn final_live_no_delta_check_forces_stop_after_prior_segment() {
+fn final_live_no_delta_check_forces_abort_after_prior_segment() {
     let snapshot = LiveWorkerSnapshot {
         live_control_check_index: 3,
         live_control_check_limit: 3,
@@ -176,14 +176,14 @@ fn final_live_no_delta_check_forces_stop_after_prior_segment() {
         ..LiveWorkerSnapshot::default()
     };
 
-    assert!(should_force_final_no_delta_live_stop(
+    assert!(should_force_final_no_delta_live_abort(
         &snapshot,
         "interrupt_continue"
     ));
 }
 
 #[test]
-fn final_live_no_delta_stop_guard_ignores_first_segment() {
+fn final_live_no_delta_abort_guard_ignores_first_segment() {
     let snapshot = LiveWorkerSnapshot {
         live_control_check_index: 3,
         live_control_check_limit: 3,
@@ -192,7 +192,7 @@ fn final_live_no_delta_stop_guard_ignores_first_segment() {
         ..LiveWorkerSnapshot::default()
     };
 
-    assert!(!should_force_final_no_delta_live_stop(
+    assert!(!should_force_final_no_delta_live_abort(
         &snapshot,
         "interrupt_continue"
     ));

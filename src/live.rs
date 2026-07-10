@@ -27,7 +27,7 @@ pub(crate) fn live_status(root: &Path, run: &Path, json_output: bool) -> Result<
         },
         "control": {
             "path": display_path(root, &run_dir.join(SUPERVISOR_CONTROL_FILE)),
-            "actions": ["wait", "interrupt_continue", "interrupt_context_focus", "stop"]
+            "actions": ["wait", "interrupt_continue", "interrupt_context_focus", "abort_worker_turn"]
         }
     });
     if json_output {
@@ -75,7 +75,7 @@ pub(crate) fn live_status(root: &Path, run: &Path, json_output: bool) -> Result<
             "control file: {}",
             display_path(root, &run_dir.join(SUPERVISOR_CONTROL_FILE))
         );
-        println!("actions: wait, interrupt_continue, interrupt_context_focus, stop");
+        println!("actions: wait, interrupt_continue, interrupt_context_focus, abort_worker_turn");
         println!("stderr tail:");
         println!("{}", tail_text(&stderr_path, 2000));
     }

@@ -326,12 +326,12 @@ pub(crate) fn supervisor_live_control_prompt(
 Do not run tests. Do not ask the user for approval.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"wait|interrupt_continue|interrupt_context_focus|stop","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Treat applicable worker-model guidance as process-control constraints. If the selected worker guidance prefers small_patch_slice and the current turn shows no delta, context overflow, or repeated broad reading, any interrupt should be patch-first: one repo file, one concrete source edit, deferred checks, and no broad feature instruction.
 Use wait when the worker is making useful progress or when the evidence is ambiguous.
 Use interrupt_continue to stop the current worker process and resume the same worker session with a sharper instruction.
 Use interrupt_context_focus to stop the current worker process and start a fresh worker session on the same worktree. Prefer this after context overflow, repeated no-delta rereading, or stale/harmful worker context.
-Use stop only when the worker loop is clearly blocked and another worker turn is unlikely to help.
+Use abort_worker_turn only when the current worker turn is clearly blocked. This aborts only the active worker process; the ordinary supervisor review decides the next whole-loop action afterward.
 Do not solve the task yourself by editing source. Your job is process control: decide whether to keep waiting or steer the worker.
 The worker can read and edit only the working repo. It cannot read Mixmod task, state, log, or artifact paths.
 Do not mention worker-task.json, revision task files, /tmp/mixmod*, /tmp/mixmod-state, or artifact/log paths in message_to_worker or focus_files.
@@ -342,7 +342,7 @@ If new_delta_bytes is 0 and recent_tool_events show repeated reads/searches of t
 If new_delta_bytes is greater than 0, use wait while the worker is actively editing or checking. If it becomes stale after a failed check, interrupt only with a repair-focused instruction that preserves the current patch and asks for the smallest compile-driven fix; do not add a new feature slice in the same intervention.
 If context_overflow_count is positive and no new delta exists, prefer interrupt_context_focus with worker_turn_shape="small_patch_slice", one exact_edits item, and a compact restatement of the exact next source edit.
 If worker_session_token_peak is high relative to the worker context window and new_delta_bytes is 0, treat the turn as context-pressured; prefer interrupt_context_focus with a smaller patch-first instruction when broad reading is repeating.
-If live_control_check_index equals live_control_check_limit, opencode_segment is greater than 1, and new_delta_bytes is still 0 after earlier interventions, prefer stop unless stdout shows an edit is imminent.
+If live_control_check_index equals live_control_check_limit, opencode_segment is greater than 1, and new_delta_bytes is still 0 after earlier interventions, prefer abort_worker_turn unless stdout shows an edit is imminent.
 Working repo: {work_dir}
 
 Live worker snapshot:

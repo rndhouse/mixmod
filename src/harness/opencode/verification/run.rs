@@ -467,7 +467,7 @@ impl LocalVerificationRun<'_> {
                                 message: message_to_worker.clone(),
                             });
                         }
-                        "stop" => {
+                        "abort_worker_turn" => {
                             interrupted_by_supervisor = true;
                             segment_stopped_by_supervisor = true;
                         }

@@ -61,7 +61,9 @@ pub(crate) fn normalize_supervisor_control_action(value: Option<&str>) -> String
         "interrupt_context_focus" | "context_focus" | "focus" | "fresh" | "reset" => {
             "interrupt_context_focus".to_string()
         }
-        "stop" | "halt" => "stop".to_string(),
+        "abort_worker_turn" | "abort" | "stop_worker" | "stop" | "halt" => {
+            "abort_worker_turn".to_string()
+        }
         _ => "wait".to_string(),
     }
 }
