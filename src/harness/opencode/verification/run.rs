@@ -31,7 +31,6 @@ use crate::harness::opencode::process::{
 
 use super::backend::{backend_activity_observed, effective_backend_command, gpu_activity_observed};
 use super::live_snapshot::{LiveWorkerSnapshotInput, build_live_worker_snapshot};
-use super::no_delta::SmallPatchNoDeltaIntervention;
 use super::types::VerifiedCommandOutput;
 
 #[derive(Debug)]
@@ -113,8 +112,6 @@ impl LocalVerificationRun<'_> {
         let stderr_bytes = Arc::new(AtomicU64::new(0));
         let last_output_at = Arc::new(AtomicU64::new(now_millis()));
         let live_supervision_baseline_diff = git_diff_with_untracked(root).unwrap_or_default();
-        let mut small_patch_no_delta_intervention =
-            SmallPatchNoDeltaIntervention::from_request(request);
 
         let start = Instant::now();
         let heartbeat_seconds = env_u64("MIXMOD_OPENCODE_HEARTBEAT_SECONDS")
@@ -328,25 +325,6 @@ impl LocalVerificationRun<'_> {
                             notes.push(format!("Unable to build live supervisor snapshot: {error}"))
                         }
                     }
-                }
-
-                if !supervisor_control_path.exists()
-                    && let Some(control) =
-                        small_patch_no_delta_intervention
-                            .as_mut()
-                            .and_then(|intervention| {
-                                intervention.maybe_control(
-                                    root,
-                                    segment_started_instant.elapsed(),
-                                    Duration::from_millis(last_output_age),
-                                )
-                            })
-                {
-                    write_pretty_json(
-                        &supervisor_control_path,
-                        &control,
-                        "revision no-delta supervisor control",
-                    )?;
                 }
 
                 if let Some(control) = read_supervisor_control(&supervisor_control_path) {

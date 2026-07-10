@@ -83,13 +83,11 @@ pub(crate) fn supervisor_control_decision_from_metrics(
     let control_source = get_str(control, "source")
         .or_else(|| get_str(event, "source"))
         .unwrap_or("");
-    let auto_revision_no_delta = control_source.starts_with("auto_revision_no_delta");
     let no_repo_delta = get_u64(&metrics, "changed_file_count").unwrap_or(0) == 0
         && get_u64(&metrics, "patch_bytes").unwrap_or(0) == 0;
-    let live_supervisor_no_delta =
-        control_source == "codex_live_supervisor" && verdict == "revise" && no_repo_delta;
-    let no_delta_recovery = auto_revision_no_delta || live_supervisor_no_delta;
-    let patch_decision = if verdict == "revise" && no_delta_recovery {
+    let live_supervisor_no_delta_recovery =
+        control_source == "codex_live_supervisor" && no_repo_delta;
+    let patch_decision = if live_supervisor_no_delta_recovery {
         "revise_current"
     } else {
         "accept_current"
@@ -108,7 +106,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         .trim()
         .to_string();
     let revision_handoff =
-        revision_handoff_from_supervisor_control(control, no_delta_recovery, &hint);
+        revision_handoff_from_supervisor_control(control, live_supervisor_no_delta_recovery, &hint);
     let feedback = json!({
         "label": "supervisor-control",
         "timestamp": Utc::now().to_rfc3339(),
@@ -147,14 +145,14 @@ pub(crate) fn supervisor_control_decision_from_metrics(
 
 fn revision_handoff_from_supervisor_control(
     control: &Value,
-    auto_revision_no_delta: bool,
+    no_delta_recovery: bool,
     hint: &str,
 ) -> RevisionHandoff {
     let worker_turn_shape = get_str(control, "worker_turn_shape")
         .map(ToOwned::to_owned)
-        .or_else(|| auto_revision_no_delta.then(|| "small_patch_slice".to_string()));
+        .or_else(|| no_delta_recovery.then(|| "small_patch_slice".to_string()));
     let mut exact_edits = get_string_array(control, "exact_edits");
-    if exact_edits.is_empty() && auto_revision_no_delta && !hint.trim().is_empty() {
+    if exact_edits.is_empty() && no_delta_recovery && !hint.trim().is_empty() {
         exact_edits.push(hint.trim().to_string());
     }
     RevisionHandoff {
@@ -162,17 +160,18 @@ fn revision_handoff_from_supervisor_control(
         turn_goal: get_str(control, "turn_goal")
             .map(ToOwned::to_owned)
             .or_else(|| {
-                auto_revision_no_delta.then(|| "make the first no-delta recovery edit".to_string())
+                no_delta_recovery
+                    .then(|| "make the supervisor-requested no-delta recovery edit".to_string())
             }),
         exact_edits,
         edit_plan: get_string_array(control, "edit_plan"),
         deferred_checks: get_string_array(control, "deferred_checks"),
         defer_checks_until_patch_exists: get_bool(control, "defer_checks_until_patch_exists")
-            .or_else(|| auto_revision_no_delta.then_some(true)),
+            .or_else(|| no_delta_recovery.then_some(true)),
         completion_gate: get_str(control, "completion_gate").map(ToOwned::to_owned),
         forbidden_actions: {
             let mut actions = get_string_array(control, "forbidden_actions");
-            if auto_revision_no_delta {
+            if no_delta_recovery {
                 for action in ["ask questions", "run tests before editing"] {
                     if !actions.iter().any(|item| item == action) {
                         actions.push(action.to_string());
