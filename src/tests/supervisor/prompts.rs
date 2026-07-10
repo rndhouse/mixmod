@@ -231,6 +231,43 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
 }
 
 #[test]
+fn supervisor_prompts_include_openrouter_glm_worker_guidance() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(None, Some("openrouter/z-ai/glm-5.2".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+    let guidance = config.worker_supervisor_guidance();
+
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Parser defaults",
+  "instructions": "Add parser support for default args.",
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let brief_prompt =
+        supervisor_worker_brief_prompt(root, &task, &guidance, SupervisorInitMode::Compact)
+            .unwrap();
+
+    assert!(brief_prompt.contains("Supervisor-only worker-model guidance"));
+    assert!(brief_prompt.contains("openrouter/z-ai/glm-5.2"));
+    assert!(brief_prompt.contains("over-investigate"));
+    assert!(brief_prompt.contains("resolve the implementation route"));
+    assert!(brief_prompt.contains("trust that route"));
+    assert!(brief_prompt.contains("worker_turn_shape=bounded_feature_slice"));
+    assert!(brief_prompt.contains("patch-first"));
+    assert!(brief_prompt.contains("toolchain archaeology"));
+    assert!(brief_prompt.contains("current accumulated patch"));
+    assert!(brief_prompt.contains("end-to-end behavior"));
+}
+
+#[test]
 fn supervisor_review_artifacts_include_task_and_handoff_context() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

@@ -515,6 +515,49 @@ fn glm_worker_profile_is_selected_by_alias() {
 }
 
 #[test]
+fn openrouter_glm_worker_profile_is_selected_by_alias() {
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(None, Some("openrouter/z-ai/glm-5.2".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, "openrouter/z-ai/glm-5.2");
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("over-investigate"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("resolve the implementation route"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("worker_turn_shape=bounded_feature_slice"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("trust that route"))
+    );
+
+    ModelOverrides::new(None, Some("z-ai/glm-5.2".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, "openrouter/z-ai/glm-5.2");
+}
+
+#[test]
 fn model_overrides_apply_codex_worker_backend_and_model() {
     let mut config = MixmodConfig::default();
 

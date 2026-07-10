@@ -208,6 +208,20 @@ supervisor_guidance = [
   "Before accepting a turn, check whether the intended repo diff exists and touches the expected source/test files.",
 ]
 
+[[worker_model_profiles]]
+model = "openrouter/z-ai/glm-5.2"
+aliases = ["openrouter/z-ai/glm-5.2", "z-ai/glm-5.2"]
+supervisor_guidance = [
+  "This worker is capable, but may over-investigate when the handoff contains an apparent implementation constraint conflict or an unresolved toolchain choice.",
+  "For generated-code, parser/compiler, toolchain, or similar trap-prone tasks, resolve the implementation route in the supervisor handoff before invoking the worker; do not ask the worker to discover whether the obvious route is viable.",
+  "When the supervisor has selected a route, tell the worker to trust that route unless a direct compile, test, or command result proves it impossible.",
+  "For broad expected-patch tasks, prefer worker_turn_shape=bounded_feature_slice with one concrete implementation path, one to three focused files, and the first reversible source edit named explicitly.",
+  "Make the initial handoff patch-first: include the chosen strategy, the exact next behavior slice, the files to touch, and deferred checks; avoid leaving design forks for the worker to resolve before editing.",
+  "If the worker starts toolchain archaeology, scratch-file probing, broad repo reading, or test-before-edit behavior without a diff, use live control to restate the chosen implementation route and request an immediate focused source edit.",
+  "For revisions, anchor the next instruction to the current accumulated patch, preserve useful existing edits, and name the next missing behavior instead of restarting discovery.",
+  "Before approval, check that the accumulated patch implements the requested end-to-end behavior, not just the first structural field or helper, and require focused behavior evidence for the main path plus likely invalid or edge case.",
+]
+
 [supervisor]
 model = "{supervisor_model}"
 # Codex config key: model_reasoning_effort. Allowed: minimal, low, medium, high, xhigh.
