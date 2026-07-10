@@ -300,6 +300,7 @@ impl LocalVerificationRun<'_> {
                         segment_index,
                         segment_action: &segment_action,
                         segment_worker_mode: &segment_worker_mode,
+                        worker_provider: &selection.provider,
                         segment_label: &segment_label,
                         segment_resume_session_id: segment_resume_session_id.as_deref(),
                         stdout_bytes: stdout_bytes.load(Ordering::Relaxed),

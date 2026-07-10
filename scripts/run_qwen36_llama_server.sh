@@ -20,6 +20,7 @@ exec llama-server \
   --no-mmap \
   -fa on \
   -kvu \
+  --metrics \
   --temp 0.6 \
   --top-p 0.95 \
   --top-k 20 \

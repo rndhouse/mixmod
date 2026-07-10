@@ -7,6 +7,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::harness::{AgentRequest, LiveWorkerSnapshot};
+use crate::worker_telemetry::llama_server;
 use crate::{
     diff_without_unchanged_blocks, get_str, git_diff_with_untracked, patch_stats,
     truncate_for_report, worker_session_token_peak,
@@ -26,6 +27,7 @@ pub(super) struct LiveWorkerSnapshotInput<'a> {
     pub(super) segment_index: u64,
     pub(super) segment_action: &'a str,
     pub(super) segment_worker_mode: &'a str,
+    pub(super) worker_provider: &'a str,
     pub(super) segment_label: &'a str,
     pub(super) segment_resume_session_id: Option<&'a str>,
     pub(super) stdout_bytes: u64,
@@ -65,6 +67,7 @@ pub(super) fn build_live_worker_snapshot(
         new_delta_changed_line_count: stats.changed_line_count,
         context_overflow_count: count_context_overflow(segment_stdout),
         worker_session_token_peak: worker_session_token_peak(segment_stdout),
+        worker_backend_telemetry: llama_server::collect_for_opencode_worker(input.worker_provider),
         repeated_read_signature: tool_activity.repeated_read_signature,
         repeated_read_count: tool_activity.repeated_read_count,
         recent_tool_events: tool_activity.recent_tool_events,

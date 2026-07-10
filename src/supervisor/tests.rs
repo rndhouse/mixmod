@@ -3,7 +3,8 @@ use std::path::Path;
 use serde_json::json;
 
 use crate::{
-    LiveSupervisionConfig, LiveWorkerSnapshot, WorkerSupervisorGuidance, get_str, get_string_array,
+    LiveSupervisionConfig, LiveWorkerSnapshot, WorkerBackendSlotTelemetry, WorkerBackendTelemetry,
+    WorkerSupervisorGuidance, get_str, get_string_array,
 };
 
 use super::live::{
@@ -176,6 +177,23 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
         live_control_check_limit: 3,
         elapsed_ms: 130_000,
         context_overflow_count: 1,
+        worker_backend_telemetry: Some(WorkerBackendTelemetry {
+            provider: "llama_server".to_string(),
+            available: true,
+            captured_at: "2026-07-10T10:35:00Z".to_string(),
+            ctx_size: Some(32768),
+            requests_processing: Some(1),
+            requests_deferred: Some(0),
+            tokens_max_observed: Some(27142),
+            active_slots: vec![WorkerBackendSlotTelemetry {
+                id: 0,
+                ctx_size: Some(32768),
+                is_processing: true,
+                decoded_tokens: Some(814),
+                remaining_tokens: Some(-1),
+            }],
+            error: None,
+        }),
         ..LiveWorkerSnapshot::default()
     };
     let prompt = supervisor_live_control_prompt(
@@ -190,8 +208,12 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
     assert!(prompt.contains("Available actions:"));
     assert!(prompt.contains("Base the action on the live evidence"));
     assert!(prompt.contains("Do not assume an intervention is required"));
+    assert!(prompt.contains("worker_backend_telemetry"));
+    assert!(prompt.contains("tokens_max_observed"));
+    assert!(prompt.contains("27142"));
     assert!(prompt.contains("Do not invent a different cleanup, bug, or objective"));
     assert!(prompt.contains("abort_worker_turn"));
+    assert!(!prompt.contains("worker_context_pressure"));
     assert!(!prompt.contains("prefer an interrupt"));
     assert!(!prompt.contains("Prefer this after"));
     assert!(!prompt.contains("prefer interrupt_context_focus"));

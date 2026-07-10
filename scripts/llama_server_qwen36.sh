@@ -23,6 +23,7 @@ exec llama-server \
   --no-mmap \
   -fa on \
   -kvu \
+  --metrics \
   -c "$LLAMA_SERVER_CTX" \
   --temp "$LLAMA_SERVER_TEMP" \
   --top-p "$LLAMA_SERVER_TOP_P" \

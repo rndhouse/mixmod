@@ -13,7 +13,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{DelegationMode, MixmodConfig, SupervisorControlEvent, WorkerBackend};
+use crate::{
+    DelegationMode, MixmodConfig, SupervisorControlEvent, WorkerBackend, WorkerBackendTelemetry,
+};
 
 pub(crate) mod codex;
 pub(crate) mod opencode;
@@ -102,6 +104,8 @@ pub struct LiveWorkerSnapshot {
     pub context_overflow_count: u64,
     /// Peak total-token count reported by structured worker stdout.
     pub worker_session_token_peak: Option<u64>,
+    /// Raw backend telemetry from the worker inference server, when available.
+    pub worker_backend_telemetry: Option<WorkerBackendTelemetry>,
     /// Most repeated read/search-like tool signature observed in this segment.
     pub repeated_read_signature: Option<String>,
     /// Count for the most repeated read/search-like tool signature.

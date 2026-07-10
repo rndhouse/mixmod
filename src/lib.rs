@@ -35,6 +35,7 @@ mod task;
 #[cfg(test)]
 mod tests;
 mod worker;
+mod worker_telemetry;
 
 pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
@@ -133,6 +134,7 @@ pub(crate) use supervisor::{
 };
 pub use worker::WorkerModelProfile;
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
+pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};
 
 use task::{
     TaskSpec, agent_visible_task_value, ensure_agent_visible_task_file, read_task_json,
