@@ -33,7 +33,7 @@ pub(crate) fn is_cloud_opencode_provider(provider: &str) -> bool {
         .any(|marker| provider.contains(marker))
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct MixmodConfig {
     /// Default strategy behavior.
@@ -106,13 +106,15 @@ impl SupervisorInitMode {
 }
 
 /// Strategy-level defaults for supervisor/worker orchestration.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct StrategyConfig {
     /// Initial supervisor briefing style.
     pub supervisor_init: SupervisorInitMode,
     /// Periodic supervisor checks while a worker turn is still running.
     pub live_supervision: LiveSupervisionConfig,
+    /// Optional Codex-hook proxy that delegates supervisor tool calls to the worker.
+    pub supervisor_tool_proxy: SupervisorToolProxyConfig,
 }
 
 impl Default for StrategyConfig {
@@ -120,7 +122,22 @@ impl Default for StrategyConfig {
         Self {
             supervisor_init: SupervisorInitMode::Compact,
             live_supervision: LiveSupervisionConfig::default(),
+            supervisor_tool_proxy: SupervisorToolProxyConfig::default(),
         }
+    }
+}
+
+/// Supervisor-scoped Codex hook routing for low-risk tool calls.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SupervisorToolProxyConfig {
+    /// Install a scoped Codex hook that can route eligible Bash tool calls to the worker.
+    pub enabled: bool,
+}
+
+impl Default for SupervisorToolProxyConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
@@ -177,7 +194,7 @@ impl WorkerBackend {
 }
 
 /// Backend selection for worker turns.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct WorkerConfig {
     pub backend: WorkerBackend,
@@ -249,7 +266,7 @@ impl ModelOverrides {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct OpenCodeConfig {
     pub command: String,
@@ -384,7 +401,7 @@ fn apply_worker_model_override(config: &mut OpenCodeConfig, value: &str) -> Resu
     Ok(())
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct LocalVerificationConfig {
     pub enabled: bool,

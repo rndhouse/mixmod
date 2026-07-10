@@ -3,8 +3,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-use crate::SupervisorConfig;
 use crate::harness::codex::{CodexAppServer, CodexSandbox, CodexTurnResult};
+use crate::{MixmodConfig, SupervisorConfig};
 
 /// Persistent Codex app-server session used by the supervisor loop.
 pub(crate) struct SupervisorCodexSession {
@@ -13,9 +13,13 @@ pub(crate) struct SupervisorCodexSession {
 
 impl SupervisorCodexSession {
     /// Start one Codex app-server process and supervisor thread for this run.
-    pub(crate) fn start(work_dir: &Path, supervisor: &SupervisorConfig) -> Result<Self> {
+    pub(crate) fn start(
+        work_dir: &Path,
+        supervisor: &SupervisorConfig,
+        tool_proxy_config: Option<&MixmodConfig>,
+    ) -> Result<Self> {
         let sandbox = supervisor_codex_sandbox_from_env()?;
-        let server = CodexAppServer::start(work_dir, supervisor, sandbox)?;
+        let server = CodexAppServer::start(work_dir, supervisor, sandbox, tool_proxy_config)?;
         Ok(Self { server })
     }
 

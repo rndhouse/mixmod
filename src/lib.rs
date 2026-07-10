@@ -31,6 +31,7 @@ mod run;
 mod state;
 mod strategy_metrics;
 mod supervisor;
+mod supervisor_tool_proxy;
 mod task;
 #[cfg(test)]
 mod tests;
@@ -59,11 +60,12 @@ pub(crate) use checkpoint::{
     append_patch_checkpoint_artifacts, patch_checkpoint_metrics, restore_previous_patch_checkpoint,
     write_patch_checkpoint_comparison_from_patch,
 };
-pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
+pub use cli::{Cli, CodexHookCommand, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub(crate) use config::is_cloud_opencode_provider;
 pub use config::{
     LiveSupervisionConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
-    StrategyConfig, SupervisorConfig, SupervisorInitMode, WorkerBackend, WorkerConfig,
+    StrategyConfig, SupervisorConfig, SupervisorInitMode, SupervisorToolProxyConfig, WorkerBackend,
+    WorkerConfig,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
@@ -132,6 +134,9 @@ pub(crate) use supervisor::{
 pub(crate) use supervisor::{
     normalize_feedback_value, supervisor_feedback_prompt, supervisor_feedback_repair_prompt,
     supervisor_worker_brief_prompt,
+};
+pub(crate) use supervisor_tool_proxy::{
+    codex_hook_pre_tool_use, prepare_supervisor_tool_proxy_home, run_supervisor_tool_proxy,
 };
 pub(crate) use tool_events::build_tool_events_jsonl;
 pub use worker::WorkerModelProfile;
@@ -281,6 +286,12 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 }
             }
         }
+        Commands::CodexHook { command } => match command {
+            CodexHookCommand::PreToolUse => codex_hook_pre_tool_use(),
+            CodexHookCommand::RunToolProxy { payload } => {
+                run_supervisor_tool_proxy(&payload, &root)
+            }
+        },
         Commands::Experiment { command } => {
             ensure_debug_command_enabled("mixmod experiment")?;
             match command {

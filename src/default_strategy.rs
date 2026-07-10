@@ -70,8 +70,6 @@ impl DefaultStrategyRun<'_> {
             .unwrap_or(config.strategy.supervisor_init);
         let live_supervision = config.strategy.live_supervision.clone();
         let worker_guidance = config.worker_supervisor_guidance();
-        let runner = worker_harness_for_config(config);
-
         let task_file = out_dir.join(TASK_JSON);
         write_agent_visible_task_file(&absolutize(root, task_arg), &task_file)?;
         let _ = read_task_json(&task_file)?;
@@ -80,7 +78,9 @@ impl DefaultStrategyRun<'_> {
         let supervisor_session = Arc::new(Mutex::new(SupervisorCodexSession::start(
             root,
             &supervisor,
+            Some(&config),
         )?));
+        let runner = worker_harness_for_config(config);
         let live_supervisor = live_supervision.enabled.then(|| {
             Arc::new(LiveSupervisorAdvisor::new(
                 root,

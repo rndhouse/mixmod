@@ -14,6 +14,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::harness::{AgentBackend, AgentHarness, AgentOutput, AgentRequest};
+use crate::prepare_supervisor_tool_proxy_home;
 use crate::{
     MixmodConfig, SupervisorConfig, append_file, atomic_write, get_str, get_u64, state_layout,
 };
@@ -238,6 +239,7 @@ impl AgentHarness for ShellCodexRunner {
                 &request.root,
                 &self.config.codex_worker,
                 CodexSandbox::WorkspaceWrite,
+                None,
             )?);
         }
 
@@ -333,20 +335,28 @@ impl CodexAppServer {
         work_dir: &Path,
         supervisor: &SupervisorConfig,
         sandbox: CodexSandbox,
+        tool_proxy_config: Option<&MixmodConfig>,
     ) -> Result<Self> {
         let code_home = codex_home_for_work_dir(work_dir);
         fs::create_dir_all(&code_home)
             .with_context(|| format!("failed to create Codex home {}", code_home.display()))?;
         let copied_auth = copy_codex_auth_if_available(&code_home)?;
+        let tool_proxy = prepare_supervisor_tool_proxy_home(&code_home, tool_proxy_config)?;
         let model = normalized_supervisor_model(&supervisor.model)?;
         let reasoning_effort = normalized_reasoning_effort(&supervisor.reasoning_effort)?;
         let mut command = Command::new("codex");
+        if tool_proxy.enabled {
+            command.arg("--dangerously-bypass-hook-trust");
+        }
         command
             .args(["app-server", "--listen", "stdio://"])
             .env("CODEX_HOME", &code_home)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(config_path) = tool_proxy.config_path.as_ref() {
+            command.env("MIXMOD_SUPERVISOR_TOOL_PROXY_CONFIG", config_path);
+        }
         #[cfg(unix)]
         {
             command.process_group(0);

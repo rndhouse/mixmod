@@ -80,12 +80,13 @@ impl DefaultExperimentRun<'_> {
             ensure_agent_visible_task_file(&task_file)?;
         }
         let _ = read_task_json(&task_file)?;
-        let runner = worker_harness_for_config(config);
         let feedback_path = default_dir.join(SUPERVISOR_FEEDBACK_JSONL);
         let supervisor_session = Arc::new(Mutex::new(SupervisorCodexSession::start(
             &work_dir,
             &supervisor,
+            Some(&config),
         )?));
+        let runner = worker_harness_for_config(config);
         let live_supervisor = live_supervision.enabled.then(|| {
             Arc::new(LiveSupervisorAdvisor::new(
                 &work_dir,

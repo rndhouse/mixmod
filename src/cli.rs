@@ -103,11 +103,32 @@ pub enum Commands {
         #[command(subcommand)]
         command: ControlCommand,
     },
+    /// Internal Codex hook entrypoints.
+    #[command(hide = true)]
+    #[command(name = "codex-hook")]
+    CodexHook {
+        #[command(subcommand)]
+        command: CodexHookCommand,
+    },
     /// Manage repeatable Mixmod experiments.
     #[command(hide = true)]
     Experiment {
         #[command(subcommand)]
         command: ExperimentCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CodexHookCommand {
+    /// Codex PreToolUse hook for supervisor-scoped Bash tool proxying.
+    #[command(name = "pre-tool-use")]
+    PreToolUse,
+    /// Execute a worker-backed tool proxy payload.
+    #[command(name = "run-tool-proxy")]
+    RunToolProxy {
+        /// Payload written by the PreToolUse hook.
+        #[arg(long)]
+        payload: PathBuf,
     },
 }
 
