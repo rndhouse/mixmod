@@ -62,6 +62,7 @@ pub(crate) fn default_worker_model_profiles() -> Vec<WorkerModelProfile> {
                 format!("{DEFAULT_OPENCODE_PROVIDER}/{DEFAULT_OPENCODE_LOCAL_MODEL}"),
             ],
             supervisor_guidance: vec![
+                "This local Qwen worker is much less capable than the supervisor, but it is effectively zero marginal GPT-token cost; use it as a cheap tool for bounded work, not as the strategic owner.".to_string(),
                 "This worker can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.".to_string(),
                 "This worker can struggle with large effective context before an explicit overflow occurs; keep initial handoffs compact, split broad tasks into small concrete source slices, and avoid asking it to reread many files at once.".to_string(),
                 "Treat this worker as a narrow local tool operator. Prefer worker_role=inspect for exact file/symbol/line discovery, worker_role=run_checks for command execution and failure summaries, and worker_role=patch_slice only for a concrete bounded edit.".to_string(),

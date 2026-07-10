@@ -436,6 +436,18 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
+            .any(|item| item.contains("less capable than the supervisor"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("zero marginal GPT-token cost"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
             .any(|item| item.contains("reasoning before editing"))
     );
     assert!(

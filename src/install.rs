@@ -189,6 +189,7 @@ backend_command = "curl -fsS http://127.0.0.1:8080/v1/models"
 model = "{default_model}"
 aliases = ["{default_model}", "{local_model}", "{opencode_provider}/{local_model}"]
 supervisor_guidance = [
+  "This local Qwen worker is much less capable than the supervisor, but it is effectively zero marginal GPT-token cost; use it as a cheap tool for bounded work, not as the strategic owner.",
   "This worker can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.",
   "This worker can struggle with large effective context before an explicit overflow occurs; keep initial handoffs compact, split broad tasks into small concrete source slices, and avoid asking it to reread many files at once.",
   "Treat this worker as a narrow local tool operator. Prefer worker_role=inspect for exact file/symbol/line discovery, worker_role=run_checks for command execution and failure summaries, and worker_role=patch_slice only for a concrete bounded edit.",
