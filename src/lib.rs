@@ -122,9 +122,9 @@ pub(crate) use run::{
 pub(crate) use state::state_layout;
 pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
-    LiveSupervisorAdvisor, RevisionHandoff, SupervisorFeedbackTurn, aggregate_supervisor_usage,
-    codex_only_prompt, normalize_worker_mode, run_supervisor_brief_turn,
-    run_supervisor_feedback_turn,
+    LiveSupervisorAdvisor, RevisionHandoff, SupervisorCodexSession, SupervisorFeedbackTurn,
+    aggregate_supervisor_usage, codex_only_prompt, normalize_worker_mode,
+    run_supervisor_brief_turn, run_supervisor_feedback_turn,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{

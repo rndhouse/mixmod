@@ -8,6 +8,7 @@ mod tests;
 mod turns;
 mod types;
 
+pub(crate) use codex::SupervisorCodexSession;
 pub(crate) use live::LiveSupervisorAdvisor;
 #[cfg(test)]
 pub(crate) use normalize::normalize_feedback_value;

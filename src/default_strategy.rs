@@ -1,6 +1,6 @@
 use crate::experiment::{write_revision_task, write_worker_brief_task};
 use crate::*;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Options for running the public Mixmod default strategy.
 pub(crate) struct DefaultStrategyOptions {
@@ -77,24 +77,33 @@ impl DefaultStrategyRun<'_> {
         let _ = read_task_json(&task_file)?;
 
         let feedback_path = out_dir.join(SUPERVISOR_FEEDBACK_JSONL);
+        let supervisor_session = Arc::new(Mutex::new(SupervisorCodexSession::start(
+            root,
+            &supervisor,
+        )?));
         let live_supervisor = live_supervision.enabled.then(|| {
             Arc::new(LiveSupervisorAdvisor::new(
                 root,
                 &out_dir,
                 &feedback_path,
-                supervisor.clone(),
+                Arc::clone(&supervisor_session),
                 worker_guidance.clone(),
                 live_supervision.clone(),
             ))
         });
-        let worker_brief = run_supervisor_brief_turn(
-            root,
-            &out_dir,
-            &task_file,
-            &supervisor,
-            &worker_guidance,
-            supervisor_init,
-        )?;
+        let worker_brief = {
+            let mut supervisor_session = supervisor_session
+                .lock()
+                .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
+            run_supervisor_brief_turn(
+                &mut supervisor_session,
+                root,
+                &out_dir,
+                &task_file,
+                &worker_guidance,
+                supervisor_init,
+            )?
+        };
         write_pretty_json(
             &out_dir.join(WORKER_BRIEF_JSON),
             &worker_brief.brief,
@@ -148,15 +157,20 @@ impl DefaultStrategyRun<'_> {
                         artifact_paths.push(supervisor_control_path);
                     }
                     append_patch_checkpoint_artifacts(&final_out, &mut artifact_paths)?;
-                    let decision = run_supervisor_feedback_turn(
-                        root,
-                        &out_dir,
-                        &label,
-                        &artifact_paths,
-                        "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not author task-solving source changes.",
-                        &supervisor,
-                        &worker_guidance,
-                    )?;
+                    let decision = {
+                        let mut supervisor_session = supervisor_session
+                            .lock()
+                            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
+                        run_supervisor_feedback_turn(
+                            &mut supervisor_session,
+                            root,
+                            &out_dir,
+                            &label,
+                            &artifact_paths,
+                            "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not author task-solving source changes.",
+                            &worker_guidance,
+                        )?
+                    };
                     supervisor_samples.push(decision.usage_sample());
                     decision
                 };
@@ -287,7 +301,7 @@ impl DefaultStrategyRun<'_> {
             "codex_visible_bytes": supervisor_usage.input_bytes,
             "supervision_turn_count": supervisor_usage.turn_count,
             "codex_calls": supervisor_usage.turn_count,
-            "codex_backend": "app-server-per-turn",
+            "codex_backend": "app-server-persistent",
             "codex_app_server_thread_ids": supervisor_usage.thread_ids.clone(),
             "codex_app_server_turn_ids": supervisor_usage.turn_ids.clone(),
             "codex_app_server_thread_count": supervisor_usage.thread_count(),
@@ -354,7 +368,7 @@ impl DefaultStrategyRun<'_> {
             "terminal_reject": false,
             "needs_worker_revision": false,
             "notes": [
-                "Default strategy used a fresh supervisor app-server thread for each worker handoff and review turn.",
+                "Default strategy reused one supervisor app-server thread across worker handoff, review, repair, and live-control turns.",
                 "The supervisor controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
                 "The worker backend was selected through the Mixmod worker settings."
             ]

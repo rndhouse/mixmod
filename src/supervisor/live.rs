@@ -1,14 +1,14 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use serde_json::{Value, json};
 
 use crate::*;
 
-use super::codex::{run_codex_app_server_turn, supervisor_codex_sandbox_from_env};
+use super::codex::SupervisorCodexSession;
 use super::normalize::parse_feedback_json;
 use super::prompts::supervisor_live_control_prompt;
 use super::types::SupervisorUsageSample;
@@ -17,7 +17,7 @@ pub(crate) struct LiveSupervisorAdvisor {
     work_dir: PathBuf,
     artifact_dir: PathBuf,
     feedback_path: PathBuf,
-    supervisor: SupervisorConfig,
+    supervisor_session: Arc<Mutex<SupervisorCodexSession>>,
     worker_guidance: WorkerSupervisorGuidance,
     config: LiveSupervisionConfig,
     state: Mutex<LiveSupervisorAdvisorState>,
@@ -35,7 +35,7 @@ impl LiveSupervisorAdvisor {
         work_dir: &Path,
         artifact_dir: &Path,
         feedback_path: &Path,
-        supervisor: SupervisorConfig,
+        supervisor_session: Arc<Mutex<SupervisorCodexSession>>,
         worker_guidance: WorkerSupervisorGuidance,
         config: LiveSupervisionConfig,
     ) -> Self {
@@ -43,7 +43,7 @@ impl LiveSupervisorAdvisor {
             work_dir: work_dir.to_path_buf(),
             artifact_dir: artifact_dir.to_path_buf(),
             feedback_path: feedback_path.to_path_buf(),
-            supervisor,
+            supervisor_session,
             worker_guidance,
             config,
             state: Mutex::new(LiveSupervisorAdvisorState::default()),
@@ -89,7 +89,6 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             return Ok(None);
         };
         let label = format!("live-control-{check_index}");
-        let sandbox = supervisor_codex_sandbox_from_env()?;
         let mut bounded_snapshot = snapshot_for_live_supervisor_prompt(snapshot);
         bounded_snapshot.live_control_check_index = check_index;
         bounded_snapshot.live_control_check_limit = self.config.max_checks_per_worker;
@@ -102,14 +101,11 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             &bounded_snapshot,
             &self.worker_guidance,
         )?;
-        let result = run_codex_app_server_turn(
-            &self.work_dir,
-            &self.artifact_dir,
-            &label,
-            &prompt,
-            &self.supervisor,
-            sandbox,
-        )?;
+        let result = self
+            .supervisor_session
+            .lock()
+            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?
+            .run_turn(&self.artifact_dir, &label, &prompt)?;
         let raw_parsed = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
             json!({
                 "action": "wait",

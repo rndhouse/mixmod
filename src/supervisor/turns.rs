@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use crate::*;
 
-use super::codex::{run_codex_app_server_turn, supervisor_codex_sandbox_from_env};
+use super::codex::SupervisorCodexSession;
 use super::normalize::{
     normalize_feedback_value, normalize_patch_decision, normalize_worker_mode, parse_feedback_json,
 };
@@ -24,23 +24,15 @@ use super::repair::{
 use super::types::{RevisionHandoff, SupervisorBriefTurn, SupervisorFeedbackTurn};
 
 pub(crate) fn run_supervisor_brief_turn(
+    session: &mut SupervisorCodexSession,
     work_dir: &Path,
     default_dir: &Path,
     task_path: &Path,
-    supervisor: &SupervisorConfig,
     worker_guidance: &WorkerSupervisorGuidance,
     init_mode: SupervisorInitMode,
 ) -> Result<SupervisorBriefTurn> {
-    let sandbox = supervisor_codex_sandbox_from_env()?;
     let prompt = supervisor_worker_brief_prompt(work_dir, task_path, worker_guidance, init_mode)?;
-    let result = run_codex_app_server_turn(
-        work_dir,
-        default_dir,
-        "worker-brief",
-        &prompt,
-        supervisor,
-        sandbox,
-    )?;
+    let result = session.run_turn(default_dir, "worker-brief", &prompt)?;
     let parsed_brief = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
             "handoff": "blocked",
@@ -66,14 +58,7 @@ pub(crate) fn run_supervisor_brief_turn(
             worker_guidance,
             &final_brief,
         )?;
-        let repair = run_codex_app_server_turn(
-            work_dir,
-            default_dir,
-            "worker-brief-repair",
-            &repair_prompt,
-            supervisor,
-            sandbox,
-        )?;
+        let repair = session.run_turn(default_dir, "worker-brief-repair", &repair_prompt)?;
         let mut repaired_brief = parse_feedback_json(&repair.last_message);
         let mut repair_accepted =
             repaired_brief_is_accepted(repaired_brief.as_ref(), worker_guidance);
@@ -94,14 +79,7 @@ pub(crate) fn run_supervisor_brief_turn(
                 &rejected_repair,
                 &rejection_reason,
             )?;
-            let retry = run_codex_app_server_turn(
-                work_dir,
-                default_dir,
-                "worker-brief-repair-2",
-                &retry_prompt,
-                supervisor,
-                sandbox,
-            )?;
+            let retry = session.run_turn(default_dir, "worker-brief-repair-2", &retry_prompt)?;
             let retry_brief = parse_feedback_json(&retry.last_message);
             let retry_accepted = repaired_brief_is_accepted(retry_brief.as_ref(), worker_guidance);
             retry_record = Some(json!({
@@ -335,19 +313,17 @@ fn merge_repair_record(repair_record: &mut Option<Value>, key: &str, value: Valu
 }
 
 pub(crate) fn run_supervisor_feedback_turn(
+    session: &mut SupervisorCodexSession,
     work_dir: &Path,
     budgeted_dir: &Path,
     label: &str,
     artifact_paths: &[PathBuf],
     instruction: &str,
-    supervisor: &SupervisorConfig,
     worker_guidance: &WorkerSupervisorGuidance,
 ) -> Result<SupervisorFeedbackTurn> {
-    let sandbox = supervisor_codex_sandbox_from_env()?;
     let prompt =
         supervisor_feedback_prompt(work_dir, artifact_paths, instruction, worker_guidance)?;
-    let result =
-        run_codex_app_server_turn(work_dir, budgeted_dir, label, &prompt, supervisor, sandbox)?;
+    let result = session.run_turn(budgeted_dir, label, &prompt)?;
     let parsed_feedback = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
             "action": if result.exit_status == Some(0) { "approve" } else { "revise" },
@@ -376,14 +352,7 @@ pub(crate) fn run_supervisor_feedback_turn(
             worker_guidance,
             &parsed_feedback,
         )?;
-        let repair = run_codex_app_server_turn(
-            work_dir,
-            budgeted_dir,
-            &format!("{label}-repair"),
-            &repair_prompt,
-            supervisor,
-            sandbox,
-        )?;
+        let repair = session.run_turn(budgeted_dir, &format!("{label}-repair"), &repair_prompt)?;
         let mut repaired_feedback = parse_feedback_json(&repair.last_message)
             .map(|feedback| normalize_feedback_value(feedback).0);
         let mut repair_accepted = repaired_feedback_is_accepted(
@@ -411,14 +380,8 @@ pub(crate) fn run_supervisor_feedback_turn(
                 &rejected_repair,
                 &rejection_reason,
             )?;
-            let retry = run_codex_app_server_turn(
-                work_dir,
-                budgeted_dir,
-                &format!("{label}-repair-2"),
-                &retry_prompt,
-                supervisor,
-                sandbox,
-            )?;
+            let retry =
+                session.run_turn(budgeted_dir, &format!("{label}-repair-2"), &retry_prompt)?;
             let retry_feedback = parse_feedback_json(&retry.last_message)
                 .map(|feedback| normalize_feedback_value(feedback).0);
             let retry_accepted = repaired_feedback_is_accepted(
@@ -503,13 +466,10 @@ pub(crate) fn run_supervisor_feedback_turn(
             &parsed_feedback,
             &rejection_reason,
         )?;
-        let repair = run_codex_app_server_turn(
-            work_dir,
+        let repair = session.run_turn(
             budgeted_dir,
             &format!("{label}-approval-repair"),
             &repair_prompt,
-            supervisor,
-            sandbox,
         )?;
         let repaired_feedback = parse_feedback_json(&repair.last_message)
             .map(|feedback| normalize_feedback_value(feedback).0);
