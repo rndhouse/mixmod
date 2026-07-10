@@ -24,7 +24,7 @@ Task JSON:
 }
 
 fn supervisor_worktree_policy() -> &'static str {
-    "Workspace access is available for direct supervision work. You may inspect, test, edit, or manage git state yourself when that is the best route; useful git commands include `git status`, `git diff`, `git show`, `git grep`, `git restore`, and `git apply`. You may delegate focused local work to the configured worker when that saves supervisor tokens or uses local compute effectively. Eligible Bash evidence commands may be routed through Mixmod to the local worker and returned as compact command results."
+    "Workspace access is available for direct supervision work. You may inspect, test, edit, or manage git state yourself when that is the best route; useful git commands include `git status`, `git diff`, `git show`, `git grep`, `git restore`, and `git apply`. Treat local worker delegation as the low-cost path for bounded repo work because it uses local or worker-side compute instead of supervisor output tokens. Prefer delegating focused inspection, command evidence, artifact condensation, checks, or patch slices when that can save GPT tokens without risking correctness. Eligible Bash evidence commands may be routed through Mixmod to the local worker and returned as compact command results."
 }
 
 pub(crate) fn supervisor_worker_brief_prompt(
@@ -47,7 +47,7 @@ pub(crate) fn supervisor_worker_brief_prompt(
 The worker receives the original task JSON and can inspect, edit, and test the repo.
 {worktree_policy}
 Candidate repo file contents are not embedded in this prompt. Inspect listed repo files or git state when useful before writing the handoff.
-Use supervisor reasoning freely, but minimize supervisor output.
+minimize supervisor output tokens. Use the worker for bounded local investigation, checks, summaries, or patch slices when that can avoid expensive supervisor reasoning/output.
 {worker_guidance}
 Choose a worker_role for the next local work order: "inspect", "run_checks", "patch_slice", "repair_error", or "summarize".
 Use inspect/run_checks/summarize when local repo facts, command output, or artifact condensation would reduce supervisor context cost before another edit. These roles must set "expect_patch":false.

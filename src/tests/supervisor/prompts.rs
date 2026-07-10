@@ -19,7 +19,8 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("revise_previous"));
     assert!(prompt.contains("Workspace access is available for direct supervision work"));
     assert!(prompt.contains("git status"));
-    assert!(prompt.contains("delegate focused local work"));
+    assert!(prompt.contains("local worker delegation as the low-cost path"));
+    assert!(prompt.contains("save GPT tokens"));
     assert!(prompt.contains("Eligible Bash evidence commands may be routed through Mixmod"));
     assert!(prompt.contains("Do not ask the user for approval."));
     assert!(prompt.contains("Approve only when the accumulated patch appears to satisfy"));
