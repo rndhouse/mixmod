@@ -128,7 +128,8 @@ fn investigative_worker_brief_prompt_allows_repo_investigation_pass() {
     .unwrap();
 
     assert!(prompt.contains("repo investigation"));
-    assert!(prompt.contains("Workspace access is for supervision, not implementation"));
+    assert!(prompt.contains("Workspace access is available for direct supervision work"));
+    assert!(prompt.contains("delegate focused local work"));
     assert!(prompt.contains("rg"));
     assert!(prompt.contains("git status"));
     assert!(prompt.contains("target <=500 output tokens"));

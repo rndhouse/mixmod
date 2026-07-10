@@ -24,7 +24,7 @@ Task JSON:
 }
 
 fn supervisor_worktree_policy() -> &'static str {
-    "Workspace access is for supervision, not implementation. You may use git/worktree commands such as `git status`, `git diff`, `git show`, `git grep`, and checkpoint-oriented `git restore` or `git apply` when needed to inspect or manage state. Do not author task-solving source edits, rewrite code, or create the solution patch yourself; the worker owns implementation."
+    "Workspace access is available for direct supervision work. You may inspect, test, edit, or manage git state yourself when that is the best route; useful git commands include `git status`, `git diff`, `git show`, `git grep`, `git restore`, and `git apply`. You may delegate focused local work to the configured worker when that saves supervisor tokens or uses local compute effectively. Eligible Bash evidence commands may be routed through Mixmod to the local worker and returned as compact command results."
 }
 
 pub(crate) fn supervisor_worker_brief_prompt(
@@ -309,7 +309,7 @@ Repair only the supervisor decision. Return either:
 - action=approve with required_checks=[], deferred_checks=[], no completion_gate, and compact evidence from artifacts that no further checks or worker turns are needed; or
 - action=revise with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
 
-Do not approve while listing checks that still need to run. Do not solve by authoring source changes."#
+Do not approve while listing checks that still need to run. Choose direct tool use or a worker revision based on what will complete the task with the best cost/capability tradeoff."#
     );
 
     supervisor_feedback_prompt(work_dir, artifact_paths, &instruction, worker_guidance)
@@ -341,7 +341,7 @@ Base the action on the live evidence. Do not assume an intervention is required 
 Use new_delta_bytes, stdout_log_path, stderr_log_path, tool_events_path, context_overflow_count, worker_session_token_peak, worker_backend_telemetry, elapsed time, and last output age only as evidence for worker progress, confusion, or blockage.
 If you need detailed stdout, stderr, or tool-call history, inspect stdout_log_path, stderr_log_path, or tool_events_path yourself. Do not pass those artifact paths to the worker.
 If you interrupt, keep message_to_worker bounded to worker_instruction_excerpt, the live evidence, and the selected worker guidance. For small_patch_slice workers, keep any interrupt patch-first: one repo file, one concrete source edit, deferred checks, and no broad feature instruction.
-Do not solve the task yourself by editing source. Your job is process control: decide whether to keep waiting, interrupt, or abort the worker turn.
+You may use direct tools outside the worker turn when needed, but this live decision is about the active worker process: decide whether to keep waiting, interrupt, or abort the worker turn.
 The worker can read and edit only the working repo. It cannot read Mixmod task, state, log, or artifact paths.
 Do not mention worker-task.json, revision task files, /tmp/mixmod*, /tmp/mixmod-state, or artifact/log paths in message_to_worker or focus_files.
 Put only repo source/test paths in focus_files. If you interrupt, restate the next repo edit directly instead of telling the worker to inspect a task or artifact file.
@@ -578,11 +578,11 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
 - On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
 - Revise when a useful worker path remains; message_to_worker must be concrete and worker-executable.
 - Stop only for a blocked or inconclusive worker result when no useful worker path remains.
-- The worker owns implementation. Do not author task-solving source changes.
+- Use direct tools or worker revisions as appropriate; Mixmod routes work but does not decide which actor must implement.
 - Put only repo source/test paths in focus_files. Do not ask the worker to inspect Mixmod artifacts.
 - worker_mode=continue reuses the current worker session; worker_mode=context_focus starts a fresh worker session on the same worktree.
 - Use patch_decision=revise_previous only when checkpoint artifacts support restoring a previous candidate.
-- Prefer patch_decision for rollback control; use direct git restore/apply only for state management, not to create a solution patch."#
+- Prefer patch_decision for rollback control when delegating another worker turn; if you act directly, leave the final repository diff inspectable."#
     )
 }
 

@@ -180,7 +180,7 @@ impl DefaultExperimentRun<'_> {
                             &default_dir,
                             &label,
                             &artifact_paths,
-                            "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not author task-solving source changes.",
+                            "Decide the next worker-loop action. Use approve only when the task appears complete. Prefer revise after failed or empty worker attempts when a concrete delegated worker step is useful. Use stop only to record a blocked or inconclusive result when no useful direct or delegated path remains.",
                             &worker_guidance,
                         )?
                     };
