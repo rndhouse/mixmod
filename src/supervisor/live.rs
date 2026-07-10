@@ -113,10 +113,10 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             })
         });
         let mut parsed = raw_parsed.clone();
-        let mut action = normalize_supervisor_control_action(
+        let action = normalize_supervisor_control_action(
             get_str(&parsed, "action").or_else(|| get_str(&parsed, "verdict")),
         );
-        let mut worker_mode =
+        let worker_mode =
             normalize_supervisor_control_worker_mode(&action, get_str(&parsed, "worker_mode"));
         let raw_message_to_worker = get_str(&parsed, "message_to_worker")
             .or_else(|| get_str(&parsed, "message"))
@@ -124,23 +124,11 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             .unwrap_or("")
             .trim()
             .to_string();
-        let forced_final_no_delta_abort =
-            should_force_final_no_delta_live_abort(&bounded_snapshot, &action);
-        if forced_final_no_delta_abort {
-            action = "abort_worker_turn".to_string();
-            worker_mode =
-                normalize_supervisor_control_worker_mode(&action, Some(worker_mode.as_str()));
-        }
         let focus_files = normalize_live_control_focus_files(
             &self.work_dir,
             get_string_array(&parsed, "focus_files"),
         );
-        let message_to_worker = if forced_final_no_delta_abort {
-            "Aborting worker turn: final live check reached with no repository delta after prior interventions."
-                .to_string()
-        } else {
-            sanitize_live_control_message(&raw_message_to_worker, &focus_files)
-        };
+        let message_to_worker = sanitize_live_control_message(&raw_message_to_worker, &focus_files);
         let required_checks = get_string_array(&parsed, "required_checks");
         let worker_turn_shape = get_str(&parsed, "worker_turn_shape").map(ToOwned::to_owned);
         let turn_goal = get_str(&parsed, "turn_goal").map(ToOwned::to_owned);
@@ -158,18 +146,8 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
                 json!(message_to_worker.clone()),
             );
             object.insert("focus_files".to_string(), json!(focus_files.clone()));
-            if forced_final_no_delta_abort {
-                object.insert(
-                    "enforced_action".to_string(),
-                    json!("final_no_delta_live_abort"),
-                );
-            }
         }
-        let risk = if forced_final_no_delta_abort {
-            "worker_stalled_no_delta".to_string()
-        } else {
-            get_str(&parsed, "risk").unwrap_or("").trim().to_string()
-        };
+        let risk = get_str(&parsed, "risk").unwrap_or("").trim().to_string();
         let feedback_record = json!({
             "label": label,
             "timestamp": Utc::now().to_rfc3339(),
@@ -367,15 +345,4 @@ pub(super) fn live_supervision_snapshot_should_check(
         return true;
     }
     stale_with_output
-}
-
-pub(super) fn should_force_final_no_delta_live_abort(
-    snapshot: &LiveWorkerSnapshot,
-    action: &str,
-) -> bool {
-    action != "abort_worker_turn"
-        && snapshot.live_control_check_limit > 0
-        && snapshot.live_control_check_index >= snapshot.live_control_check_limit
-        && snapshot.opencode_segment > 1
-        && snapshot.new_delta_bytes == 0
 }

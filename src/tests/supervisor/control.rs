@@ -184,7 +184,7 @@ fn abort_control_waits_for_supervisor_review() {
                     "required_checks": [],
                     "risk": "worker_stalled_no_delta",
                     "control": {
-                        "source": "auto_revision_no_delta_abort"
+                        "source": "codex_live_supervisor"
                     }
                 }
             ]

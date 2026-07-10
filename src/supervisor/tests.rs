@@ -8,8 +8,7 @@ use crate::{
 
 use super::live::{
     live_supervision_snapshot_should_check, normalize_live_control_focus_files,
-    sanitize_live_control_message, should_force_final_no_delta_live_abort,
-    snapshot_for_live_supervisor_prompt,
+    sanitize_live_control_message, snapshot_for_live_supervisor_prompt,
 };
 use super::normalize::parse_feedback_json;
 use super::repair::{
@@ -167,38 +166,6 @@ fn live_supervision_checks_no_delta_context_overflow() {
 }
 
 #[test]
-fn final_live_no_delta_check_forces_abort_after_prior_segment() {
-    let snapshot = LiveWorkerSnapshot {
-        live_control_check_index: 3,
-        live_control_check_limit: 3,
-        opencode_segment: 2,
-        new_delta_bytes: 0,
-        ..LiveWorkerSnapshot::default()
-    };
-
-    assert!(should_force_final_no_delta_live_abort(
-        &snapshot,
-        "interrupt_continue"
-    ));
-}
-
-#[test]
-fn final_live_no_delta_abort_guard_ignores_first_segment() {
-    let snapshot = LiveWorkerSnapshot {
-        live_control_check_index: 3,
-        live_control_check_limit: 3,
-        opencode_segment: 1,
-        new_delta_bytes: 0,
-        ..LiveWorkerSnapshot::default()
-    };
-
-    assert!(!should_force_final_no_delta_live_abort(
-        &snapshot,
-        "interrupt_continue"
-    ));
-}
-
-#[test]
 fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
     let snapshot = LiveWorkerSnapshot {
         out_dir: "/tmp/mixmod-state/projects/app/runs/run-1/worker-runs/proposal".to_string(),
@@ -221,7 +188,7 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
     assert!(prompt.contains("It cannot read Mixmod task, state, log, or artifact paths"));
     assert!(prompt.contains("Original task instructions: Add a flatten option"));
     assert!(prompt.contains("Do not invent a different cleanup, bug, or objective"));
-    assert!(prompt.contains("live_control_check_index equals live_control_check_limit"));
+    assert!(prompt.contains("abort_worker_turn"));
     assert!(!prompt.contains("/tmp/mixmod-state/projects/app/runs/run-1"));
     assert!(prompt.contains("[redacted: Mixmod artifact directory]"));
     assert!(prompt.contains("[redacted: Mixmod worker task artifact]"));

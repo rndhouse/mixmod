@@ -342,7 +342,6 @@ If new_delta_bytes is 0 and recent_tool_events show repeated reads/searches of t
 If new_delta_bytes is greater than 0, use wait while the worker is actively editing or checking. If it becomes stale after a failed check, interrupt only with a repair-focused instruction that preserves the current patch and asks for the smallest compile-driven fix; do not add a new feature slice in the same intervention.
 If context_overflow_count is positive and no new delta exists, prefer interrupt_context_focus with worker_turn_shape="small_patch_slice", one exact_edits item, and a compact restatement of the exact next source edit.
 If worker_session_token_peak is high relative to the worker context window and new_delta_bytes is 0, treat the turn as context-pressured; prefer interrupt_context_focus with a smaller patch-first instruction when broad reading is repeating.
-If live_control_check_index equals live_control_check_limit, opencode_segment is greater than 1, and new_delta_bytes is still 0 after earlier interventions, prefer abort_worker_turn unless stdout shows an edit is imminent.
 Working repo: {work_dir}
 
 Live worker snapshot:

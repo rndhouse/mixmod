@@ -18,10 +18,8 @@ pub(super) struct SmallPatchNoDeltaIntervention {
     threshold: Duration,
     baseline_diff: String,
     interrupt_control: Value,
-    abort_control: Value,
     interrupt_count: u64,
     max_interrupts: u64,
-    aborted: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,10 +68,8 @@ impl SmallPatchNoDeltaIntervention {
             threshold: Duration::from_secs(threshold_seconds),
             baseline_diff,
             interrupt_control: small_patch_no_delta_interrupt_control(&target),
-            abort_control: small_patch_no_delta_abort_control(&target),
             interrupt_count: 0,
             max_interrupts,
-            aborted: false,
         })
     }
 
@@ -93,19 +89,18 @@ impl SmallPatchNoDeltaIntervention {
         elapsed: Duration,
         last_output_age: Duration,
     ) -> Option<Value> {
-        if self.aborted || elapsed < self.threshold || last_output_age < self.threshold {
+        if elapsed < self.threshold || last_output_age < self.threshold {
             return None;
         }
         let new_delta = diff_without_unchanged_blocks(current_diff, &self.baseline_diff);
         if !new_delta.trim().is_empty() {
             return None;
         }
-        if self.interrupt_count < self.max_interrupts {
-            self.interrupt_count += 1;
-            return Some(self.interrupt_control.clone());
+        if self.interrupt_count >= self.max_interrupts {
+            return None;
         }
-        self.aborted = true;
-        Some(self.abort_control.clone())
+        self.interrupt_count += 1;
+        Some(self.interrupt_control.clone())
     }
 }
 
@@ -213,33 +208,5 @@ fn small_patch_no_delta_interrupt_control(target: &SmallPatchNoDeltaTarget) -> V
         "focus_files": target.focus_files.clone(),
         "required_checks": [],
         "risk": risk
-    })
-}
-
-fn small_patch_no_delta_abort_control(target: &SmallPatchNoDeltaTarget) -> Value {
-    let first_edit = target
-        .exact_edits
-        .first()
-        .map(String::as_str)
-        .filter(|edit| !edit.trim().is_empty())
-        .or_else(|| {
-            (!target.message_to_worker.is_empty()).then_some(target.message_to_worker.as_str())
-        })
-        .unwrap_or("the requested small-patch edit")
-        .trim();
-    let source = match target.kind {
-        SmallPatchNoDeltaKind::Initial => "auto_initial_no_delta_abort",
-        SmallPatchNoDeltaKind::Revision => "auto_revision_no_delta_abort",
-    };
-    json!({
-        "action": "abort_worker_turn",
-        "worker_mode": "continue",
-        "source": source,
-        "message_to_worker": format!(
-            "Worker made no repository delta after no-delta recovery. Aborting worker turn after failing to apply: {first_edit}"
-        ),
-        "focus_files": target.focus_files.clone(),
-        "required_checks": [],
-        "risk": "worker_stalled_no_delta"
     })
 }
