@@ -14,67 +14,17 @@ use crate::{
     write_pretty_json,
 };
 
-const HOOKS_JSON: &str = "hooks.json";
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
 
-/// Install or remove the supervisor-scoped Codex hook in Mixmod's `CODEX_HOME`.
-pub(crate) fn prepare_supervisor_tool_proxy_home(
-    code_home: &Path,
-    config: Option<&MixmodConfig>,
-) -> Result<SupervisorToolProxySetup> {
-    let Some(config) = config else {
-        return Ok(SupervisorToolProxySetup::disabled());
-    };
-    if !config.strategy.supervisor_tool_proxy.enabled {
-        remove_managed_hook_files(code_home)?;
-        return Ok(SupervisorToolProxySetup::disabled());
+/// Run a supervisor-requested command through the configured low-cost worker.
+pub(crate) fn run_worker_command_tool(root: &Path, command: &str) -> Result<()> {
+    let command = command.trim();
+    if command.is_empty() {
+        anyhow::bail!("worker command must not be empty");
     }
-
-    let exe = env::current_exe().context("failed to locate current mixmod executable")?;
-    let config_path = code_home.join(CONFIG_SNAPSHOT_JSON);
-    write_pretty_json(&config_path, config, "supervisor tool proxy config")?;
-
-    let hooks = json!({
-        "hooks": {
-            "PreToolUse": [
-                {
-                    "matcher": "^Bash$",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": format!("{} codex-hook pre-tool-use", shell_quote_path(&exe)),
-                            "timeout": 30,
-                            "statusMessage": "Checking Mixmod supervisor tool proxy"
-                        }
-                    ]
-                }
-            ]
-        }
-    });
-    write_pretty_json(&code_home.join(HOOKS_JSON), &hooks, "Codex hooks")?;
-    Ok(SupervisorToolProxySetup {
-        enabled: true,
-        config_path: Some(config_path),
-    })
-}
-
-/// Runtime data needed when starting Codex with the scoped hook enabled.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct SupervisorToolProxySetup {
-    /// Whether a hook was installed for this supervisor Codex home.
-    pub(crate) enabled: bool,
-    /// Effective Mixmod config snapshot used by the hook proxy process.
-    pub(crate) config_path: Option<PathBuf>,
-}
-
-impl SupervisorToolProxySetup {
-    fn disabled() -> Self {
-        Self {
-            enabled: false,
-            config_path: None,
-        }
-    }
+    let payload = SupervisorToolProxyPayload::from_command(command, root);
+    run_supervisor_tool_proxy_payload(&payload, root)
 }
 
 /// Handle Codex `PreToolUse` input for the supervisor-scoped proxy hook.
@@ -84,7 +34,7 @@ pub(crate) fn codex_hook_pre_tool_use() -> Result<()> {
         .read_to_string(&mut input)
         .context("failed to read Codex hook input")?;
     let event: Value = serde_json::from_str(&input).context("failed to parse Codex hook JSON")?;
-    let Some(command) = bash_command_from_pre_tool_use(&event) else {
+    let Some(command) = shell_command_from_pre_tool_use(&event) else {
         return Ok(());
     };
     if !should_proxy_bash_command(command) {
@@ -112,7 +62,8 @@ pub(crate) fn codex_hook_pre_tool_use() -> Result<()> {
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
             "updatedInput": {
-                "command": replacement
+                "command": replacement,
+                "cmd": replacement
             }
         }
     });
@@ -124,6 +75,13 @@ pub(crate) fn codex_hook_pre_tool_use() -> Result<()> {
 pub(crate) fn run_supervisor_tool_proxy(payload_path: &Path, invocation_cwd: &Path) -> Result<()> {
     let payload: SupervisorToolProxyPayload = serde_json::from_value(read_json_file(payload_path)?)
         .with_context(|| format!("failed to parse payload {}", payload_path.display()))?;
+    run_supervisor_tool_proxy_payload(&payload, invocation_cwd)
+}
+
+fn run_supervisor_tool_proxy_payload(
+    payload: &SupervisorToolProxyPayload,
+    invocation_cwd: &Path,
+) -> Result<()> {
     let root = payload
         .cwd
         .as_deref()
@@ -191,6 +149,19 @@ struct SupervisorToolProxyPayload {
 }
 
 impl SupervisorToolProxyPayload {
+    fn from_command(command: &str, root: &Path) -> Self {
+        Self {
+            command: command.to_string(),
+            cwd: Some(root.to_string_lossy().to_string()),
+            session_id: None,
+            turn_id: Some("cli".to_string()),
+            tool_use_id: Some(format!("tool-{}", Utc::now().format("%Y%m%dT%H%M%S%.3fZ"))),
+            model: None,
+            config_path: state_layout(root).config(),
+            created_at: Utc::now().to_rfc3339(),
+        }
+    }
+
     fn from_event(command: &str, event: &Value, config_path: PathBuf) -> Self {
         Self {
             command: command.to_string(),
@@ -205,16 +176,20 @@ impl SupervisorToolProxyPayload {
     }
 }
 
-fn bash_command_from_pre_tool_use(event: &Value) -> Option<&str> {
+fn shell_command_from_pre_tool_use(event: &Value) -> Option<&str> {
     if get_str(event, "hook_event_name") != Some("PreToolUse") {
         return None;
     }
-    if get_str(event, "tool_name") != Some("Bash") {
+    let tool_name = get_str(event, "tool_name")?;
+    if !matches!(
+        tool_name,
+        "Bash" | "exec_command" | "functions.exec_command"
+    ) {
         return None;
     }
     event
         .get("tool_input")
-        .and_then(|input| get_str(input, "command"))
+        .and_then(|input| get_str(input, "command").or_else(|| get_str(input, "cmd")))
 }
 
 fn payload_path(code_home: &Path, payload: &SupervisorToolProxyPayload) -> Result<PathBuf> {
@@ -226,7 +201,7 @@ fn payload_path(code_home: &Path, payload: &SupervisorToolProxyPayload) -> Resul
 }
 
 fn load_tool_proxy_config(path: &Path, root: &Path) -> Result<MixmodConfig> {
-    if path.exists() {
+    if path.exists() && path.extension().and_then(|value| value.to_str()) == Some("json") {
         let value = read_json_file(path)?;
         return serde_json::from_value(value)
             .with_context(|| format!("failed to parse {}", path.display()));
@@ -254,7 +229,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
         "context": {
             "worker_role": role,
             "expect_patch": false,
-            "delegated_from": "codex_pre_tool_use_hook",
+            "delegated_from": "mixmod_cli_tool",
             "original_command": payload.command.trim()
         }
     })
@@ -370,19 +345,6 @@ fn compact_text(text: &str, max_bytes: usize) -> String {
     format!("<truncated>\n{}", text[start..].trim())
 }
 
-fn remove_managed_hook_files(code_home: &Path) -> Result<()> {
-    for path in [
-        code_home.join(HOOKS_JSON),
-        code_home.join(CONFIG_SNAPSHOT_JSON),
-    ] {
-        if path.exists() {
-            std::fs::remove_file(&path)
-                .with_context(|| format!("failed to remove {}", path.display()))?;
-        }
-    }
-    Ok(())
-}
-
 fn sanitize_id(value: &str) -> String {
     let sanitized = value
         .chars()
@@ -439,18 +401,34 @@ mod tests {
     }
 
     #[test]
-    fn supervisor_tool_proxy_writes_scoped_hook_files() {
+    fn pre_tool_use_command_parser_accepts_codex_exec_command_shape() {
+        let event = json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "exec_command",
+            "tool_input": {
+                "cmd": "git status --short"
+            }
+        });
+
+        assert_eq!(
+            shell_command_from_pre_tool_use(&event),
+            Some("git status --short")
+        );
+    }
+
+    #[test]
+    fn tool_proxy_config_loader_uses_repo_config_for_toml_paths() {
         let temp = tempfile::tempdir().unwrap();
-        let code_home = temp.path().join("codex-home");
-        std::fs::create_dir_all(&code_home).unwrap();
-        let config = MixmodConfig::default();
+        let config_path = state_layout(temp.path()).config();
+        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &config_path,
+            toml::to_string(&MixmodConfig::default()).unwrap(),
+        )
+        .unwrap();
 
-        let setup = prepare_supervisor_tool_proxy_home(&code_home, Some(&config)).unwrap();
+        let config = load_tool_proxy_config(&config_path, temp.path()).unwrap();
 
-        assert!(setup.enabled);
-        assert!(code_home.join(HOOKS_JSON).exists());
-        assert!(code_home.join(CONFIG_SNAPSHOT_JSON).exists());
-        let hooks = read_json_file(&code_home.join(HOOKS_JSON)).unwrap();
-        assert_eq!(hooks["hooks"]["PreToolUse"][0]["matcher"], json!("^Bash$"));
+        assert_eq!(config.opencode.provider, "llama.cpp");
     }
 }

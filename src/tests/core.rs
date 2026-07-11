@@ -222,6 +222,42 @@ fn exec_command_is_public_cli_surface() {
     );
     let cli = Cli::try_parse_from([
         "mixmod",
+        "tool",
+        "run-command",
+        "--command",
+        "git status --short",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Tool {
+            command: ToolCommand::RunCommand { command, args },
+        } => {
+            assert_eq!(command.as_deref(), Some("git status --short"));
+            assert!(args.is_empty());
+        }
+        _ => panic!("expected tool run-command"),
+    }
+    let cli = Cli::try_parse_from([
+        "mixmod",
+        "tool",
+        "run-command",
+        "--",
+        "git",
+        "status",
+        "--short",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Tool {
+            command: ToolCommand::RunCommand { command, args },
+        } => {
+            assert!(command.is_none());
+            assert_eq!(args, vec!["git", "status", "--short"]);
+        }
+        _ => panic!("expected tool run-command"),
+    }
+    let cli = Cli::try_parse_from([
+        "mixmod",
         "exec",
         "--task",
         "task.json",

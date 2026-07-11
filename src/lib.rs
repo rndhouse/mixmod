@@ -13,10 +13,12 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use serde_json::{Value, json};
 
+mod agent_strategy;
 mod artifacts;
 mod checkpoint;
 mod cli;
 mod config;
+#[allow(dead_code)]
 mod default_strategy;
 mod diff;
 mod experiment;
@@ -39,6 +41,7 @@ mod tool_events;
 mod worker;
 mod worker_telemetry;
 
+pub(crate) use agent_strategy::{AgentStrategyOptions, run_agent_strategy};
 pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
     LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD, PARTIAL_PATCH,
@@ -60,14 +63,15 @@ pub(crate) use checkpoint::{
     append_patch_checkpoint_artifacts, patch_checkpoint_metrics, restore_previous_patch_checkpoint,
     write_patch_checkpoint_comparison_from_patch,
 };
-pub use cli::{Cli, CodexHookCommand, Commands, ControlCommand, DelegationMode, ExperimentCommand};
+pub use cli::{
+    Cli, CodexHookCommand, Commands, ControlCommand, DelegationMode, ExperimentCommand, ToolCommand,
+};
 pub(crate) use config::is_cloud_opencode_provider;
 pub use config::{
     LiveSupervisionConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
     StrategyConfig, SupervisorConfig, SupervisorInitMode, SupervisorToolProxyConfig, WorkerBackend,
     WorkerConfig,
 };
-pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
 pub use experiment::{
     DefaultRunOptions, experiment_init, experiment_record_codex_only, experiment_record_mixmod,
@@ -136,7 +140,7 @@ pub(crate) use supervisor::{
     supervisor_worker_brief_prompt,
 };
 pub(crate) use supervisor_tool_proxy::{
-    codex_hook_pre_tool_use, prepare_supervisor_tool_proxy_home, run_supervisor_tool_proxy,
+    codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_command_tool,
 };
 pub(crate) use tool_events::build_tool_events_jsonl;
 pub use worker::WorkerModelProfile;
@@ -182,12 +186,12 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
         }
         Commands::Exec {
             task,
-            resume_session,
+            resume_session: _,
             supervisor_model,
             worker_model,
             worker_backend,
-            supervisor_init,
-            stop_after_first_worker,
+            supervisor_init: _,
+            stop_after_first_worker: _,
             no_require_local,
             prompt,
         } => {
@@ -196,15 +200,12 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             let out = state_layout(&root).runs().join(make_run_id("run"));
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model)
                 .with_worker_backend(worker_backend);
-            run_default_strategy(
+            run_agent_strategy(
                 &root,
                 &task,
                 &out,
-                DefaultStrategyOptions {
-                    resume_session,
+                AgentStrategyOptions {
                     model_overrides,
-                    supervisor_init,
-                    stop_after_first_worker,
                     no_require_local,
                 },
             )
@@ -286,6 +287,13 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 }
             }
         }
+        Commands::Tool { command } => match command {
+            ToolCommand::RunCommand { command, args } => {
+                ensure_project_state(&root, false)?;
+                let command = resolve_tool_command(command, args)?;
+                run_worker_command_tool(&root, &command)
+            }
+        },
         Commands::CodexHook { command } => match command {
             CodexHookCommand::PreToolUse => codex_hook_pre_tool_use(),
             CodexHookCommand::RunToolProxy { payload } => {
@@ -361,6 +369,15 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 ExperimentCommand::Report { name } => experiment_report(&root, &name).map(|_| ()),
             }
         }
+    }
+}
+
+fn resolve_tool_command(command: Option<String>, args: Vec<String>) -> Result<String> {
+    match (command, args.is_empty()) {
+        (Some(command), true) if !command.trim().is_empty() => Ok(command),
+        (None, false) => Ok(args.join(" ")),
+        (Some(_), false) => bail!("use either --command or trailing command args, not both"),
+        _ => bail!("tool command must be provided with --command or after --"),
     }
 }
 

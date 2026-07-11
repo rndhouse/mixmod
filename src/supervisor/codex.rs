@@ -43,7 +43,7 @@ fn supervisor_codex_sandbox_from_env() -> Result<CodexSandbox> {
 }
 
 fn supervisor_default_codex_sandbox() -> CodexSandbox {
-    CodexSandbox::WorkspaceWrite
+    CodexSandbox::DangerFullAccess
 }
 
 fn supervisor_codex_sandbox_from_value(value: &str) -> Result<CodexSandbox> {
@@ -62,10 +62,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn supervisor_codex_sandbox_defaults_to_workspace_write() {
+    fn supervisor_codex_sandbox_defaults_to_danger_full_access() {
         assert_eq!(
             supervisor_default_codex_sandbox(),
-            CodexSandbox::WorkspaceWrite
+            CodexSandbox::DangerFullAccess
         );
     }
 

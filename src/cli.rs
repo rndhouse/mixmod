@@ -103,6 +103,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: ControlCommand,
     },
+    /// Low-cost worker tools intended for Codex supervisor use.
+    Tool {
+        #[command(subcommand)]
+        command: ToolCommand,
+    },
     /// Internal Codex hook entrypoints.
     #[command(hide = true)]
     #[command(name = "codex-hook")]
@@ -115,6 +120,20 @@ pub enum Commands {
     Experiment {
         #[command(subcommand)]
         command: ExperimentCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ToolCommand {
+    /// Ask the configured worker to run a command and return compact evidence.
+    #[command(name = "run-command")]
+    RunCommand {
+        /// Command string to delegate to the worker.
+        #[arg(long, value_name = "SHELL_COMMAND")]
+        command: Option<String>,
+        /// Command tokens after `--`, joined with spaces.
+        #[arg(value_name = "COMMAND", num_args = 0.., trailing_var_arg = true)]
+        args: Vec<String>,
     },
 }
 

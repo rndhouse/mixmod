@@ -215,7 +215,13 @@ pub(crate) fn opencode_config_path(root: &Path) -> PathBuf {
 
 pub(super) fn opencode_command(command: &str, root: &Path) -> Command {
     let mut process = Command::new(command);
-    process.env("OPENCODE_CONFIG", opencode_config_path(root));
+    let layout = state_layout(root);
+    let state = layout.project_dir();
+    process
+        .env("OPENCODE_CONFIG", layout.opencode_config())
+        .env("XDG_DATA_HOME", state.join("xdg-data"))
+        .env("XDG_STATE_HOME", state.join("xdg-state"))
+        .env("XDG_CACHE_HOME", state.join("xdg-cache"));
     process
 }
 
@@ -227,6 +233,7 @@ fn sql_string_literal_content(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::{MixmodConfig, ModelOverrides};
+    use std::ffi::OsStr;
     use tempfile::TempDir;
 
     fn fake_opencode_with_models(root: &Path, models: &str) -> PathBuf {
@@ -244,6 +251,38 @@ mod tests {
             std::fs::set_permissions(&command, perms).unwrap();
         }
         command
+    }
+
+    #[test]
+    fn opencode_command_uses_mixmod_scoped_xdg_dirs() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let command = opencode_command("opencode", root);
+
+        assert_eq!(
+            command_env_path(&command, "OPENCODE_CONFIG"),
+            Some(opencode_config_path(root))
+        );
+        assert_eq!(
+            command_env_path(&command, "XDG_DATA_HOME"),
+            Some(state_layout(root).project_dir().join("xdg-data"))
+        );
+        assert_eq!(
+            command_env_path(&command, "XDG_STATE_HOME"),
+            Some(state_layout(root).project_dir().join("xdg-state"))
+        );
+        assert_eq!(
+            command_env_path(&command, "XDG_CACHE_HOME"),
+            Some(state_layout(root).project_dir().join("xdg-cache"))
+        );
+    }
+
+    fn command_env_path(command: &Command, name: &str) -> Option<PathBuf> {
+        command.get_envs().find_map(|(key, value)| {
+            (key == OsStr::new(name))
+                .then(|| value.map(PathBuf::from))
+                .flatten()
+        })
     }
 
     #[test]
