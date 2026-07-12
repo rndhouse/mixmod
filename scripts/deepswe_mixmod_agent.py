@@ -402,6 +402,35 @@ def tool_proxy_status(path: Path | None, metrics: dict) -> str | None:
         return "failed"
     return None
 
+def tool_proxy_task(path: Path | None) -> dict:
+    if not path:
+        return {{}}
+    return load_json(path / "tool-task.json")
+
+def tool_proxy_kind(path: Path | None) -> str:
+    task = tool_proxy_task(path)
+    context = task.get("context")
+    if not isinstance(context, dict):
+        return "unknown"
+    if isinstance(context.get("worker_prompt"), str):
+        return "ask"
+    if isinstance(context.get("original_command"), str):
+        return "command"
+    return "unknown"
+
+def tool_proxy_role(path: Path | None) -> str:
+    task = tool_proxy_task(path)
+    context = task.get("context")
+    if isinstance(context, dict) and isinstance(context.get("worker_role"), str):
+        return context["worker_role"]
+    return "unknown"
+
+def count_values(values: list[str]) -> dict[str, int] | None:
+    counts: dict[str, int] = {{}}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return counts or None
+
 def feedback_records(path: Path) -> list[dict]:
     records = []
     try:
@@ -526,6 +555,8 @@ latest_tool_proxy = (
     if latest_tool_proxy_dir and (latest_tool_proxy_dir / "metrics.json").exists()
     else {{}}
 )
+tool_proxy_kinds = [tool_proxy_kind(path) for path in tool_proxy_dirs]
+tool_proxy_roles = [tool_proxy_role(path) for path in tool_proxy_dirs]
 worker_metric_records = []
 for worker_dir in worker_dirs:
     worker_metrics_path = worker_dir / "metrics.json"
@@ -623,6 +654,13 @@ summary = {{
         else None
     ),
     "latest_tool_proxy_status": tool_proxy_status(latest_tool_proxy_dir, latest_tool_proxy),
+    "latest_tool_proxy_kind": (
+        tool_proxy_kind(latest_tool_proxy_dir)
+        if latest_tool_proxy_dir
+        else None
+    ),
+    "tool_proxy_kind_counts": count_values(tool_proxy_kinds),
+    "tool_proxy_role_counts": count_values(tool_proxy_roles),
     "latest_tool_proxy_stdout_bytes": (
         file_len(latest_tool_proxy_dir / "logs" / "opencode.stdout.txt")
         if latest_tool_proxy_dir

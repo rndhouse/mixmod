@@ -345,9 +345,14 @@ fn tool_proxy_runs(tool_proxy_root: &Path) -> Result<Vec<Value>> {
             if tool_output_dir.exists() {
                 artifact_sizes.insert("tool-output".to_string(), path_size(&tool_output_dir)?);
             }
+            let task = load_json_if_exists(&run_dir.join("tool-task.json"));
             Ok(json!({
                 "name": file_name_string(&run_dir),
                 "path": relative_to(run_root, &run_dir),
+                "kind": tool_proxy_task_kind(task.as_ref()),
+                "worker_role": task.as_ref()
+                    .and_then(|task| task.pointer("/context/worker_role"))
+                    .and_then(Value::as_str),
                 "artifact_sizes": artifact_sizes,
             }))
         })
@@ -448,6 +453,28 @@ fn tool_proxy_run_sort_key(path: &Path, run_root: &Path) -> (String, String) {
 fn tool_proxy_run_timestamp(name: &str) -> Option<String> {
     name.split_once('-')
         .and_then(|(_, timestamp)| (!timestamp.is_empty()).then(|| timestamp.to_string()))
+}
+
+fn load_json_if_exists(path: &Path) -> Option<Value> {
+    path.exists().then(|| load_json(path))
+}
+
+fn tool_proxy_task_kind(task: Option<&Value>) -> &'static str {
+    if task
+        .and_then(|task| task.pointer("/context/worker_prompt"))
+        .and_then(Value::as_str)
+        .is_some()
+    {
+        "ask"
+    } else if task
+        .and_then(|task| task.pointer("/context/original_command"))
+        .and_then(Value::as_str)
+        .is_some()
+    {
+        "command"
+    } else {
+        "unknown"
+    }
 }
 
 fn copy_path(source: &Path, target: &Path) -> Result<Option<PathBuf>> {
@@ -718,6 +745,12 @@ mod tests {
         )
         .unwrap();
         fs::write(
+            trial_dir
+                .join("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/tool-task.json"),
+            r#"{"context":{"worker_role":"diff_review","original_command":"git diff --stat"}}"#,
+        )
+        .unwrap();
+        fs::write(
             trial_dir.join(
                 "agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/logs/opencode.stdout.txt",
             ),
@@ -752,6 +785,11 @@ mod tests {
         assert_eq!(
             manifest["tool_proxy_runs"][0]["path"],
             json!("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z")
+        );
+        assert_eq!(manifest["tool_proxy_runs"][0]["kind"], json!("command"));
+        assert_eq!(
+            manifest["tool_proxy_runs"][0]["worker_role"],
+            json!("diff_review")
         );
         assert_eq!(
             manifest["tool_proxy_runs"][0]["artifact_sizes"]["logs/opencode.stdout.txt"],
