@@ -220,6 +220,30 @@ fn exec_command_is_public_cli_surface() {
     assert!(
         Cli::try_parse_from(["mixmod", "exec", "--task", "task.json", "--require-local",]).is_err()
     );
+    let cli = Cli::try_parse_from(["mixmod", "tool", "ask", "--prompt", "review the final diff"])
+        .unwrap();
+    match cli.command {
+        Commands::Tool {
+            command: ToolCommand::Ask { prompt, args },
+        } => {
+            assert_eq!(prompt.as_deref(), Some("review the final diff"));
+            assert!(args.is_empty());
+        }
+        _ => panic!("expected tool ask"),
+    }
+    let cli = Cli::try_parse_from([
+        "mixmod", "tool", "ask", "--", "review", "the", "final", "diff",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Tool {
+            command: ToolCommand::Ask { prompt, args },
+        } => {
+            assert!(prompt.is_none());
+            assert_eq!(args, vec!["review", "the", "final", "diff"]);
+        }
+        _ => panic!("expected tool ask"),
+    }
     let cli = Cli::try_parse_from([
         "mixmod",
         "tool",

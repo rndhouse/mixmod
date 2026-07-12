@@ -140,7 +140,8 @@ pub(crate) use supervisor::{
     supervisor_worker_brief_prompt,
 };
 pub(crate) use supervisor_tool_proxy::{
-    codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_command_tool,
+    codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_ask_tool,
+    run_worker_command_tool,
 };
 pub(crate) use tool_events::{build_tool_events_jsonl, tool_output_paths_from_events};
 pub use worker::WorkerModelProfile;
@@ -288,6 +289,11 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             }
         }
         Commands::Tool { command } => match command {
+            ToolCommand::Ask { prompt, args } => {
+                ensure_project_state(&root, false)?;
+                let prompt = resolve_tool_prompt(prompt, args)?;
+                run_worker_ask_tool(&root, &prompt)
+            }
             ToolCommand::RunCommand { command, args } => {
                 ensure_project_state(&root, false)?;
                 let command = resolve_tool_command(command, args)?;
@@ -378,6 +384,15 @@ fn resolve_tool_command(command: Option<String>, args: Vec<String>) -> Result<St
         (None, false) => Ok(args.join(" ")),
         (Some(_), false) => bail!("use either --command or trailing command args, not both"),
         _ => bail!("tool command must be provided with --command or after --"),
+    }
+}
+
+fn resolve_tool_prompt(prompt: Option<String>, args: Vec<String>) -> Result<String> {
+    match (prompt, args.is_empty()) {
+        (Some(prompt), true) if !prompt.trim().is_empty() => Ok(prompt),
+        (None, false) => Ok(args.join(" ")),
+        (Some(_), false) => bail!("use either --prompt or trailing prompt args, not both"),
+        _ => bail!("tool prompt must be provided with --prompt or after --"),
     }
 }
 

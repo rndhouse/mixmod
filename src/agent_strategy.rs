@@ -216,6 +216,11 @@ save GPT tokens, call:
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 `git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
 tools directly when you need exact control, editing, or final judgment.
+For bounded review or investigation that is not naturally one command, call:
+
+```bash
+{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Run focused commands only if useful, and return compact evidence."
+```
 
 For a substantial semantic diff, do not finish solely from visible happy-path
 checks. Before final completion, use at least one cheap local-worker call for
@@ -417,6 +422,7 @@ mod tests {
         assert!(prompt.contains("changed package's full test suite"));
         assert!(prompt.contains("completion is your responsibility"));
         assert!(prompt.contains("tool run-command"));
+        assert!(prompt.contains("tool ask"));
         assert!(!prompt.contains("Return only JSON"));
         assert!(!prompt.contains("\"action\":\"approve|revise|stop\""));
     }

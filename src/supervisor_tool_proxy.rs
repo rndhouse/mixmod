@@ -17,6 +17,16 @@ use crate::{
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
 
+/// Run a supervisor-requested prompt through the configured low-cost worker.
+pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
+    let prompt = prompt.trim();
+    if prompt.is_empty() {
+        anyhow::bail!("worker prompt must not be empty");
+    }
+    let payload = SupervisorToolProxyPayload::from_prompt(prompt, root);
+    run_supervisor_tool_proxy_payload(&payload, root)
+}
+
 /// Run a supervisor-requested command through the configured low-cost worker.
 pub(crate) fn run_worker_command_tool(root: &Path, command: &str) -> Result<()> {
     let command = command.trim();
@@ -121,7 +131,17 @@ fn run_supervisor_tool_proxy_payload(
         .unwrap_or_else(|| "No compact worker text was captured.".to_string());
     let metrics = read_json_file(&out_dir.join(METRICS_JSON)).unwrap_or_else(|_| json!({}));
     println!("Mixmod supervisor tool proxy");
-    println!("original_command: {}", payload.command.trim());
+    match payload.kind {
+        SupervisorToolProxyKind::Command => {
+            println!("original_command: {}", payload.command.trim());
+        }
+        SupervisorToolProxyKind::Ask => {
+            println!(
+                "worker_request: {}",
+                compact_text(payload.request_text(), 1_000)
+            );
+        }
+    }
     println!("worker_status: {}", receipt.status);
     if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
         println!("worker_exit_status: {exit_status}");
@@ -138,7 +158,11 @@ fn run_supervisor_tool_proxy_payload(
 
 #[derive(Debug, Deserialize, Serialize)]
 struct SupervisorToolProxyPayload {
+    #[serde(default)]
+    kind: SupervisorToolProxyKind,
     command: String,
+    #[serde(default)]
+    prompt: Option<String>,
     cwd: Option<String>,
     session_id: Option<String>,
     turn_id: Option<String>,
@@ -148,10 +172,20 @@ struct SupervisorToolProxyPayload {
     created_at: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SupervisorToolProxyKind {
+    #[default]
+    Command,
+    Ask,
+}
+
 impl SupervisorToolProxyPayload {
     fn from_command(command: &str, root: &Path) -> Self {
         Self {
+            kind: SupervisorToolProxyKind::Command,
             command: command.to_string(),
+            prompt: None,
             cwd: Some(root.to_string_lossy().to_string()),
             session_id: None,
             turn_id: Some("cli".to_string()),
@@ -162,9 +196,26 @@ impl SupervisorToolProxyPayload {
         }
     }
 
+    fn from_prompt(prompt: &str, root: &Path) -> Self {
+        Self {
+            kind: SupervisorToolProxyKind::Ask,
+            command: String::new(),
+            prompt: Some(prompt.to_string()),
+            cwd: Some(root.to_string_lossy().to_string()),
+            session_id: None,
+            turn_id: Some("cli".to_string()),
+            tool_use_id: Some(format!("ask-{}", Utc::now().format("%Y%m%dT%H%M%S%.3fZ"))),
+            model: None,
+            config_path: state_layout(root).config(),
+            created_at: Utc::now().to_rfc3339(),
+        }
+    }
+
     fn from_event(command: &str, event: &Value, config_path: PathBuf) -> Self {
         Self {
+            kind: SupervisorToolProxyKind::Command,
             command: command.to_string(),
+            prompt: None,
             cwd: get_str(event, "cwd").map(ToOwned::to_owned),
             session_id: get_str(event, "session_id").map(ToOwned::to_owned),
             turn_id: get_str(event, "turn_id").map(ToOwned::to_owned),
@@ -172,6 +223,13 @@ impl SupervisorToolProxyPayload {
             model: get_str(event, "model").map(ToOwned::to_owned),
             config_path,
             created_at: Utc::now().to_rfc3339(),
+        }
+    }
+
+    fn request_text(&self) -> &str {
+        match self.kind {
+            SupervisorToolProxyKind::Command => self.command.trim(),
+            SupervisorToolProxyKind::Ask => self.prompt.as_deref().unwrap_or("").trim(),
         }
     }
 }
@@ -210,29 +268,58 @@ fn load_tool_proxy_config(path: &Path, root: &Path) -> Result<MixmodConfig> {
 }
 
 fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
-    let role = worker_role_for_command(&payload.command);
-    json!({
-        "title": format!("Supervisor tool proxy: {}", payload.command.trim()),
-        "instructions": format!(
-            "A GPT supervisor requested this Bash command:\n\n```bash\n{}\n```\n\nRun exactly that command from the current repository context. Do not edit files, do not commit, and do not run unrelated exploratory commands. Return only the useful minimal result for the supervisor: command, exit status, pass/fail when applicable, and the smallest relevant excerpt or summary. For git diff/status, summarize changed files and notable hunks instead of pasting a long diff.",
-            payload.command.trim()
-        ),
-        "expect_patch": false,
-        "tests": [payload.command.trim()],
-        "constraints": [
-            "Do not edit files.",
-            "Do not commit changes.",
-            "Do not inspect /solution or verifier internals.",
-            "Keep stdout compact.",
-            "If the command produces long output, summarize and include only the most relevant failing lines or diff facts."
-        ],
-        "context": {
-            "worker_role": role,
-            "expect_patch": false,
-            "delegated_from": "mixmod_cli_tool",
-            "original_command": payload.command.trim()
+    match payload.kind {
+        SupervisorToolProxyKind::Command => {
+            let command = payload.command.trim();
+            let role = worker_role_for_command(command);
+            json!({
+                "title": format!("Supervisor tool proxy: {command}"),
+                "instructions": format!(
+                    "A GPT supervisor requested this Bash command:\n\n```bash\n{command}\n```\n\nRun exactly that command from the current repository context. Do not edit files, do not commit, and do not run unrelated exploratory commands. Return only the useful minimal result for the supervisor: command, exit status, pass/fail when applicable, and the smallest relevant excerpt or summary. For git diff/status, summarize changed files and notable hunks instead of pasting a long diff."
+                ),
+                "expect_patch": false,
+                "tests": [command],
+                "constraints": [
+                    "Do not edit files.",
+                    "Do not commit changes.",
+                    "Do not inspect /solution or verifier internals.",
+                    "Keep stdout compact.",
+                    "If the command produces long output, summarize and include only the most relevant failing lines or diff facts."
+                ],
+                "context": {
+                    "worker_role": role,
+                    "expect_patch": false,
+                    "delegated_from": "mixmod_cli_tool",
+                    "original_command": command
+                }
+            })
         }
-    })
+        SupervisorToolProxyKind::Ask => {
+            let prompt = payload.request_text();
+            json!({
+                "title": "Supervisor tool proxy: local worker ask",
+                "instructions": format!(
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit files and do not commit. Return compact evidence the supervisor can use: commands run, exit status when applicable, pass/fail facts, and the smallest relevant excerpts or file/line references."
+                ),
+                "expect_patch": false,
+                "tests": [],
+                "constraints": [
+                    "Do not edit files.",
+                    "Do not commit changes.",
+                    "Do not inspect /solution or verifier internals.",
+                    "Keep stdout compact.",
+                    "Use focused commands instead of broad repository reads when possible.",
+                    "If evidence is inconclusive, say exactly what remains unverified."
+                ],
+                "context": {
+                    "worker_role": "bounded_review",
+                    "expect_patch": false,
+                    "delegated_from": "mixmod_cli_tool",
+                    "worker_prompt": prompt
+                }
+            })
+        }
+    }
 }
 
 fn worker_role_for_command(command: &str) -> &'static str {

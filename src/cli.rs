@@ -125,6 +125,15 @@ pub enum Commands {
 
 #[derive(Debug, Subcommand)]
 pub enum ToolCommand {
+    /// Ask the configured worker for bounded repo evidence or review.
+    Ask {
+        /// Natural-language worker request.
+        #[arg(long, value_name = "PROMPT")]
+        prompt: Option<String>,
+        /// Prompt tokens after `--`, joined with spaces.
+        #[arg(value_name = "PROMPT", num_args = 0.., trailing_var_arg = true)]
+        args: Vec<String>,
+    },
     /// Ask the configured worker to run a command and return compact evidence.
     #[command(name = "run-command")]
     RunCommand {
