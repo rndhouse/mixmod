@@ -385,6 +385,23 @@ def load_json(path: Path) -> dict:
     except (OSError, json.JSONDecodeError):
         return {{}}
 
+def tool_proxy_status(path: Path | None, metrics: dict) -> str | None:
+    if not path:
+        return None
+    status = metrics.get("status")
+    if isinstance(status, str) and status:
+        return status
+    receipt = load_json(path / "receipt.json")
+    receipt_status = receipt.get("status")
+    if isinstance(receipt_status, str) and receipt_status:
+        return receipt_status
+    exit_status = metrics.get("opencode_exit_status")
+    if exit_status == 0:
+        return "success"
+    if isinstance(exit_status, int):
+        return "failed"
+    return None
+
 def feedback_records(path: Path) -> list[dict]:
     records = []
     try:
@@ -605,7 +622,7 @@ summary = {{
         if latest_tool_proxy_dir
         else None
     ),
-    "latest_tool_proxy_status": latest_tool_proxy.get("status"),
+    "latest_tool_proxy_status": tool_proxy_status(latest_tool_proxy_dir, latest_tool_proxy),
     "latest_tool_proxy_stdout_bytes": (
         file_len(latest_tool_proxy_dir / "logs" / "opencode.stdout.txt")
         if latest_tool_proxy_dir

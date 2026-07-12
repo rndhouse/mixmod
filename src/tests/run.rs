@@ -54,6 +54,8 @@ fn run_writes_full_artifact_bundle() {
     assert!(receipt.interventions.ends_with("interventions.jsonl"));
     let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
     assert!(patch.contains("src/generated.rs"));
+    let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();
+    assert_eq!(get_str(&metrics, "status"), Some("success"));
     let interventions = fs::read_to_string(run_dir.join("interventions.jsonl")).unwrap();
     assert_eq!(interventions.lines().count(), 1);
     let handoff: Value = serde_json::from_str(interventions.lines().next().unwrap()).unwrap();

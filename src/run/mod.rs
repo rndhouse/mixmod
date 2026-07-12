@@ -537,6 +537,7 @@ impl MixmodRun<'_> {
             start_timestamp: start_timestamp.to_rfc3339(),
             end_timestamp: end_timestamp.to_rfc3339(),
             wall_clock_ms,
+            status: status.to_string(),
             worker_backend: output.backend.as_str().to_string(),
             opencode_command: output.command_for_metrics.clone(),
             opencode_segments: output.segments.clone(),
