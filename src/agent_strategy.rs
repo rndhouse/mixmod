@@ -261,6 +261,11 @@ calls. Prefer another bounded helper call over one broad review prompt.
 If a local-helper result reports `worker_status: needs_supervisor`, treat it as
 incomplete evidence rather than a pass; inspect the artifacts yourself or run a
 more concrete bounded command before approving.
+If your helper request named specific risk categories and the result is
+`needs_supervisor`, those named risks are still unverified. Before approving,
+either run concrete commands/probes for those risks or inspect the relevant code
+paths yourself; do not substitute a broad test that only exercises existing or
+newly visible tests for the named risk.
 For final approval of behavior-changing work, do not rely on a narrow test
 regex or a local-helper `needs_supervisor` summary as the only verification.
 Use a changed-package check when cheap, for example `go test ./pkg`,
@@ -477,6 +482,10 @@ mod tests {
         assert!(prompt.contains("behavior area"));
         assert!(prompt.contains("worker_status: needs_supervisor"));
         assert!(prompt.contains("incomplete evidence"));
+        assert!(prompt.contains("specific risk categories"));
+        assert!(prompt.contains("still unverified"));
+        assert!(prompt.contains("concrete commands/probes"));
+        assert!(prompt.contains("inspect the relevant code"));
         assert!(prompt.contains("final approval"));
         assert!(prompt.contains("narrow test"));
         assert!(prompt.contains("changed-package check"));
