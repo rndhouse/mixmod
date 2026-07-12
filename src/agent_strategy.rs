@@ -88,11 +88,10 @@ impl AgentStrategyRun<'_> {
         let stats = patch_stats(&patch);
         let changed_files = stats.files.clone();
         let success = result.exit_status == Some(0);
-        let final_status = if success {
-            "completed_by_codex"
-        } else {
-            "codex_failed"
-        };
+        let codex_turn_status = result.turn_status.clone();
+        let codex_error_info = result.error_info.clone();
+        let codex_error_message = result.error_message.clone();
+        let final_status = agent_final_status(success, codex_error_info.as_deref());
         let worker_tool_metrics = worker_tool_proxy_metrics(root, run_start_time);
         let metrics = json!({
             "kind": "mixmod-agent-strategy",
@@ -116,9 +115,9 @@ impl AgentStrategyRun<'_> {
             "codex_app_server_thread_ids": [result.thread_id],
             "codex_app_server_turn_ids": [result.turn_id],
             "codex_app_server_thread_count": 1,
-            "codex_turn_status": result.turn_status,
-            "codex_error_info": result.error_info,
-            "codex_error_message": result.error_message,
+            "codex_turn_status": codex_turn_status,
+            "codex_error_info": codex_error_info,
+            "codex_error_message": codex_error_message,
             "supervisor_token_usage_source": result.token_usage_source,
             "supervisor_session_reused": false,
             "supervisor_resume_count": 0,
@@ -178,6 +177,18 @@ impl AgentStrategyRun<'_> {
             );
         }
         Ok(())
+    }
+}
+
+fn agent_final_status(success: bool, codex_error_info: Option<&str>) -> &'static str {
+    if success {
+        "completed_by_codex"
+    } else if codex_error_info == Some("usageLimitExceeded") {
+        "codex_usage_limit_exceeded"
+    } else if codex_error_info.is_some() {
+        "codex_system_error"
+    } else {
+        "codex_failed"
     }
 }
 
@@ -445,5 +456,19 @@ mod tests {
         assert!(prompt.contains("tool ask"));
         assert!(!prompt.contains("Return only JSON"));
         assert!(!prompt.contains("\"action\":\"approve|revise|stop\""));
+    }
+
+    #[test]
+    fn agent_final_status_distinguishes_codex_usage_limits() {
+        assert_eq!(agent_final_status(true, None), "completed_by_codex");
+        assert_eq!(
+            agent_final_status(false, Some("usageLimitExceeded")),
+            "codex_usage_limit_exceeded"
+        );
+        assert_eq!(
+            agent_final_status(false, Some("serverError")),
+            "codex_system_error"
+        );
+        assert_eq!(agent_final_status(false, None), "codex_failed");
     }
 }
