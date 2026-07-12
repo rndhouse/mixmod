@@ -237,8 +237,10 @@ return compact evidence: narrow paths or globs, `rg --max-count`, targeted
 with many alternations when a smaller probe would answer the question.
 For routed `rg` or `grep` commands, include path limits and match limits such as
 `--max-count`, `--glob`, or explicit directories unless the repository is tiny.
-Do not route broad root searches with loose alternations through the local
-worker; make the search narrower first or run it yourself.
+For non-tiny repositories, the path argument must be narrower than `.`; a
+match limit alone is not a path limit. Do not route broad root searches with
+loose alternations through the local worker; make the search narrower first or
+run it yourself.
 Prefer `tool run-command` for concrete shell evidence. Use `tool ask` only when
 the useful local work is a small review question rather than a command result.
 For bounded review or investigation that is not naturally one command, call:
@@ -262,6 +264,10 @@ tests you added/changed; avoid narrow regexes that can skip new tests unless
 there is a clear cost reason. Ask for ad hoc probes only when a nearby test or
 documented API gives the exact invocation pattern; otherwise the worker should
 report the unverified edge case instead of constructing a new harness.
+For parser, compiler, binding, destructuring, or assignment behavior changes,
+include at least one final probe or direct inspection for alternate shapes:
+single target vs multi-target, scalar vs multi-value/aggregate RHS, valid path
+vs invalid path, and nested/scope-specific writes when relevant.
 For `tool ask`, keep the request narrow enough for a small local model: one
 behavior area, targeted files or symbols, and at most a few repository tool
 calls. Prefer another bounded helper call over one broad review prompt.
@@ -474,6 +480,7 @@ mod tests {
         assert!(prompt.contains("For routed `rg` or `grep` commands"));
         assert!(prompt.contains("--glob"));
         assert!(prompt.contains("broad root searches"));
+        assert!(prompt.contains("match limit alone is not a path limit"));
         assert!(prompt.contains("Prefer `tool run-command`"));
         assert!(prompt.contains("small review question"));
         assert!(prompt.contains("bounded snippets"));
@@ -485,6 +492,9 @@ mod tests {
         assert!(prompt.contains("open-ended `tool ask`"));
         assert!(prompt.contains("secondary evidence"));
         assert!(prompt.contains("changed branches"));
+        assert!(prompt.contains("parser, compiler, binding"));
+        assert!(prompt.contains("multi-target"));
+        assert!(prompt.contains("multi-value/aggregate RHS"));
         assert!(prompt.contains("targeted hunks or grep"));
         assert!(prompt.contains("changed package's full test"));
         assert!(prompt.contains("tests you added/changed"));
