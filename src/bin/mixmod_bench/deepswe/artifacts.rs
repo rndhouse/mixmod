@@ -346,9 +346,14 @@ fn tool_proxy_runs(tool_proxy_root: &Path) -> Result<Vec<Value>> {
                 artifact_sizes.insert("tool-output".to_string(), path_size(&tool_output_dir)?);
             }
             let task = load_json_if_exists(&run_dir.join("tool-task.json"));
+            let metrics = load_json_if_exists(&run_dir.join("metrics.json"));
             Ok(json!({
                 "name": file_name_string(&run_dir),
                 "path": relative_to(run_root, &run_dir),
+                "completed": metrics.is_some(),
+                "status": metrics.as_ref()
+                    .and_then(|metrics| metrics.get("status"))
+                    .and_then(Value::as_str),
                 "kind": tool_proxy_task_kind(task.as_ref()),
                 "worker_role": task.as_ref()
                     .and_then(|task| task.pointer("/context/worker_role"))
@@ -741,7 +746,7 @@ mod tests {
         .unwrap();
         fs::write(
             trial_dir.join("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/metrics.json"),
-            "{}\n",
+            r#"{"status":"success"}"#,
         )
         .unwrap();
         fs::write(
@@ -787,6 +792,8 @@ mod tests {
             json!("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z")
         );
         assert_eq!(manifest["tool_proxy_runs"][0]["kind"], json!("command"));
+        assert_eq!(manifest["tool_proxy_runs"][0]["completed"], json!(true));
+        assert_eq!(manifest["tool_proxy_runs"][0]["status"], json!("success"));
         assert_eq!(
             manifest["tool_proxy_runs"][0]["worker_role"],
             json!("diff_review")

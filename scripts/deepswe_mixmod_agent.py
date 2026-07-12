@@ -557,6 +557,12 @@ latest_tool_proxy = (
 )
 tool_proxy_kinds = [tool_proxy_kind(path) for path in tool_proxy_dirs]
 tool_proxy_roles = [tool_proxy_role(path) for path in tool_proxy_dirs]
+completed_tool_proxy_kinds = [
+    tool_proxy_kind(path) for path, _ in tool_proxy_metric_records
+]
+completed_tool_proxy_roles = [
+    tool_proxy_role(path) for path, _ in tool_proxy_metric_records
+]
 worker_metric_records = []
 for worker_dir in worker_dirs:
     worker_metrics_path = worker_dir / "metrics.json"
@@ -661,6 +667,8 @@ summary = {{
     ),
     "tool_proxy_kind_counts": count_values(tool_proxy_kinds),
     "tool_proxy_role_counts": count_values(tool_proxy_roles),
+    "completed_tool_proxy_kind_counts": count_values(completed_tool_proxy_kinds),
+    "completed_tool_proxy_role_counts": count_values(completed_tool_proxy_roles),
     "latest_tool_proxy_stdout_bytes": (
         file_len(latest_tool_proxy_dir / "logs" / "opencode.stdout.txt")
         if latest_tool_proxy_dir
