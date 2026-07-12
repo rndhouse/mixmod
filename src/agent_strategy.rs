@@ -272,6 +272,11 @@ For those changes, treat ordinary package tests as insufficient if they do not
 exercise at least one relevant alternate shape. Before final completion, either
 run/add such a focused probe or state the direct code evidence that proves the
 alternate shape follows the same path.
+When a task may be evaluated by additional tests in the same package, prefer
+temporary command probes or uniquely named regression tests. Avoid generic
+top-level helper names and broad evaluator-like `Test<Feature>` names that can
+collide with hidden or downstream tests; use narrow, specific names or local
+closures instead.
 For `tool ask`, keep the request narrow enough for a small local model: one
 behavior area, targeted files or symbols, and at most a few repository tool
 calls. Prefer another bounded helper call over one broad review prompt.
@@ -501,6 +506,8 @@ mod tests {
         assert!(prompt.contains("multi-value/aggregate RHS"));
         assert!(prompt.contains("ordinary package tests as insufficient"));
         assert!(prompt.contains("direct code evidence"));
+        assert!(prompt.contains("uniquely named regression tests"));
+        assert!(prompt.contains("generic top-level helper names"));
         assert!(prompt.contains("targeted hunks or grep"));
         assert!(prompt.contains("changed package's full test"));
         assert!(prompt.contains("tests you added/changed"));

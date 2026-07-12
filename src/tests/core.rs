@@ -550,6 +550,12 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
+            .any(|item| item.contains("uniquely named regression tests"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
             .any(|item| item.contains("worker_turn_shape=small_patch_slice"))
     );
     assert!(
