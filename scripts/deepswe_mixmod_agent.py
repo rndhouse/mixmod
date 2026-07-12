@@ -275,6 +275,19 @@ def copy_if_exists(source: Path, target: Path) -> None:
     except OSError:
         pass
 
+def copy_tree_files(source: Path, target: Path) -> None:
+    try:
+        if not source.exists():
+            return
+        for path in source.rglob("*"):
+            if not path.is_file():
+                continue
+            destination = target / path.relative_to(source)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, destination)
+    except OSError:
+        pass
+
 def write_command_output(command: list[str], target: Path) -> None:
     try:
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -303,6 +316,11 @@ copy_if_exists(
 copy_if_exists(run_dir / "supervisor-feedback.jsonl", agent_dir / "supervisor-feedback.jsonl")
 for name in ["task.json", "worker-brief.json", "worker-task.json"]:
     copy_if_exists(run_dir / name, agent_dir / name)
+
+for project_dir in state_dir.glob("projects/*"):
+    tool_proxy_root = project_dir / "supervisor-tool-proxy"
+    if tool_proxy_root.exists():
+        copy_tree_files(tool_proxy_root, agent_dir / "tool-proxy-runs" / project_dir.name)
 
 def worker_dir_sort_key(path: Path) -> tuple[int, int, str]:
     name = path.name
@@ -450,6 +468,27 @@ worker_dirs = sorted(
     (path for path in (agent_dir / "worker-runs").glob("*") if path.is_dir()),
     key=worker_dir_sort_key,
 )
+tool_proxy_dirs = sorted(
+    (
+        path
+        for path in (agent_dir / "tool-proxy-runs").glob("*/*/*")
+        if path.is_dir()
+    )
+)
+tool_proxy_metric_records = []
+for tool_proxy_dir in tool_proxy_dirs:
+    tool_proxy_metrics_path = tool_proxy_dir / "metrics.json"
+    if not tool_proxy_metrics_path.exists():
+        continue
+    tool_proxy_metric = load_json(tool_proxy_metrics_path)
+    if tool_proxy_metric:
+        tool_proxy_metric_records.append((tool_proxy_dir, tool_proxy_metric))
+latest_tool_proxy_dir = tool_proxy_dirs[-1] if tool_proxy_dirs else None
+latest_tool_proxy = (
+    load_json(latest_tool_proxy_dir / "metrics.json")
+    if latest_tool_proxy_dir and (latest_tool_proxy_dir / "metrics.json").exists()
+    else {{}}
+)
 worker_metric_records = []
 for worker_dir in worker_dirs:
     worker_metrics_path = worker_dir / "metrics.json"
@@ -536,6 +575,34 @@ summary = {{
     "worker_runs_incomplete": (
         max(len(worker_dirs) - len(worker_metrics), 0)
         if worker_dirs
+        else None
+    ),
+    "tool_proxy_runs_observed": len(tool_proxy_dirs) or None,
+    "tool_proxy_runs_completed": len(tool_proxy_metric_records) or None,
+    "latest_tool_proxy_dir": (
+        str(latest_tool_proxy_dir.relative_to(agent_dir))
+        if latest_tool_proxy_dir
+        else None
+    ),
+    "latest_tool_proxy_status": latest_tool_proxy.get("status"),
+    "latest_tool_proxy_stdout_bytes": (
+        file_len(latest_tool_proxy_dir / "logs" / "opencode.stdout.txt")
+        if latest_tool_proxy_dir
+        else None
+    ),
+    "latest_tool_proxy_stderr_bytes": (
+        file_len(latest_tool_proxy_dir / "logs" / "opencode.stderr.txt")
+        if latest_tool_proxy_dir
+        else None
+    ),
+    "latest_tool_proxy_reasoning_trace_bytes": (
+        file_len(latest_tool_proxy_dir / "reasoning-trace.jsonl")
+        if latest_tool_proxy_dir
+        else None
+    ),
+    "latest_tool_proxy_tool_events_bytes": (
+        file_len(latest_tool_proxy_dir / "tool-events.jsonl")
+        if latest_tool_proxy_dir
         else None
     ),
     "final_status": metrics.get("final_status"),

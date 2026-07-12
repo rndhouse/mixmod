@@ -202,7 +202,9 @@ approval. Do not commit. Leave the final solution as an uncommitted git diff so
 Mixmod can capture it.
 
 Mixmod is a tool/router, not a separate supervisor. The configured local worker
-is available as a cheap helper through Mixmod's CLI. When a bounded command can
+is available as a cheap helper through Mixmod's CLI. It is effectively zero
+marginal GPT-token cost, so prefer it for bounded repo evidence when that saves
+you reading long files or command output directly. When a bounded command can
 save GPT tokens, call:
 
 ```bash
@@ -211,7 +213,16 @@ save GPT tokens, call:
 
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 `git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
-tools directly when you need exact control, editing, or final judgment.
+tools directly when you need exact control, editing, or final judgment. If you
+make or receive a substantial diff, consider asking the worker for one targeted
+post-diff probe such as a focused test command, a compact diff review, or a
+check against the task's requested behavior. Treat the worker's output as
+evidence to use or reject; final task completion is your responsibility.
+
+Each local-worker call prints an artifact directory. Inspect those artifacts
+when the compact summary is insufficient; they include the rendered worker
+prompt, stdout/stderr logs, reasoning trace when available, tool events, and
+patch files.
 
 Worker guidance:
 {worker_guidance}
@@ -352,6 +363,9 @@ mod tests {
         assert!(prompt.contains("Mixmod is a tool/router"));
         assert!(prompt.contains("local worker"));
         assert!(prompt.contains("cheap helper"));
+        assert!(prompt.contains("zero marginal GPT-token cost"));
+        assert!(prompt.contains("post-diff probe"));
+        assert!(prompt.contains("final task completion is your responsibility"));
         assert!(prompt.contains("tool run-command"));
         assert!(!prompt.contains("Return only JSON"));
         assert!(!prompt.contains("\"action\":\"approve|revise|stop\""));
