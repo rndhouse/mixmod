@@ -18,6 +18,8 @@ const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
 const ASK_WORKER_TIMEOUT_SECONDS: u64 = 120;
 const ASK_IDLE_TIMEOUT_SECONDS: u64 = 90;
+const COMMAND_SUMMARY_BYTES: usize = 2_000;
+const ASK_SUMMARY_BYTES: usize = 3_000;
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
@@ -156,11 +158,24 @@ fn run_supervisor_tool_proxy_payload(
     println!("artifacts: {}", display_path(&root, &out_dir));
     println!("prompt_artifact: {}", OPENCODE_INSTRUCTIONS_MD);
     println!("report_artifact: {}", REPORT_MD);
+    println!("stdout_artifact: logs/opencode.stdout.txt");
+    println!("stderr_artifact: logs/opencode.stderr.txt");
+    println!("tool_events_artifact: tool-events.jsonl");
     println!("worktree_patch_artifact: {}", WORKTREE_PATCH);
     println!();
     println!("worker_summary:");
-    println!("{}", compact_text(&worker_text, 6_000));
+    println!(
+        "{}",
+        compact_text(&worker_text, tool_proxy_summary_bytes(payload.kind))
+    );
     Ok(())
+}
+
+fn tool_proxy_summary_bytes(kind: SupervisorToolProxyKind) -> usize {
+    match kind {
+        SupervisorToolProxyKind::Command => COMMAND_SUMMARY_BYTES,
+        SupervisorToolProxyKind::Ask => ASK_SUMMARY_BYTES,
+    }
 }
 
 fn tool_proxy_side_effect_notice(receipt: &crate::Receipt, metrics: &Value) -> Option<String> {
@@ -554,6 +569,19 @@ mod tests {
                 .any(|value| { value.as_str().unwrap_or("").contains("For search output") })
         );
         assert_eq!(task["context"]["worker_role"], json!("inspect"));
+    }
+
+    #[test]
+    fn tool_proxy_summary_limits_keep_codex_output_compact() {
+        assert_eq!(
+            tool_proxy_summary_bytes(SupervisorToolProxyKind::Command),
+            COMMAND_SUMMARY_BYTES
+        );
+        assert_eq!(
+            tool_proxy_summary_bytes(SupervisorToolProxyKind::Ask),
+            ASK_SUMMARY_BYTES
+        );
+        assert!(COMMAND_SUMMARY_BYTES < ASK_SUMMARY_BYTES);
     }
 
     #[test]
