@@ -7,6 +7,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::TOOL_EVENTS_JSONL;
 use crate::{
     DelegationMode, METRICS_JSON, MixmodConfig, OPENCODE_INSTRUCTIONS_MD, REPORT_MD,
     ShellOpenCodeRunner, WORKTREE_PATCH, WorkerRunOptions, absolutize, display_path, get_str,
@@ -135,6 +136,10 @@ fn run_supervisor_tool_proxy_payload(
     let worker_text = extract_last_text(&out_dir.join("logs/opencode.stdout.txt"))
         .unwrap_or_else(|| "No compact worker text was captured.".to_string());
     let metrics = read_json_file(&out_dir.join(METRICS_JSON)).unwrap_or_else(|_| json!({}));
+    let command_result = (payload.kind == SupervisorToolProxyKind::Command)
+        .then(|| command_tool_result(&out_dir, payload.command.trim()))
+        .flatten();
+    let worker_status = tool_proxy_worker_status(&receipt.status, command_result.as_ref());
     println!("Mixmod supervisor tool proxy");
     match payload.kind {
         SupervisorToolProxyKind::Command => {
@@ -147,7 +152,12 @@ fn run_supervisor_tool_proxy_payload(
             );
         }
     }
-    println!("worker_status: {}", receipt.status);
+    println!("worker_status: {worker_status}");
+    if let Some(result) = &command_result
+        && let Some(exit_status) = result.exit_status
+    {
+        println!("command_exit_status: {exit_status}");
+    }
     if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
         println!("worker_exit_status: {exit_status}");
     }
@@ -169,6 +179,57 @@ fn run_supervisor_tool_proxy_payload(
         compact_text(&worker_text, tool_proxy_summary_bytes(payload.kind))
     );
     Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CommandToolResult {
+    exit_status: Option<i64>,
+}
+
+fn command_tool_result(out_dir: &Path, command: &str) -> Option<CommandToolResult> {
+    let events = std::fs::read_to_string(out_dir.join(TOOL_EVENTS_JSONL)).ok()?;
+    let mut result = None;
+    for line in events.lines() {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let Some(part) = event.get("part") else {
+            continue;
+        };
+        if get_str(part, "tool") != Some("bash") {
+            continue;
+        }
+        let Some(state) = part.get("state") else {
+            continue;
+        };
+        let Some(actual_command) = state
+            .get("input")
+            .and_then(|input| get_str(input, "command"))
+        else {
+            continue;
+        };
+        if actual_command.trim() != command {
+            continue;
+        }
+        let exit_status = state
+            .get("metadata")
+            .and_then(|metadata| metadata.get("exit"))
+            .and_then(Value::as_i64);
+        result = Some(CommandToolResult { exit_status });
+    }
+    result
+}
+
+fn tool_proxy_worker_status(
+    receipt_status: &str,
+    command_result: Option<&CommandToolResult>,
+) -> String {
+    if let Some(result) = command_result
+        && matches!(result.exit_status, Some(status) if status != 0)
+    {
+        return "command_failed".to_string();
+    }
+    receipt_status.to_string()
 }
 
 fn tool_proxy_summary_bytes(kind: SupervisorToolProxyKind) -> usize {
@@ -720,6 +781,30 @@ mod tests {
 
         assert_eq!(config.opencode.worker_timeout_seconds, 600);
         assert_eq!(config.opencode.idle_timeout_seconds, 300);
+    }
+
+    #[test]
+    fn command_tool_status_uses_inner_command_exit() {
+        let temp = tempfile::tempdir().unwrap();
+        let events = r#"
+{"type":"tool_use","part":{"tool":"bash","state":{"input":{"command":"go test ./..."},"metadata":{"exit":1}}}}
+{"type":"tool_use","part":{"tool":"bash","state":{"input":{"command":"git status --short"},"metadata":{"exit":0}}}}
+"#;
+        std::fs::write(temp.path().join(TOOL_EVENTS_JSONL), events).unwrap();
+
+        let failed = command_tool_result(temp.path(), "go test ./...").unwrap();
+        assert_eq!(failed.exit_status, Some(1));
+        assert_eq!(
+            tool_proxy_worker_status("success", Some(&failed)),
+            "command_failed"
+        );
+
+        let passed = command_tool_result(temp.path(), "git status --short").unwrap();
+        assert_eq!(passed.exit_status, Some(0));
+        assert_eq!(
+            tool_proxy_worker_status("success", Some(&passed)),
+            "success"
+        );
     }
 
     #[test]
