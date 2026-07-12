@@ -467,12 +467,14 @@ def string_values(records: list[dict], field: str) -> list[str]:
     return values
 
 def sum_metric(items: list[dict], field: str) -> int | None:
+    if not items:
+        return None
     total = sum(
         item.get(field, 0)
         for item in items
         if isinstance(item.get(field), int)
     )
-    return total or None
+    return total
 
 feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
 worker_dirs = sorted(
@@ -549,6 +551,7 @@ observed_patch_observation_count = sum(
     if item.get("observations")
 )
 worker_metric_by_dir = dict(worker_metric_records)
+local_metric_seen = bool(worker_metrics or tool_proxy_metrics)
 latest_worker_controls = (
     worker_control_records(latest_worker_dir, latest_worker)
     if latest_worker_dir
@@ -757,15 +760,21 @@ summary = {{
         )
         or None,
     "local_tool_output_artifact_count": (
-        sum_metric(worker_metrics, "tool_output_artifact_count") or 0
-    ) + (
-        sum_metric(tool_proxy_metrics, "tool_output_artifact_count") or 0
-    ) or None,
+        (
+            (sum_metric(worker_metrics, "tool_output_artifact_count") or 0)
+            + (sum_metric(tool_proxy_metrics, "tool_output_artifact_count") or 0)
+        )
+        if local_metric_seen
+        else None
+    ),
     "local_tool_output_artifact_bytes": (
-        sum_metric(worker_metrics, "tool_output_artifact_bytes") or 0
-    ) + (
-        sum_metric(tool_proxy_metrics, "tool_output_artifact_bytes") or 0
-    ) or None,
+        (
+            (sum_metric(worker_metrics, "tool_output_artifact_bytes") or 0)
+            + (sum_metric(tool_proxy_metrics, "tool_output_artifact_bytes") or 0)
+        )
+        if local_metric_seen
+        else None
+    ),
     "patch_bytes": len(patch_text.encode()),
     "patch_lines": patch_text.count("\\n"),
     "repository_patch_observed": bool(patch_text.strip()),

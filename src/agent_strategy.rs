@@ -222,8 +222,10 @@ checks. Before final completion, use at least one cheap local-worker call for
 failure-oriented post-diff review unless you already performed an equivalent
 check yourself. Good final probes ask the worker to inspect the final diff
 against the requested behavior, identify missing edge cases, or run one
-targeted command. Treat the worker's output as evidence to use or reject; final
-task completion is your responsibility.
+targeted command. For test probes, prefer the changed package's full test suite
+or the exact tests you added/changed; avoid narrow regexes that can skip new
+tests unless there is a clear cost reason. Treat the worker's output as
+evidence to use or reject; final task completion is your responsibility.
 
 Each local-worker call prints an artifact directory. Inspect those artifacts
 when the compact summary is insufficient; they include the rendered worker
@@ -412,6 +414,7 @@ mod tests {
         assert!(prompt.contains("cheap helper"));
         assert!(prompt.contains("zero marginal GPT-token cost"));
         assert!(prompt.contains("failure-oriented post-diff review"));
+        assert!(prompt.contains("changed package's full test suite"));
         assert!(prompt.contains("completion is your responsibility"));
         assert!(prompt.contains("tool run-command"));
         assert!(!prompt.contains("Return only JSON"));
