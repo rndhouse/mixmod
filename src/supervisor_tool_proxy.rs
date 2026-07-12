@@ -429,7 +429,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": "Supervisor tool proxy: local worker ask",
                 "instructions": format!(
-                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. Use at most four repository tool calls. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. For behavioral review, do not treat passing existing tests as sufficient by itself: inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. Prefer existing package tests or exact focused tests from the changed area. Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern; otherwise state the unverified edge case instead of building a new harness. Stop as soon as you find one concrete issue or finish the bounded checks. If you hit the tool-call budget, return the best verdict and evidence you have. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. Use at most four repository tool calls. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. Avoid whole-file reads on non-tiny files; prefer `git diff -- path`, `rg -n --max-count`, `grep -n`, or `sed -n` around named anchors. For behavioral review, do not treat passing existing tests as sufficient by itself: inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. Prefer existing package tests or exact focused tests from the changed area. Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern; otherwise state the unverified edge case instead of building a new harness. Stop as soon as you find one concrete issue or finish the bounded checks. If you hit the tool-call budget, return the best verdict and evidence you have. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
                 ),
                 "expect_patch": false,
                 "tests": [],
@@ -440,6 +440,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Keep stdout compact.",
                     "Use at most four repository tool calls.",
                     "Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets.",
+                    "Avoid whole-file reads on non-tiny files; prefer bounded shell snippets around named anchors.",
                     "Use focused commands instead of broad repository reads when possible.",
                     "For behavioral review, inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip.",
                     "Prefer existing package tests or exact focused tests from the changed area.",
@@ -704,6 +705,8 @@ mod tests {
         let constraints = task["constraints"].as_array().unwrap();
 
         assert!(instructions.contains("Do not read or print the full diff"));
+        assert!(instructions.contains("Avoid whole-file reads"));
+        assert!(instructions.contains("sed -n"));
         assert!(instructions.contains("inspect changed branches"));
         assert!(instructions.contains("visible tests may skip"));
         assert!(instructions.contains("existing package tests"));
@@ -716,6 +719,11 @@ mod tests {
             constraints
                 .iter()
                 .any(|value| { value.as_str().unwrap_or("").contains("changed branches") })
+        );
+        assert!(
+            constraints
+                .iter()
+                .any(|value| value.as_str().unwrap_or("").contains("whole-file reads"))
         );
         assert!(
             constraints

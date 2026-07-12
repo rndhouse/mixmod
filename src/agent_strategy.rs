@@ -247,6 +247,9 @@ For bounded review or investigation that is not naturally one command, call:
 {mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Start from changed branches and visible tests, run an existing package or exact focused test if cheap, create an ad hoc probe only when the repo already shows the exact invocation pattern, use at most four repository tool calls, stop after one concrete issue or after the bounded checks finish, and return compact evidence."
 ```
 
+For `tool ask`, ask for bounded snippets rather than whole-file reads on
+non-tiny files: `git diff -- path`, `rg -n --max-count`, `grep -n`, or
+`sed -n 'start,endp' path` around named anchors.
 For a substantial semantic diff, do not finish solely from visible happy-path
 checks. Before final completion, use at least one cheap local-worker call for
 failure-oriented post-diff review unless you already performed an equivalent
@@ -473,6 +476,8 @@ mod tests {
         assert!(prompt.contains("broad root searches"));
         assert!(prompt.contains("Prefer `tool run-command`"));
         assert!(prompt.contains("small review question"));
+        assert!(prompt.contains("bounded snippets"));
+        assert!(prompt.contains("whole-file reads"));
         assert!(prompt.contains("failure-oriented post-diff review"));
         assert!(prompt.contains("Start from changed branches"));
         assert!(prompt.contains("visible tests"));
