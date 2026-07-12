@@ -16,8 +16,8 @@ use crate::{
 
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
-const ASK_WORKER_TIMEOUT_SECONDS: u64 = 120;
-const ASK_IDLE_TIMEOUT_SECONDS: u64 = 90;
+const ASK_WORKER_TIMEOUT_SECONDS: u64 = 90;
+const ASK_IDLE_TIMEOUT_SECONDS: u64 = 60;
 const COMMAND_SUMMARY_BYTES: usize = 2_000;
 const ASK_SUMMARY_BYTES: usize = 3_000;
 
