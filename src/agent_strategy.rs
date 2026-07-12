@@ -246,14 +246,15 @@ For bounded review or investigation that is not naturally one command, call:
 For a substantial semantic diff, do not finish solely from visible happy-path
 checks. Before final completion, use at least one cheap local-worker call for
 failure-oriented post-diff review unless you already performed an equivalent
-check yourself. Good final probes ask the worker to inspect the final diff
-against the requested behavior and identify missing edge cases from changed
-branches, alternate input shapes, and visible tests. Ask for targeted hunks or
-grep rather than a full diff. Prefer the changed package's full test suite or
-the exact tests you added/changed; avoid narrow regexes that can skip new tests
-unless there is a clear cost reason. Ask for ad hoc probes only when a nearby
-test or documented API gives the exact invocation pattern; otherwise the worker
-should report the unverified edge case instead of constructing a new harness.
+check yourself. For final verification, prefer concrete commands or probes that
+you design and route through `tool run-command`; use open-ended `tool ask`
+reviews only as secondary evidence. Good final probes exercise changed branches,
+alternate input shapes, and visible tests. Ask for targeted hunks or grep rather
+than a full diff. Prefer the changed package's full test suite or the exact
+tests you added/changed; avoid narrow regexes that can skip new tests unless
+there is a clear cost reason. Ask for ad hoc probes only when a nearby test or
+documented API gives the exact invocation pattern; otherwise the worker should
+report the unverified edge case instead of constructing a new harness.
 For `tool ask`, keep the request narrow enough for a small local model: one
 behavior area, targeted files or symbols, and at most a few repository tool
 calls. Prefer another bounded helper call over one broad review prompt.
@@ -463,10 +464,13 @@ mod tests {
         assert!(prompt.contains("failure-oriented post-diff review"));
         assert!(prompt.contains("Start from changed branches"));
         assert!(prompt.contains("visible tests"));
+        assert!(prompt.contains("concrete commands or probes"));
+        assert!(prompt.contains("open-ended `tool ask`"));
+        assert!(prompt.contains("secondary evidence"));
         assert!(prompt.contains("changed branches"));
         assert!(prompt.contains("targeted hunks or grep"));
         assert!(prompt.contains("changed package's full test"));
-        assert!(prompt.contains("exact tests you added/changed"));
+        assert!(prompt.contains("tests you added/changed"));
         assert!(prompt.contains("exact invocation pattern"));
         assert!(prompt.contains("unverified edge case"));
         assert!(prompt.contains("at most four repository tool calls"));
