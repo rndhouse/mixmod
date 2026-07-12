@@ -7,13 +7,13 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::TOOL_EVENTS_JSONL;
 use crate::{
     DelegationMode, METRICS_JSON, MixmodConfig, OPENCODE_INSTRUCTIONS_MD, REPORT_MD,
     ShellOpenCodeRunner, WORKTREE_PATCH, WorkerRunOptions, absolutize, display_path, get_str,
     load_config, read_json_file, run_mixmod_task_with_worker_options, state_layout,
     write_pretty_json,
 };
+use crate::{REASONING_TRACE_JSONL, TOOL_EVENTS_JSONL};
 
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
@@ -170,6 +170,7 @@ fn run_supervisor_tool_proxy_payload(
     println!("report_artifact: {}", REPORT_MD);
     println!("stdout_artifact: logs/opencode.stdout.txt");
     println!("stderr_artifact: logs/opencode.stderr.txt");
+    println!("reasoning_trace_artifact: {}", REASONING_TRACE_JSONL);
     println!("tool_events_artifact: tool-events.jsonl");
     println!("worktree_patch_artifact: {}", WORKTREE_PATCH);
     println!();
