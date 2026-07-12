@@ -16,6 +16,8 @@ use crate::{
 
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
+const ASK_WORKER_TIMEOUT_SECONDS: u64 = 240;
+const ASK_IDLE_TIMEOUT_SECONDS: u64 = 90;
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
@@ -99,7 +101,8 @@ fn run_supervisor_tool_proxy_payload(
         .unwrap_or_else(|| invocation_cwd.to_path_buf())
         .canonicalize()
         .unwrap_or_else(|_| absolutize(invocation_cwd, Path::new(".")));
-    let config = load_tool_proxy_config(&payload.config_path, &root)?;
+    let mut config = load_tool_proxy_config(&payload.config_path, &root)?;
+    apply_tool_proxy_limits(payload.kind, &mut config);
     let runner = ShellOpenCodeRunner::new(config.clone());
     let out_dir = state_layout(&root)
         .project_dir()
@@ -156,6 +159,28 @@ fn run_supervisor_tool_proxy_payload(
     Ok(())
 }
 
+fn apply_tool_proxy_limits(kind: SupervisorToolProxyKind, config: &mut MixmodConfig) {
+    if kind != SupervisorToolProxyKind::Ask {
+        return;
+    }
+    config.opencode.worker_timeout_seconds = bounded_timeout(
+        config.opencode.worker_timeout_seconds,
+        ASK_WORKER_TIMEOUT_SECONDS,
+    );
+    config.opencode.idle_timeout_seconds = bounded_timeout(
+        config.opencode.idle_timeout_seconds,
+        ASK_IDLE_TIMEOUT_SECONDS,
+    );
+}
+
+fn bounded_timeout(current: u64, limit: u64) -> u64 {
+    if current == 0 {
+        limit
+    } else {
+        current.min(limit)
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct SupervisorToolProxyPayload {
     #[serde(default)]
@@ -172,7 +197,7 @@ struct SupervisorToolProxyPayload {
     created_at: String,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum SupervisorToolProxyKind {
     #[default]
@@ -299,7 +324,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": "Supervisor tool proxy: local worker ask",
                 "instructions": format!(
-                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. For behavioral review, do not treat passing existing tests as sufficient by itself: derive a few focused probes from the requested behavior and run them when the repository has a cheap harness, or state exactly which edge cases remain unprobed. Return compact evidence the supervisor can use: commands run, exit status when applicable, pass/fail facts, and the smallest relevant excerpts or file/line references."
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. For behavioral review, do not treat passing existing tests as sufficient by itself: derive at most three focused probes from the requested behavior and run them when the repository has a cheap harness, or state exactly which edge cases remain unprobed. Stop as soon as you find one concrete issue or finish those probes. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
                 ),
                 "expect_patch": false,
                 "tests": [],
@@ -309,7 +334,9 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Do not inspect /solution or verifier internals.",
                     "Keep stdout compact.",
                     "Use focused commands instead of broad repository reads when possible.",
-                    "For behavioral review, derive focused probes from the requirements instead of only rerunning existing happy-path tests.",
+                    "For behavioral review, derive at most three focused probes from the requirements instead of only rerunning existing happy-path tests.",
+                    "Stop after one concrete issue or after the focused probes finish.",
+                    "Start the final answer with `verdict: pass`, `verdict: risk`, or `verdict: fail`.",
                     "Temporary files outside the repository are acceptable when needed for a focused probe.",
                     "If evidence is inconclusive, say exactly what remains unverified."
                 ],
@@ -533,12 +560,45 @@ mod tests {
         let instructions = task["instructions"].as_str().unwrap();
         let constraints = task["constraints"].as_array().unwrap();
 
-        assert!(instructions.contains("derive a few focused probes"));
+        assert!(instructions.contains("derive at most three focused probes"));
+        assert!(instructions.contains("first-line verdict"));
+        assert!(constraints.iter().any(|value| {
+            value
+                .as_str()
+                .unwrap_or("")
+                .contains("at most three focused probes")
+        }));
         assert!(
             constraints
                 .iter()
-                .any(|value| value.as_str().unwrap_or("").contains("focused probes"))
+                .any(|value| value.as_str().unwrap_or("").contains("verdict: fail"))
         );
         assert_eq!(task["context"]["worker_role"], json!("bounded_review"));
+    }
+
+    #[test]
+    fn ask_tool_caps_worker_timeouts_below_default() {
+        let mut config = MixmodConfig::default();
+
+        apply_tool_proxy_limits(SupervisorToolProxyKind::Ask, &mut config);
+
+        assert_eq!(
+            config.opencode.worker_timeout_seconds,
+            ASK_WORKER_TIMEOUT_SECONDS
+        );
+        assert_eq!(
+            config.opencode.idle_timeout_seconds,
+            ASK_IDLE_TIMEOUT_SECONDS
+        );
+    }
+
+    #[test]
+    fn command_tool_keeps_configured_timeouts() {
+        let mut config = MixmodConfig::default();
+
+        apply_tool_proxy_limits(SupervisorToolProxyKind::Command, &mut config);
+
+        assert_eq!(config.opencode.worker_timeout_seconds, 600);
+        assert_eq!(config.opencode.idle_timeout_seconds, 300);
     }
 }
