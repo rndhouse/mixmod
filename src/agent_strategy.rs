@@ -9,8 +9,8 @@ use serde_json::json;
 use crate::task::{read_task_json, write_agent_visible_task_file};
 use crate::{
     FINAL_PATCH, METRICS_JSON, MixmodConfig, ModelOverrides, REPORT_MD, SupervisorCodexSession,
-    TASK_JSON, WORKTREE_PATCH, WorkerSupervisorGuidance, absolutize, atomic_write, budgeted_report,
-    display_path, git_diff_with_untracked, load_config, patch_stats, state_layout,
+    TASK_JSON, TOOL_OUTPUT_DIR, WORKTREE_PATCH, WorkerSupervisorGuidance, absolutize, atomic_write,
+    budgeted_report, display_path, git_diff_with_untracked, load_config, patch_stats, state_layout,
     write_pretty_json,
 };
 
@@ -132,6 +132,8 @@ impl AgentStrategyRun<'_> {
             "local_worker_text_bytes": worker_tool_metrics.stdout_bytes + worker_tool_metrics.stderr_bytes,
             "local_worker_reasoning_trace_bytes": worker_tool_metrics.reasoning_trace_bytes,
             "local_worker_tool_events_bytes": worker_tool_metrics.tool_events_bytes,
+            "local_worker_tool_output_artifact_count": worker_tool_metrics.tool_output_artifact_count,
+            "local_worker_tool_output_artifact_bytes": worker_tool_metrics.tool_output_artifact_bytes,
             "artifact_byte_sizes": artifact_byte_sizes(&out_dir)?,
             "patch_bytes": patch.len() as u64,
             "changed_files": changed_files,
@@ -213,11 +215,15 @@ save GPT tokens, call:
 
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 `git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
-tools directly when you need exact control, editing, or final judgment. If you
-make or receive a substantial diff, consider asking the worker for one targeted
-post-diff probe such as a focused test command, a compact diff review, or a
-check against the task's requested behavior. Treat the worker's output as
-evidence to use or reject; final task completion is your responsibility.
+tools directly when you need exact control, editing, or final judgment.
+
+For a substantial semantic diff, do not finish solely from visible happy-path
+checks. Before final completion, use at least one cheap local-worker call for
+failure-oriented post-diff review unless you already performed an equivalent
+check yourself. Good final probes ask the worker to inspect the final diff
+against the requested behavior, identify missing edge cases, or run one
+targeted command. Treat the worker's output as evidence to use or reject; final
+task completion is your responsibility.
 
 Each local-worker call prints an artifact directory. Inspect those artifacts
 when the compact summary is insufficient; they include the rendered worker
@@ -265,6 +271,8 @@ struct WorkerToolProxyMetrics {
     stderr_bytes: u64,
     reasoning_trace_bytes: u64,
     tool_events_bytes: u64,
+    tool_output_artifact_count: u64,
+    tool_output_artifact_bytes: u64,
 }
 
 fn worker_tool_proxy_metrics(root: &Path, since: SystemTime) -> WorkerToolProxyMetrics {
@@ -289,10 +297,49 @@ fn worker_tool_proxy_metrics(root: &Path, since: SystemTime) -> WorkerToolProxyM
                 metrics.reasoning_trace_bytes +=
                     file_len_or_zero(&run.join("reasoning-trace.jsonl"));
                 metrics.tool_events_bytes += file_len_or_zero(&run.join("tool-events.jsonl"));
+                let tool_output = tool_output_artifact_metrics(&run.join(TOOL_OUTPUT_DIR));
+                metrics.tool_output_artifact_count += tool_output.count;
+                metrics.tool_output_artifact_bytes += tool_output.bytes;
             }
         }
     }
     metrics
+}
+
+#[derive(Default)]
+struct FileTreeMetrics {
+    count: u64,
+    bytes: u64,
+}
+
+fn tool_output_artifact_metrics(path: &Path) -> FileTreeMetrics {
+    let mut metrics = FileTreeMetrics::default();
+    if !path.exists() {
+        return metrics;
+    }
+    for file in walk_files(path) {
+        metrics.count += 1;
+        metrics.bytes += file_len_or_zero(&file);
+    }
+    metrics
+}
+
+fn walk_files(root: &Path) -> Vec<std::path::PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(path) = stack.pop() {
+        if path.is_file() {
+            files.push(path);
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&path) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            stack.push(entry.path());
+        }
+    }
+    files
 }
 
 fn walk_dirs(root: &Path) -> Vec<std::path::PathBuf> {
@@ -364,8 +411,8 @@ mod tests {
         assert!(prompt.contains("local worker"));
         assert!(prompt.contains("cheap helper"));
         assert!(prompt.contains("zero marginal GPT-token cost"));
-        assert!(prompt.contains("post-diff probe"));
-        assert!(prompt.contains("final task completion is your responsibility"));
+        assert!(prompt.contains("failure-oriented post-diff review"));
+        assert!(prompt.contains("completion is your responsibility"));
         assert!(prompt.contains("tool run-command"));
         assert!(!prompt.contains("Return only JSON"));
         assert!(!prompt.contains("\"action\":\"approve|revise|stop\""));
