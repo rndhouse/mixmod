@@ -219,7 +219,7 @@ tools directly when you need exact control, editing, or final judgment.
 For bounded review or investigation that is not naturally one command, call:
 
 ```bash
-{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Derive at most three focused probes from the requirements and changed code paths, prefer changed branches or alternate input shapes visible tests may skip, stop after one concrete issue or after those probes finish, and return compact evidence."
+{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Derive at most three focused probes from the requirements and changed code paths, prefer changed branches or alternate input shapes visible tests may skip, run probes before broad analysis, stop after one concrete issue or after those probes finish, and return compact evidence."
 ```
 
 For a substantial semantic diff, do not finish solely from visible happy-path
@@ -229,10 +229,12 @@ check yourself. Good final probes ask the worker to inspect the final diff
 against the requested behavior, identify missing edge cases, and derive at most
 three small behavior probes when the repository has a cheap way to run them.
 Probe changed branches and alternate input shapes, especially paths the visible
-tests do not exercise. For test probes, prefer the changed package's full test
-suite or the exact tests you added/changed; avoid narrow regexes that can skip
-new tests unless there is a clear cost reason. Treat the worker's output as
-evidence to use or reject; final task completion is your responsibility.
+tests do not exercise. Ask for targeted hunks or grep rather than a full diff,
+and ask the worker to run probes before broad analysis. For test probes, prefer
+the changed package's full test suite or the exact tests you added/changed;
+avoid narrow regexes that can skip new tests unless there is a clear cost
+reason. Treat the worker's output as evidence to use or reject; final task
+completion is your responsibility.
 
 Each local-worker call prints an artifact directory. Inspect those artifacts
 when the compact summary is insufficient; they include the rendered worker
@@ -424,6 +426,8 @@ mod tests {
         assert!(prompt.contains("Derive at most three focused probes"));
         assert!(prompt.contains("changed code paths"));
         assert!(prompt.contains("Probe changed branches"));
+        assert!(prompt.contains("targeted hunks or grep"));
+        assert!(prompt.contains("run probes before broad analysis"));
         assert!(prompt.contains("changed package's full test"));
         assert!(prompt.contains("suite or the exact tests"));
         assert!(prompt.contains("completion is your responsibility"));

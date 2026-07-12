@@ -17,7 +17,7 @@ use crate::{
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
 const ASK_WORKER_TIMEOUT_SECONDS: u64 = 120;
-const ASK_IDLE_TIMEOUT_SECONDS: u64 = 45;
+const ASK_IDLE_TIMEOUT_SECONDS: u64 = 90;
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
@@ -324,7 +324,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": "Supervisor tool proxy: local worker ask",
                 "instructions": format!(
-                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. For behavioral review, do not treat passing existing tests as sufficient by itself: derive at most three focused probes from the requested behavior and the changed code paths, then run them when the repository has a cheap harness, or state exactly which edge cases remain unprobed. Prefer probes that hit changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. Stop as soon as you find one concrete issue or finish those probes. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. For behavioral review, do not treat passing existing tests as sufficient by itself: derive at most three focused probes from the requested behavior and the changed code paths, then run them when the repository has a cheap harness, or state exactly which edge cases remain unprobed. Prefer probes that hit changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. Run the probes before broad analysis. Stop as soon as you find one concrete issue or finish those probes. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
                 ),
                 "expect_patch": false,
                 "tests": [],
@@ -333,9 +333,11 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Do not commit changes.",
                     "Do not inspect /solution or verifier internals.",
                     "Keep stdout compact.",
+                    "Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets.",
                     "Use focused commands instead of broad repository reads when possible.",
                     "For behavioral review, derive at most three focused probes from the requirements and changed code paths instead of only rerunning existing happy-path tests.",
                     "Prefer probes for changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip.",
+                    "Run focused probes before broad analysis.",
                     "Stop after one concrete issue or after the focused probes finish.",
                     "Start the final answer with `verdict: pass`, `verdict: risk`, or `verdict: fail`.",
                     "Temporary files outside the repository are acceptable when needed for a focused probe.",
@@ -563,6 +565,8 @@ mod tests {
 
         assert!(instructions.contains("derive at most three focused probes"));
         assert!(instructions.contains("changed code paths"));
+        assert!(instructions.contains("Do not read or print the full diff"));
+        assert!(instructions.contains("Run the probes before broad analysis"));
         assert!(instructions.contains("first-line verdict"));
         assert!(constraints.iter().any(|value| {
             value
@@ -575,6 +579,17 @@ mod tests {
                 .iter()
                 .any(|value| value.as_str().unwrap_or("").contains("changed branches"))
         );
+        assert!(
+            constraints
+                .iter()
+                .any(|value| value.as_str().unwrap_or("").contains("full diff"))
+        );
+        assert!(constraints.iter().any(|value| {
+            value
+                .as_str()
+                .unwrap_or("")
+                .contains("before broad analysis")
+        }));
         assert!(
             constraints
                 .iter()
