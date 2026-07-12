@@ -352,7 +352,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": "Supervisor tool proxy: local worker ask",
                 "instructions": format!(
-                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. For behavioral review, do not treat passing existing tests as sufficient by itself: derive at most three focused probes from the requested behavior and the changed code paths, then run them when the repository has a cheap harness, or state exactly which edge cases remain unprobed. Prefer probes that hit changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. Derive probe commands and any temporary probe code from existing nearby tests or documented project APIs; do not invent constructors or helper APIs. Run the probes before broad analysis. Stop as soon as you find one concrete issue or finish those probes. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. For behavioral review, do not treat passing existing tests as sufficient by itself: inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. Prefer existing package tests or exact focused tests from the changed area. Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern; otherwise state the unverified edge case instead of building a new harness. Stop as soon as you find one concrete issue or finish the bounded checks. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
                 ),
                 "expect_patch": false,
                 "tests": [],
@@ -363,12 +363,11 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Keep stdout compact.",
                     "Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets.",
                     "Use focused commands instead of broad repository reads when possible.",
-                    "For behavioral review, derive at most three focused probes from the requirements and changed code paths instead of only rerunning existing happy-path tests.",
-                    "Prefer probes for changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip.",
-                    "Base probe commands and temporary probe code on existing nearby tests or documented project APIs.",
-                    "Do not invent constructors or helper APIs for ad hoc probes.",
-                    "Run focused probes before broad analysis.",
-                    "Stop after one concrete issue or after the focused probes finish.",
+                    "For behavioral review, inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip.",
+                    "Prefer existing package tests or exact focused tests from the changed area.",
+                    "Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern.",
+                    "State unverified edge cases instead of building a new harness.",
+                    "Stop after one concrete issue or after the bounded checks finish.",
                     "Start the final answer with `verdict: pass`, `verdict: risk`, or `verdict: fail`.",
                     "Temporary files outside the repository are acceptable when needed for a focused probe.",
                     "If evidence is inconclusive, say exactly what remains unverified."
@@ -601,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn ask_tool_task_requests_derived_behavior_probes() {
+    fn ask_tool_task_requests_bounded_behavior_review() {
         let temp = tempfile::tempdir().unwrap();
         let payload = SupervisorToolProxyPayload::from_prompt(
             "Review the final diff for missing behavior.",
@@ -612,47 +611,40 @@ mod tests {
         let instructions = task["instructions"].as_str().unwrap();
         let constraints = task["constraints"].as_array().unwrap();
 
-        assert!(instructions.contains("derive at most three focused probes"));
-        assert!(instructions.contains("changed code paths"));
         assert!(instructions.contains("Do not read or print the full diff"));
-        assert!(instructions.contains("existing nearby tests"));
-        assert!(instructions.contains("do not invent constructors"));
-        assert!(instructions.contains("Run the probes before broad analysis"));
+        assert!(instructions.contains("inspect changed branches"));
+        assert!(instructions.contains("visible tests may skip"));
+        assert!(instructions.contains("existing package tests"));
+        assert!(instructions.contains("exact invocation pattern"));
+        assert!(instructions.contains("unverified edge case"));
         assert!(instructions.contains("first-line verdict"));
-        assert!(constraints.iter().any(|value| {
-            value
-                .as_str()
-                .unwrap_or("")
-                .contains("at most three focused probes")
-        }));
         assert!(
             constraints
                 .iter()
-                .any(|value| value.as_str().unwrap_or("").contains("changed branches"))
+                .any(|value| { value.as_str().unwrap_or("").contains("changed branches") })
+        );
+        assert!(
+            constraints
+                .iter()
+                .any(|value| value.as_str().unwrap_or("").contains("exact focused tests"))
         );
         assert!(constraints.iter().any(|value| {
             value
                 .as_str()
                 .unwrap_or("")
-                .contains("existing nearby tests")
+                .contains("exact invocation pattern")
         }));
         assert!(constraints.iter().any(|value| {
             value
                 .as_str()
                 .unwrap_or("")
-                .contains("Do not invent constructors")
+                .contains("unverified edge cases")
         }));
         assert!(
             constraints
                 .iter()
                 .any(|value| value.as_str().unwrap_or("").contains("full diff"))
         );
-        assert!(constraints.iter().any(|value| {
-            value
-                .as_str()
-                .unwrap_or("")
-                .contains("before broad analysis")
-        }));
         assert!(
             constraints
                 .iter()

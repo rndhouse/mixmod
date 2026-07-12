@@ -238,22 +238,20 @@ with many alternations when a smaller probe would answer the question.
 For bounded review or investigation that is not naturally one command, call:
 
 ```bash
-{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Derive at most three focused probes from the requirements and changed code paths, prefer changed branches or alternate input shapes visible tests may skip, run probes before broad analysis, stop after one concrete issue or after those probes finish, and return compact evidence."
+{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Start from changed branches and visible tests, run an existing package or exact focused test if cheap, create an ad hoc probe only when the repo already shows the exact invocation pattern, stop after one concrete issue or after the bounded checks finish, and return compact evidence."
 ```
 
 For a substantial semantic diff, do not finish solely from visible happy-path
 checks. Before final completion, use at least one cheap local-worker call for
 failure-oriented post-diff review unless you already performed an equivalent
 check yourself. Good final probes ask the worker to inspect the final diff
-against the requested behavior, identify missing edge cases, and derive at most
-three small behavior probes when the repository has a cheap way to run them.
-Probe changed branches and alternate input shapes, especially paths the visible
-tests do not exercise. Ask for targeted hunks or grep rather than a full diff,
-and ask the worker to run probes before broad analysis. For test probes, prefer
-the changed package's full test suite or the exact tests you added/changed;
-avoid narrow regexes that can skip new tests unless there is a clear cost
-reason. For ad hoc probes, ask the worker to copy existing test harness/API
-patterns from nearby tests instead of inventing constructors or helper APIs.
+against the requested behavior and identify missing edge cases from changed
+branches, alternate input shapes, and visible tests. Ask for targeted hunks or
+grep rather than a full diff. Prefer the changed package's full test suite or
+the exact tests you added/changed; avoid narrow regexes that can skip new tests
+unless there is a clear cost reason. Ask for ad hoc probes only when a nearby
+test or documented API gives the exact invocation pattern; otherwise the worker
+should report the unverified edge case instead of constructing a new harness.
 Treat the worker's output as evidence to use or reject; final task completion is
 your responsibility.
 
@@ -446,14 +444,14 @@ mod tests {
         assert!(prompt.contains("prefer bounded commands"));
         assert!(prompt.contains("rg --max-count"));
         assert!(prompt.contains("failure-oriented post-diff review"));
-        assert!(prompt.contains("Derive at most three focused probes"));
-        assert!(prompt.contains("changed code paths"));
-        assert!(prompt.contains("Probe changed branches"));
+        assert!(prompt.contains("Start from changed branches"));
+        assert!(prompt.contains("visible tests"));
+        assert!(prompt.contains("changed branches"));
         assert!(prompt.contains("targeted hunks or grep"));
-        assert!(prompt.contains("run probes before broad analysis"));
         assert!(prompt.contains("changed package's full test"));
-        assert!(prompt.contains("suite or the exact tests"));
-        assert!(prompt.contains("copy existing test harness/API"));
+        assert!(prompt.contains("exact tests you added/changed"));
+        assert!(prompt.contains("exact invocation pattern"));
+        assert!(prompt.contains("unverified edge case"));
         assert!(prompt.contains("completion is"));
         assert!(prompt.contains("your responsibility"));
         assert!(prompt.contains("tool run-command"));
