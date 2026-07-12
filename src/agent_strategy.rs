@@ -219,7 +219,7 @@ tools directly when you need exact control, editing, or final judgment.
 For bounded review or investigation that is not naturally one command, call:
 
 ```bash
-{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Derive at most three focused probes from the requirements when possible, stop after one concrete issue or after those probes finish, and return compact evidence."
+{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Derive at most three focused probes from the requirements and changed code paths, prefer changed branches or alternate input shapes visible tests may skip, stop after one concrete issue or after those probes finish, and return compact evidence."
 ```
 
 For a substantial semantic diff, do not finish solely from visible happy-path
@@ -227,11 +227,12 @@ checks. Before final completion, use at least one cheap local-worker call for
 failure-oriented post-diff review unless you already performed an equivalent
 check yourself. Good final probes ask the worker to inspect the final diff
 against the requested behavior, identify missing edge cases, and derive at most
-three small behavior probes when the repository has a cheap way to run them. For test
-probes, prefer the changed package's full test suite or the exact tests you
-added/changed; avoid narrow regexes that can skip new tests unless there is a
-clear cost reason. Treat the worker's output as evidence to use or reject;
-final task completion is your responsibility.
+three small behavior probes when the repository has a cheap way to run them.
+Probe changed branches and alternate input shapes, especially paths the visible
+tests do not exercise. For test probes, prefer the changed package's full test
+suite or the exact tests you added/changed; avoid narrow regexes that can skip
+new tests unless there is a clear cost reason. Treat the worker's output as
+evidence to use or reject; final task completion is your responsibility.
 
 Each local-worker call prints an artifact directory. Inspect those artifacts
 when the compact summary is insufficient; they include the rendered worker
@@ -421,7 +422,10 @@ mod tests {
         assert!(prompt.contains("zero marginal GPT-token cost"));
         assert!(prompt.contains("failure-oriented post-diff review"));
         assert!(prompt.contains("Derive at most three focused probes"));
-        assert!(prompt.contains("changed package's full test suite"));
+        assert!(prompt.contains("changed code paths"));
+        assert!(prompt.contains("Probe changed branches"));
+        assert!(prompt.contains("changed package's full test"));
+        assert!(prompt.contains("suite or the exact tests"));
         assert!(prompt.contains("completion is your responsibility"));
         assert!(prompt.contains("tool run-command"));
         assert!(prompt.contains("tool ask"));
