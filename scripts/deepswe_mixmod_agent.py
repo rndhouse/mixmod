@@ -689,6 +689,10 @@ summary = {{
         if latest_tool_proxy_dir
         else None
     ),
+    "latest_tool_proxy_changed_file_count": latest_tool_proxy.get("changed_file_count"),
+    "latest_tool_proxy_changed_line_count": latest_tool_proxy.get("changed_line_count"),
+    "tool_proxy_changed_file_count": sum_metric(tool_proxy_metrics, "changed_file_count"),
+    "tool_proxy_changed_line_count": sum_metric(tool_proxy_metrics, "changed_line_count"),
     "latest_tool_proxy_tool_output_artifact_count": latest_tool_proxy.get("tool_output_artifact_count"),
     "latest_tool_proxy_tool_output_artifact_bytes": latest_tool_proxy.get("tool_output_artifact_bytes"),
     "final_status": metrics.get("final_status"),

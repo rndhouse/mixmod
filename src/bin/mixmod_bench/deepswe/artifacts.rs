@@ -354,6 +354,12 @@ fn tool_proxy_runs(tool_proxy_root: &Path) -> Result<Vec<Value>> {
                 "status": metrics.as_ref()
                     .and_then(|metrics| metrics.get("status"))
                     .and_then(Value::as_str),
+                "changed_file_count": metrics.as_ref()
+                    .and_then(|metrics| metrics.get("changed_file_count"))
+                    .and_then(Value::as_u64),
+                "changed_line_count": metrics.as_ref()
+                    .and_then(|metrics| metrics.get("changed_line_count"))
+                    .and_then(Value::as_u64),
                 "kind": tool_proxy_task_kind(task.as_ref()),
                 "worker_role": task.as_ref()
                     .and_then(|task| task.pointer("/context/worker_role"))
@@ -746,7 +752,7 @@ mod tests {
         .unwrap();
         fs::write(
             trial_dir.join("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/metrics.json"),
-            r#"{"status":"success"}"#,
+            r#"{"status":"success","changed_file_count":2,"changed_line_count":17}"#,
         )
         .unwrap();
         fs::write(
@@ -794,6 +800,14 @@ mod tests {
         assert_eq!(manifest["tool_proxy_runs"][0]["kind"], json!("command"));
         assert_eq!(manifest["tool_proxy_runs"][0]["completed"], json!(true));
         assert_eq!(manifest["tool_proxy_runs"][0]["status"], json!("success"));
+        assert_eq!(
+            manifest["tool_proxy_runs"][0]["changed_file_count"],
+            json!(2)
+        );
+        assert_eq!(
+            manifest["tool_proxy_runs"][0]["changed_line_count"],
+            json!(17)
+        );
         assert_eq!(
             manifest["tool_proxy_runs"][0]["worker_role"],
             json!("diff_review")
