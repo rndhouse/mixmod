@@ -327,7 +327,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": format!("Supervisor tool proxy: {command}"),
                 "instructions": format!(
-                    "A GPT supervisor requested this Bash command:\n\n```bash\n{command}\n```\n\nRun exactly that command from the current repository context. Do not edit files, do not commit, and do not run unrelated exploratory commands. Return only the useful minimal result for the supervisor: command, exit status, pass/fail when applicable, and the smallest relevant excerpt or summary. For git diff/status, summarize changed files and notable hunks instead of pasting a long diff."
+                    "A GPT supervisor requested this Bash command:\n\n```bash\n{command}\n```\n\nRun exactly that command from the current repository context. Do not edit files, do not commit, and do not run unrelated exploratory commands. Return only the useful minimal result for the supervisor: command, exit status, pass/fail when applicable, and the smallest relevant excerpt or summary. For git diff/status, summarize changed files and notable hunks instead of pasting a long diff. For search commands with many matches, summarize the matching files, symbols, and most relevant lines instead of replaying the full output."
                 ),
                 "expect_patch": false,
                 "tests": [command],
@@ -336,7 +336,8 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Do not commit changes.",
                     "Do not inspect /solution or verifier internals.",
                     "Keep stdout compact.",
-                    "If the command produces long output, summarize and include only the most relevant failing lines or diff facts."
+                    "If the command produces long output, summarize and include only the most relevant failing lines or diff facts.",
+                    "For search output, report matching files, symbols, and representative lines instead of full output."
                 ],
                 "context": {
                     "worker_role": role,
@@ -531,6 +532,25 @@ mod tests {
         ] {
             assert!(should_proxy_bash_command(command), "{command}");
         }
+    }
+
+    #[test]
+    fn command_tool_task_requests_compact_search_summaries() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload =
+            SupervisorToolProxyPayload::from_command("rg -n TypedBindings vm parser", temp.path());
+
+        let task = tool_proxy_task(&payload);
+        let instructions = task["instructions"].as_str().unwrap();
+        let constraints = task["constraints"].as_array().unwrap();
+
+        assert!(instructions.contains("For search commands with many matches"));
+        assert!(
+            constraints
+                .iter()
+                .any(|value| { value.as_str().unwrap_or("").contains("For search output") })
+        );
+        assert_eq!(task["context"]["worker_role"], json!("inspect"));
     }
 
     #[test]

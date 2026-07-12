@@ -220,6 +220,10 @@ save GPT tokens, call:
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 `git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
 tools directly when you need exact control, editing, or final judgment.
+When routing commands through the local worker, prefer bounded commands that
+return compact evidence: narrow paths or globs, `rg --max-count`, targeted
+`sed -n` ranges, and package-level checks. Avoid broad repository-wide searches
+with many alternations when a smaller probe would answer the question.
 For bounded review or investigation that is not naturally one command, call:
 
 ```bash
@@ -426,6 +430,8 @@ mod tests {
         assert!(prompt.contains("local worker"));
         assert!(prompt.contains("cheap helper"));
         assert!(prompt.contains("zero marginal GPT-token cost"));
+        assert!(prompt.contains("prefer bounded commands"));
+        assert!(prompt.contains("rg --max-count"));
         assert!(prompt.contains("failure-oriented post-diff review"));
         assert!(prompt.contains("Derive at most three focused probes"));
         assert!(prompt.contains("changed code paths"));
