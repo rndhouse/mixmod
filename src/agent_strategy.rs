@@ -235,6 +235,8 @@ When routing commands through the local worker, prefer bounded commands that
 return compact evidence: narrow paths or globs, `rg --max-count`, targeted
 `sed -n` ranges, and package-level checks. Avoid broad repository-wide searches
 with many alternations when a smaller probe would answer the question.
+Prefer `tool run-command` for concrete shell evidence. Use `tool ask` only when
+the useful local work is a small review question rather than a command result.
 For bounded review or investigation that is not naturally one command, call:
 
 ```bash
@@ -446,6 +448,8 @@ mod tests {
         assert!(prompt.contains("zero marginal GPT-token cost"));
         assert!(prompt.contains("prefer bounded commands"));
         assert!(prompt.contains("rg --max-count"));
+        assert!(prompt.contains("Prefer `tool run-command`"));
+        assert!(prompt.contains("small review question"));
         assert!(prompt.contains("failure-oriented post-diff review"));
         assert!(prompt.contains("Start from changed branches"));
         assert!(prompt.contains("visible tests"));
