@@ -268,6 +268,10 @@ For parser, compiler, binding, destructuring, or assignment behavior changes,
 include at least one final probe or direct inspection for alternate shapes:
 single target vs multi-target, scalar vs multi-value/aggregate RHS, valid path
 vs invalid path, and nested/scope-specific writes when relevant.
+For those changes, treat ordinary package tests as insufficient if they do not
+exercise at least one relevant alternate shape. Before final completion, either
+run/add such a focused probe or state the direct code evidence that proves the
+alternate shape follows the same path.
 For `tool ask`, keep the request narrow enough for a small local model: one
 behavior area, targeted files or symbols, and at most a few repository tool
 calls. Prefer another bounded helper call over one broad review prompt.
@@ -495,6 +499,8 @@ mod tests {
         assert!(prompt.contains("parser, compiler, binding"));
         assert!(prompt.contains("multi-target"));
         assert!(prompt.contains("multi-value/aggregate RHS"));
+        assert!(prompt.contains("ordinary package tests as insufficient"));
+        assert!(prompt.contains("direct code evidence"));
         assert!(prompt.contains("targeted hunks or grep"));
         assert!(prompt.contains("changed package's full test"));
         assert!(prompt.contains("tests you added/changed"));
