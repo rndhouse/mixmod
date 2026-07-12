@@ -367,6 +367,9 @@ if worker_root.exists():
                 "heartbeat.jsonl",
             ]:
                 copy_if_exists(logs / name, target_logs / name)
+        tool_output = worker_dir / "tool-output"
+        if tool_output.exists():
+            copy_tree_files(tool_output, target / "tool-output")
 
 metrics_path = agent_dir / "mixmod-metrics.json"
 metrics = json.loads(metrics_path.read_text()) if metrics_path.exists() else {{}}
@@ -463,6 +466,14 @@ def string_values(records: list[dict], field: str) -> list[str]:
             values.append(value)
     return values
 
+def sum_metric(items: list[dict], field: str) -> int | None:
+    total = sum(
+        item.get(field, 0)
+        for item in items
+        if isinstance(item.get(field), int)
+    )
+    return total or None
+
 feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
 worker_dirs = sorted(
     (path for path in (agent_dir / "worker-runs").glob("*") if path.is_dir()),
@@ -483,6 +494,7 @@ for tool_proxy_dir in tool_proxy_dirs:
     tool_proxy_metric = load_json(tool_proxy_metrics_path)
     if tool_proxy_metric:
         tool_proxy_metric_records.append((tool_proxy_dir, tool_proxy_metric))
+tool_proxy_metrics = [item for _, item in tool_proxy_metric_records]
 latest_tool_proxy_dir = tool_proxy_dirs[-1] if tool_proxy_dirs else None
 latest_tool_proxy = (
     load_json(latest_tool_proxy_dir / "metrics.json")
@@ -605,6 +617,8 @@ summary = {{
         if latest_tool_proxy_dir
         else None
     ),
+    "latest_tool_proxy_tool_output_artifact_count": latest_tool_proxy.get("tool_output_artifact_count"),
+    "latest_tool_proxy_tool_output_artifact_bytes": latest_tool_proxy.get("tool_output_artifact_bytes"),
     "final_status": metrics.get("final_status"),
     "final_verdict": metrics.get("final_verdict"),
     "latest_supervisor_label": feedback[-1].get("label") if feedback else None,
@@ -652,6 +666,8 @@ summary = {{
         if latest_worker_dir
         else None
     ),
+    "latest_worker_tool_output_artifact_count": latest_worker.get("tool_output_artifact_count"),
+    "latest_worker_tool_output_artifact_bytes": latest_worker.get("tool_output_artifact_bytes"),
     "latest_worker_patch_observations": (
         latest_worker_patch_comparison.get("observations")
         if latest_worker_patch_comparison
@@ -740,6 +756,16 @@ summary = {{
             if isinstance(item.get("reasoning_trace_event_count"), int)
         )
         or None,
+    "local_tool_output_artifact_count": (
+        sum_metric(worker_metrics, "tool_output_artifact_count") or 0
+    ) + (
+        sum_metric(tool_proxy_metrics, "tool_output_artifact_count") or 0
+    ) or None,
+    "local_tool_output_artifact_bytes": (
+        sum_metric(worker_metrics, "tool_output_artifact_bytes") or 0
+    ) + (
+        sum_metric(tool_proxy_metrics, "tool_output_artifact_bytes") or 0
+    ) or None,
     "patch_bytes": len(patch_text.encode()),
     "patch_lines": patch_text.count("\\n"),
     "repository_patch_observed": bool(patch_text.strip()),
