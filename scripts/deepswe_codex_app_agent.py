@@ -101,10 +101,10 @@ class CodexAppAgent(BaseInstalledAgent):
             "constraints": [
                 "Solve the DeepSWE task from the public instruction only.",
                 "Do not inspect /solution or verifier internals.",
-                "Commit the final repository changes before exiting.",
+                "Leave the final repository changes for harness capture.",
             ],
             "acceptance": [
-                "The committed patch should satisfy the DeepSWE verifier.",
+                "The final patch should satisfy the DeepSWE verifier.",
             ],
             "context": {
                 "benchmark": "DeepSWE",
@@ -186,6 +186,7 @@ PY
 exp_dir="$(find {shlex.quote(state_dir.as_posix())}/projects -path '*/experiments/deepswe' -type d | head -1)"
 cp {shlex.quote(task_path.as_posix())} "$exp_dir/task.json"
 {shlex.quote(self.container_mixmod_command)} experiment record-codex-only deepswe --task "$exp_dir/task.json" 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex.txt").as_posix())}
+cp "$exp_dir/codex-only/codex-only-prompt.md" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-prompt.md").as_posix())} || true
 cp "$exp_dir/codex-only/metrics.json" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-metrics.json").as_posix())} || true
 cp "$exp_dir/codex-only/final.patch" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-final.patch").as_posix())} || true
 mkdir -p {shlex.quote((EnvironmentPaths.agent_dir / "logs").as_posix())}
