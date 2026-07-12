@@ -334,6 +334,11 @@ def worker_dir_sort_key(path: Path) -> tuple[int, int, str]:
             return (1, int(suffix), name)
     return (2, 0, name)
 
+def tool_proxy_dir_sort_key(path: Path) -> tuple[str, str]:
+    name = path.name
+    timestamp = name.split("-", 1)[1] if "-" in name else name
+    return (timestamp, str(path))
+
 worker_root = run_dir / "worker-runs"
 if worker_root.exists():
     for worker_dir in sorted(
@@ -486,7 +491,8 @@ tool_proxy_dirs = sorted(
         path
         for path in (agent_dir / "tool-proxy-runs").glob("*/*/*")
         if path.is_dir()
-    )
+    ),
+    key=tool_proxy_dir_sort_key,
 )
 tool_proxy_metric_records = []
 for tool_proxy_dir in tool_proxy_dirs:

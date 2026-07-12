@@ -314,7 +314,7 @@ fn tool_proxy_runs(tool_proxy_root: &Path) -> Result<Vec<Value>> {
         .unwrap_or(tool_proxy_root);
     let mut run_dirs = Vec::new();
     collect_tool_proxy_run_dirs(tool_proxy_root, &mut run_dirs)?;
-    run_dirs.sort_by_key(|path| relative_to(run_root, path));
+    run_dirs.sort_by_key(|path| tool_proxy_run_sort_key(path, run_root));
 
     run_dirs
         .into_iter()
@@ -435,6 +435,19 @@ fn worker_dir_sort_key(path: &Path) -> (u8, u32, String) {
         return (1, suffix, name);
     }
     (2, 0, name)
+}
+
+fn tool_proxy_run_sort_key(path: &Path, run_root: &Path) -> (String, String) {
+    let name = file_name_string(path);
+    (
+        tool_proxy_run_timestamp(&name).unwrap_or_else(|| name.clone()),
+        relative_to(run_root, path),
+    )
+}
+
+fn tool_proxy_run_timestamp(name: &str) -> Option<String> {
+    name.split_once('-')
+        .and_then(|(_, timestamp)| (!timestamp.is_empty()).then(|| timestamp.to_string()))
 }
 
 fn copy_path(source: &Path, target: &Path) -> Result<Option<PathBuf>> {
@@ -624,6 +637,33 @@ mod tests {
                 .map(|path| file_name_string(path))
                 .collect::<Vec<_>>(),
             ["proposal", "revision", "revision-2", "revision-10"]
+        );
+    }
+
+    #[test]
+    fn tool_proxy_run_sort_uses_timestamp_across_task_kinds() {
+        let root = PathBuf::from("agent/tool-proxy-runs");
+        let mut paths = [
+            "app-123/cli/tool-20260712T103351-233Z",
+            "app-123/cli/ask-20260712T103644-071Z",
+            "app-123/cli/tool-20260712T102815-806Z",
+        ]
+        .iter()
+        .map(|path| root.join(path))
+        .collect::<Vec<_>>();
+
+        paths.sort_by_key(|path| tool_proxy_run_sort_key(path, &root));
+
+        assert_eq!(
+            paths
+                .iter()
+                .map(|path| file_name_string(path))
+                .collect::<Vec<_>>(),
+            [
+                "tool-20260712T102815-806Z",
+                "tool-20260712T103351-233Z",
+                "ask-20260712T103644-071Z",
+            ]
         );
     }
 
