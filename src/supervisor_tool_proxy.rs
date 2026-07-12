@@ -149,6 +149,10 @@ fn run_supervisor_tool_proxy_payload(
     if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
         println!("worker_exit_status: {exit_status}");
     }
+    if let Some(notice) = tool_proxy_side_effect_notice(&receipt, &metrics) {
+        println!("{notice}");
+        println!("side_effect_patch_artifact: {}", WORKTREE_PATCH);
+    }
     println!("artifacts: {}", display_path(&root, &out_dir));
     println!("prompt_artifact: {}", OPENCODE_INSTRUCTIONS_MD);
     println!("report_artifact: {}", REPORT_MD);
@@ -157,6 +161,29 @@ fn run_supervisor_tool_proxy_payload(
     println!("worker_summary:");
     println!("{}", compact_text(&worker_text, 6_000));
     Ok(())
+}
+
+fn tool_proxy_side_effect_notice(receipt: &crate::Receipt, metrics: &Value) -> Option<String> {
+    let changed_files = metrics
+        .get("changed_file_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(receipt.changed_files.len() as u64);
+    let changed_lines = metrics
+        .get("changed_line_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if changed_files == 0 && changed_lines == 0 {
+        return None;
+    }
+
+    let mut notice =
+        format!("worker_side_effects: changed_files={changed_files} changed_lines={changed_lines}");
+    if !receipt.changed_files.is_empty() {
+        let files = receipt.changed_files.join(", ");
+        notice.push_str(" files=");
+        notice.push_str(&compact_text(&files, 800));
+    }
+    Some(notice)
 }
 
 fn apply_tool_proxy_limits(kind: SupervisorToolProxyKind, config: &mut MixmodConfig) {
@@ -622,5 +649,44 @@ mod tests {
 
         assert_eq!(config.opencode.worker_timeout_seconds, 600);
         assert_eq!(config.opencode.idle_timeout_seconds, 300);
+    }
+
+    #[test]
+    fn side_effect_notice_reports_unexpected_worker_changes() {
+        let mut receipt = receipt_with_changed_files(vec![
+            "env/envValues.go".to_string(),
+            "vm/vmTypedBindings_test.go".to_string(),
+        ]);
+
+        let notice = tool_proxy_side_effect_notice(
+            &receipt,
+            &json!({"changed_file_count": 2, "changed_line_count": 1716}),
+        )
+        .unwrap();
+
+        assert!(notice.contains("changed_files=2"));
+        assert!(notice.contains("changed_lines=1716"));
+        assert!(notice.contains("env/envValues.go"));
+        assert!(notice.contains("vm/vmTypedBindings_test.go"));
+
+        receipt.changed_files.clear();
+        assert!(tool_proxy_side_effect_notice(&receipt, &json!({})).is_none());
+    }
+
+    fn receipt_with_changed_files(changed_files: Vec<String>) -> crate::Receipt {
+        crate::Receipt {
+            run_id: "run-test".to_string(),
+            status: "needs_supervisor".to_string(),
+            mode: "explore".to_string(),
+            summary: String::new(),
+            changed_files,
+            report: String::new(),
+            patch: String::new(),
+            worktree_patch: String::new(),
+            session: String::new(),
+            interventions: String::new(),
+            metrics: String::new(),
+            logs: String::new(),
+        }
     }
 }
