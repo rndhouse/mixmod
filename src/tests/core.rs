@@ -520,6 +520,12 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
+            .any(|item| item.contains("not final approval evidence"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
             .any(|item| item.contains("open-ended final diff review"))
     );
     assert!(
@@ -575,6 +581,12 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
             .guidance
             .iter()
             .any(|item| item.contains("task-derived probes or focused tests"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("state the task contract"))
     );
 
     ModelOverrides::new(None, Some("llama.cpp/qwen/qwen3.6-27b".to_string()))

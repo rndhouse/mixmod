@@ -231,6 +231,10 @@ save GPT tokens, call:
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 `git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
 tools directly when you need exact control, editing, or final judgment.
+Treat local-worker summaries, reviews, and completion claims as fallible
+assistance rather than authority. They are useful for gathering cheap evidence,
+but final correctness is your decision and must be grounded in primary
+artifacts or concrete probes.
 When routing commands through the local worker, prefer bounded commands that
 return compact evidence: narrow paths or globs, `rg --max-count`, targeted
 `sed -n` ranges, and package-level checks. Avoid broad repository-wide searches
@@ -264,6 +268,11 @@ tests you added/changed; avoid narrow regexes that can skip new tests unless
 there is a clear cost reason. Ask for ad hoc probes only when a nearby test or
 documented API gives the exact invocation pattern; otherwise the worker should
 report the unverified edge case instead of constructing a new harness.
+Before final approval of behavior-changing work, write down the task contract in
+your own terms and verify both important success and failure semantics. Use
+primary evidence: command exit statuses with relevant output snippets, focused
+probes you designed, diff hunks, or source paths you inspected directly. Do not
+substitute a local-worker "looks complete" judgment for this audit.
 For parser, compiler, binding, destructuring, or assignment behavior changes,
 include at least one final probe or direct inspection for alternate shapes:
 single target vs multi-target, scalar vs multi-value/aggregate RHS, valid path
@@ -492,6 +501,8 @@ mod tests {
         assert!(prompt.contains("match limit alone is not a path limit"));
         assert!(prompt.contains("Prefer `tool run-command`"));
         assert!(prompt.contains("small review question"));
+        assert!(prompt.contains("fallible assistance rather than authority"));
+        assert!(prompt.contains("final correctness is your decision"));
         assert!(prompt.contains("bounded snippets"));
         assert!(prompt.contains("whole-file reads"));
         assert!(prompt.contains("failure-oriented post-diff review"));
@@ -513,6 +524,9 @@ mod tests {
         assert!(prompt.contains("tests you added/changed"));
         assert!(prompt.contains("exact invocation pattern"));
         assert!(prompt.contains("unverified edge case"));
+        assert!(prompt.contains("task contract in"));
+        assert!(prompt.contains("success and failure semantics"));
+        assert!(prompt.contains("local-worker \"looks complete\""));
         assert!(prompt.contains("at most four repository tool calls"));
         assert!(prompt.contains("behavior area"));
         assert!(prompt.contains("worker_status: needs_supervisor"));
