@@ -53,9 +53,8 @@ pub(crate) use artifacts::{
     is_static_mixmod_artifact_name, supervisor_review_artifact_paths,
 };
 pub use artifacts::{
-    CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL,
-    PatchStats, Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent,
-    SupervisorFeedback, WorkerBrief,
+    DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL, PatchStats, Receipt,
+    RunMetrics, SupervisorControlCommand, SupervisorControlEvent, SupervisorFeedback, WorkerBrief,
 };
 #[cfg(test)]
 pub(crate) use checkpoint::write_patch_checkpoint_comparison;
@@ -74,8 +73,8 @@ pub use config::{
 };
 pub use diff::patch_stats;
 pub use experiment::{
-    DefaultRunOptions, experiment_init, experiment_record_codex_only, experiment_record_mixmod,
-    experiment_recover, experiment_run_default,
+    DefaultRunOptions, experiment_init, experiment_record_mixmod, experiment_recover,
+    experiment_run_default,
 };
 pub use harness::codex::ShellCodexRunner;
 pub use harness::opencode::ShellOpenCodeRunner;
@@ -92,14 +91,15 @@ pub use interventions::{
 pub use report::experiment_report;
 pub use run::{run_mixmod_task, run_mixmod_task_with_options};
 
-use diff::{diff_without_unchanged_blocks, git_diff_committed_range, git_diff_with_untracked};
+use diff::{diff_without_unchanged_blocks, git_diff_with_untracked};
 pub(crate) use experiment::{placeholder_experiment_metrics, validate_experiment_name};
 #[cfg(test)]
 pub(crate) use experiment::{write_revision_task, write_worker_brief_task};
 pub(crate) use fs_util::*;
 #[cfg(test)]
+pub(crate) use harness::codex::CodexSandbox;
+#[cfg(test)]
 pub(crate) use harness::codex::codex_home_for_work_dir;
-pub(crate) use harness::codex::{CodexSandbox, run_codex_exec_turn};
 #[cfg(test)]
 pub(crate) use harness::opencode::{
     OpenCodeModelSelection, effective_backend_command_for_base_url, opencode_config_path,
@@ -110,7 +110,7 @@ pub(crate) use harness::opencode::{
 };
 #[cfg(test)]
 pub(crate) use install::is_managed_file;
-pub(crate) use install::{ensure_project_state, find_on_path, load_config, yes_no};
+pub(crate) use install::{ensure_project_state, load_config, yes_no};
 #[cfg(test)]
 pub(crate) use live::supervise_run_args;
 pub(crate) use live::{
@@ -131,8 +131,8 @@ pub(crate) use state::state_layout;
 pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, RevisionHandoff, SupervisorCodexSession, SupervisorFeedbackTurn,
-    aggregate_supervisor_usage, codex_only_prompt, normalize_worker_mode,
-    run_supervisor_brief_turn, run_supervisor_feedback_turn, worker_role_expects_patch,
+    aggregate_supervisor_usage, normalize_worker_mode, run_supervisor_brief_turn,
+    run_supervisor_feedback_turn, worker_role_expects_patch,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{
@@ -312,10 +312,6 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 ExperimentCommand::Init { name, fixture } => {
                     ensure_project_state(&root, false)?;
                     experiment_init(&root, &name, fixture.as_deref())
-                }
-                ExperimentCommand::RecordCodexOnly { name, task } => {
-                    ensure_project_state(&root, false)?;
-                    experiment_record_codex_only(&root, &name, &task)
                 }
                 ExperimentCommand::RecordMixmod { name, task } => {
                     ensure_project_state(&root, false)?;

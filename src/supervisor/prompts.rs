@@ -2,27 +2,6 @@ use std::collections::BTreeSet;
 
 use crate::*;
 
-pub(crate) fn codex_only_prompt(work_dir: &Path, task: &Value) -> Result<String> {
-    let visible_task = agent_visible_task_value(task);
-    let task_json = serde_json::to_string_pretty(&visible_task)
-        .context("failed to serialize agent-visible task for Codex-only prompt")?;
-    Ok(format!(
-        r#"You are the Codex-only baseline for a Mixmod experiment.
-Solve the task directly in this repo. Edit files as needed, run the requested tests, and keep the final answer compact.
-Do not use Mixmod or OpenCode.
-Do not commit. Leave the final repository changes as an uncommitted git diff so Mixmod can record the patch.
-Working repo: {work_dir}
-
-Task JSON:
-```json
-{}
-```
-"#,
-        task_json,
-        work_dir = work_dir.display()
-    ))
-}
-
 fn supervisor_worktree_policy() -> &'static str {
     "Workspace access is available for direct supervision work. You may inspect, test, edit, or manage git state yourself when that is the best route; useful git commands include `git status`, `git diff`, `git show`, `git grep`, `git restore`, and `git apply`. Treat local worker delegation as the low-cost path for bounded repo work because it uses local or worker-side compute instead of supervisor output tokens. Prefer delegating focused inspection, command evidence, artifact condensation, checks, or patch slices when that can save GPT tokens without risking correctness. Eligible Bash evidence commands may be routed through Mixmod to the local worker and returned as compact command results."
 }

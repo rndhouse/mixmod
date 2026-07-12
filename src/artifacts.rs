@@ -3,7 +3,7 @@ mod names;
 mod receipt;
 mod supervisor;
 
-pub use metrics::{CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, PatchStats};
+pub use metrics::{DefaultStrategyMetrics, ExperimentReportInputs, PatchStats};
 pub use names::INTERVENTIONS_JSONL;
 pub(crate) use names::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,

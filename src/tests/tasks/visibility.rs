@@ -47,31 +47,6 @@ fn agent_visible_task_strips_swebench_scoring_metadata() {
 }
 
 #[test]
-fn codex_prompt_uses_agent_visible_task() {
-    let task = json!({
-        "title": "SWE-bench Lite sympy__sympy-20212",
-        "instructions": "Fix 0**-oo.",
-        "context": {
-            "instance_id": "sympy__sympy-20212",
-            "repo": "sympy/sympy",
-            "fail_to_pass": "[\"test_zero\"]",
-            "pass_to_pass": "[\"test_rational\"]"
-        }
-    });
-
-    let prompt = codex_only_prompt(Path::new("/tmp/work"), &task).unwrap();
-
-    assert!(prompt.contains("Fix 0**-oo."));
-    assert!(prompt.contains("sympy__sympy-20212"));
-    assert!(prompt.contains("Do not commit."));
-    assert!(prompt.contains("uncommitted git diff"));
-    assert!(!prompt.contains("test_zero"));
-    assert!(!prompt.contains("test_rational"));
-    assert!(!prompt.contains("fail_to_pass"));
-    assert!(!prompt.contains("pass_to_pass"));
-}
-
-#[test]
 fn worktree_task_copy_is_agent_visible_only() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
