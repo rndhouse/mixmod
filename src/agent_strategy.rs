@@ -260,6 +260,13 @@ calls. Prefer another bounded helper call over one broad review prompt.
 If a local-helper result reports `worker_status: needs_supervisor`, treat it as
 incomplete evidence rather than a pass; inspect the artifacts yourself or run a
 more concrete bounded command before approving.
+For final approval of behavior-changing work, do not rely on a narrow test
+regex or a local-helper `needs_supervisor` summary as the only verification.
+Use a changed-package check when cheap, for example `go test ./pkg`,
+`cargo test -p crate`, or the repository's closest package-level equivalent,
+plus any focused command needed for the risky behavior. Treat regex/subset test
+commands as iteration evidence unless they are the only cheap check and you have
+manually inspected the skipped behavior surface.
 Treat the worker's output as evidence to use or reject; final task completion is
 your responsibility.
 
@@ -466,6 +473,10 @@ mod tests {
         assert!(prompt.contains("behavior area"));
         assert!(prompt.contains("worker_status: needs_supervisor"));
         assert!(prompt.contains("incomplete evidence"));
+        assert!(prompt.contains("final approval"));
+        assert!(prompt.contains("narrow test"));
+        assert!(prompt.contains("changed-package check"));
+        assert!(prompt.contains("iteration evidence"));
         assert!(prompt.contains("completion is"));
         assert!(prompt.contains("your responsibility"));
         assert!(prompt.contains("tool run-command"));
