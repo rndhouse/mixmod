@@ -238,7 +238,7 @@ with many alternations when a smaller probe would answer the question.
 For bounded review or investigation that is not naturally one command, call:
 
 ```bash
-{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Start from changed branches and visible tests, run an existing package or exact focused test if cheap, create an ad hoc probe only when the repo already shows the exact invocation pattern, stop after one concrete issue or after the bounded checks finish, and return compact evidence."
+{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Start from changed branches and visible tests, run an existing package or exact focused test if cheap, create an ad hoc probe only when the repo already shows the exact invocation pattern, use at most four repository tool calls, stop after one concrete issue or after the bounded checks finish, and return compact evidence."
 ```
 
 For a substantial semantic diff, do not finish solely from visible happy-path
@@ -252,6 +252,9 @@ the exact tests you added/changed; avoid narrow regexes that can skip new tests
 unless there is a clear cost reason. Ask for ad hoc probes only when a nearby
 test or documented API gives the exact invocation pattern; otherwise the worker
 should report the unverified edge case instead of constructing a new harness.
+For `tool ask`, keep the request narrow enough for a small local model: one
+behavior area, targeted files or symbols, and at most a few repository tool
+calls. Prefer another bounded helper call over one broad review prompt.
 Treat the worker's output as evidence to use or reject; final task completion is
 your responsibility.
 
@@ -452,6 +455,8 @@ mod tests {
         assert!(prompt.contains("exact tests you added/changed"));
         assert!(prompt.contains("exact invocation pattern"));
         assert!(prompt.contains("unverified edge case"));
+        assert!(prompt.contains("at most four repository tool calls"));
+        assert!(prompt.contains("behavior area"));
         assert!(prompt.contains("completion is"));
         assert!(prompt.contains("your responsibility"));
         assert!(prompt.contains("tool run-command"));

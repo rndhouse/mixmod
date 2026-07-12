@@ -352,7 +352,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": "Supervisor tool proxy: local worker ask",
                 "instructions": format!(
-                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. For behavioral review, do not treat passing existing tests as sufficient by itself: inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. Prefer existing package tests or exact focused tests from the changed area. Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern; otherwise state the unverified edge case instead of building a new harness. Stop as soon as you find one concrete issue or finish the bounded checks. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. Use at most four repository tool calls. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. For behavioral review, do not treat passing existing tests as sufficient by itself: inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. Prefer existing package tests or exact focused tests from the changed area. Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern; otherwise state the unverified edge case instead of building a new harness. Stop as soon as you find one concrete issue or finish the bounded checks. If you hit the tool-call budget, return the best verdict and evidence you have. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
                 ),
                 "expect_patch": false,
                 "tests": [],
@@ -361,6 +361,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Do not commit changes.",
                     "Do not inspect /solution or verifier internals.",
                     "Keep stdout compact.",
+                    "Use at most four repository tool calls.",
                     "Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets.",
                     "Use focused commands instead of broad repository reads when possible.",
                     "For behavioral review, inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip.",
@@ -370,6 +371,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Stop after one concrete issue or after the bounded checks finish.",
                     "Start the final answer with `verdict: pass`, `verdict: risk`, or `verdict: fail`.",
                     "Temporary files outside the repository are acceptable when needed for a focused probe.",
+                    "If the tool-call budget is exhausted, return the best verdict and evidence available.",
                     "If evidence is inconclusive, say exactly what remains unverified."
                 ],
                 "context": {
@@ -617,6 +619,8 @@ mod tests {
         assert!(instructions.contains("existing package tests"));
         assert!(instructions.contains("exact invocation pattern"));
         assert!(instructions.contains("unverified edge case"));
+        assert!(instructions.contains("at most four repository tool calls"));
+        assert!(instructions.contains("tool-call budget"));
         assert!(instructions.contains("first-line verdict"));
         assert!(
             constraints
@@ -640,6 +644,17 @@ mod tests {
                 .unwrap_or("")
                 .contains("unverified edge cases")
         }));
+        assert!(constraints.iter().any(|value| {
+            value
+                .as_str()
+                .unwrap_or("")
+                .contains("at most four repository tool calls")
+        }));
+        assert!(
+            constraints
+                .iter()
+                .any(|value| { value.as_str().unwrap_or("").contains("tool-call budget") })
+        );
         assert!(
             constraints
                 .iter()
