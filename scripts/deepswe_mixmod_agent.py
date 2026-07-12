@@ -309,6 +309,8 @@ run_dir = max(runs, key=lambda path: path.stat().st_mtime)
 copy_if_exists(run_dir / "metrics.json", agent_dir / "mixmod-metrics.json")
 copy_if_exists(run_dir / "final.patch", agent_dir / "mixmod-final.patch")
 copy_if_exists(run_dir / "report.md", agent_dir / "mixmod-report.md")
+copy_if_exists(run_dir / "agent-prompt.md", agent_dir / "agent-prompt.md")
+copy_if_exists(run_dir / "agent-last-message.json", agent_dir / "agent-last-message.json")
 copy_if_exists(
     run_dir / "supervision-loop-summary.json",
     agent_dir / "supervision-loop-summary.json",
@@ -316,6 +318,7 @@ copy_if_exists(
 copy_if_exists(run_dir / "supervisor-feedback.jsonl", agent_dir / "supervisor-feedback.jsonl")
 for name in ["task.json", "worker-brief.json", "worker-task.json"]:
     copy_if_exists(run_dir / name, agent_dir / name)
+copy_tree_files(run_dir / "logs", agent_dir / "logs")
 
 for project_dir in state_dir.glob("projects/*"):
     tool_proxy_root = project_dir / "supervisor-tool-proxy"
@@ -697,6 +700,10 @@ summary = {{
     "latest_tool_proxy_tool_output_artifact_bytes": latest_tool_proxy.get("tool_output_artifact_bytes"),
     "final_status": metrics.get("final_status"),
     "final_verdict": metrics.get("final_verdict"),
+    "agent_prompt_bytes": file_len(agent_dir / "agent-prompt.md"),
+    "agent_last_message_bytes": file_len(agent_dir / "agent-last-message.json"),
+    "agent_codex_stdout_bytes": file_len(agent_dir / "logs" / "codex.stdout.txt"),
+    "agent_codex_stderr_bytes": file_len(agent_dir / "logs" / "codex.stderr.txt"),
     "latest_supervisor_label": feedback[-1].get("label") if feedback else None,
     "latest_supervisor_action": (
         (feedback[-1].get("feedback") or {{}}).get("action")
