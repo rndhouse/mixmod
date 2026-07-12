@@ -257,6 +257,9 @@ should report the unverified edge case instead of constructing a new harness.
 For `tool ask`, keep the request narrow enough for a small local model: one
 behavior area, targeted files or symbols, and at most a few repository tool
 calls. Prefer another bounded helper call over one broad review prompt.
+If a local-helper result reports `worker_status: needs_supervisor`, treat it as
+incomplete evidence rather than a pass; inspect the artifacts yourself or run a
+more concrete bounded command before approving.
 Treat the worker's output as evidence to use or reject; final task completion is
 your responsibility.
 
@@ -461,6 +464,8 @@ mod tests {
         assert!(prompt.contains("unverified edge case"));
         assert!(prompt.contains("at most four repository tool calls"));
         assert!(prompt.contains("behavior area"));
+        assert!(prompt.contains("worker_status: needs_supervisor"));
+        assert!(prompt.contains("incomplete evidence"));
         assert!(prompt.contains("completion is"));
         assert!(prompt.contains("your responsibility"));
         assert!(prompt.contains("tool run-command"));
