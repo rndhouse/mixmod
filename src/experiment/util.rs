@@ -65,18 +65,17 @@ pub(super) fn experiment_readme(name: &str) -> String {
 
 This directory compares one small code-change task in two modes:
 
-1. Codex-only: Codex performs the change directly.
-2. Mixmod default: the supervisor emits a compact executable worker handoff, the configured worker implements from the original task plus that handoff, and the supervisor reviews compact artifacts.
+1. Mixmod default: the supervisor emits a compact executable worker handoff, the configured worker implements from the original task plus that handoff, and the supervisor reviews compact artifacts.
+2. External baselines, when needed, should be run outside the Mixmod CLI and recorded separately.
 
 Suggested workflow:
 
 ```sh
-mixmod experiment record-codex-only {name} --task <experiment-task.md>
 mixmod experiment run-default {name} --require-local
 mixmod experiment report {name}
 ```
 
-Fill `codex-only/notes.md` with manual baseline notes when exact telemetry is unavailable. Mixmod default metrics are written under `default/`.
+Mixmod default metrics are written under `default/`.
 "#
     )
 }
@@ -117,20 +116,6 @@ pub(super) fn task_json_template(name: &str) -> Value {
         ],
         "acceptance": []
     })
-}
-
-pub(super) fn codex_only_notes_template(name: &str) -> String {
-    format!(
-        r#"# Codex-only Notes: {name}
-
-Record:
-- Codex turns:
-- Codex token usage, if available:
-- Tests run:
-- Final status:
-- Notes:
-"#
-    )
 }
 
 pub(super) fn mixmod_notes_template(name: &str) -> String {

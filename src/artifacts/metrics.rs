@@ -17,17 +17,6 @@ pub struct DefaultStrategyMetrics {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct CodexOnlyMetrics {
-    pub kind: String,
-    pub recorded_at: String,
-    pub final_status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub blocker: Option<String>,
-    #[serde(flatten)]
-    pub extra: Map<String, Value>,
-}
-
 #[derive(Clone, Debug)]
 pub struct ExperimentReportInputs {
     pub codex_metrics: Value,

@@ -13,10 +13,12 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use serde_json::{Value, json};
 
+mod agent_strategy;
 mod artifacts;
 mod checkpoint;
 mod cli;
 mod config;
+#[allow(dead_code)]
 mod default_strategy;
 mod diff;
 mod experiment;
@@ -31,6 +33,7 @@ mod run;
 mod state;
 mod strategy_metrics;
 mod supervisor;
+mod supervisor_tool_proxy;
 mod task;
 #[cfg(test)]
 mod tests;
@@ -38,20 +41,20 @@ mod tool_events;
 mod worker;
 mod worker_telemetry;
 
+pub(crate) use agent_strategy::{AgentStrategyOptions, run_agent_strategy};
 pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
     LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD, PARTIAL_PATCH,
     PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, REASONING_TRACE_JSONL,
     RECEIPT_JSON, REPORT_MD, ROLLBACK_CURRENT_PATCH, ROLLBACK_RESTORED_PATCH,
     RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISION_LOOP_SUMMARY_JSON, SUPERVISOR_CONTROL_LOG,
-    SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, TOOL_EVENTS_JSONL, WORKER_BRIEF_JSON,
-    WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH, is_static_mixmod_artifact_name,
-    supervisor_review_artifact_paths,
+    SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, TOOL_EVENTS_JSONL, TOOL_OUTPUT_DIR,
+    WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH,
+    is_static_mixmod_artifact_name, supervisor_review_artifact_paths,
 };
 pub use artifacts::{
-    CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL,
-    PatchStats, Receipt, RunMetrics, SupervisorControlCommand, SupervisorControlEvent,
-    SupervisorFeedback, WorkerBrief,
+    DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL, PatchStats, Receipt,
+    RunMetrics, SupervisorControlCommand, SupervisorControlEvent, SupervisorFeedback, WorkerBrief,
 };
 #[cfg(test)]
 pub(crate) use checkpoint::write_patch_checkpoint_comparison;
@@ -59,17 +62,19 @@ pub(crate) use checkpoint::{
     append_patch_checkpoint_artifacts, patch_checkpoint_metrics, restore_previous_patch_checkpoint,
     write_patch_checkpoint_comparison_from_patch,
 };
-pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
+pub use cli::{
+    Cli, CodexHookCommand, Commands, ControlCommand, DelegationMode, ExperimentCommand, ToolCommand,
+};
 pub(crate) use config::is_cloud_opencode_provider;
 pub use config::{
     LiveSupervisionConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
-    StrategyConfig, SupervisorConfig, SupervisorInitMode, WorkerBackend, WorkerConfig,
+    StrategyConfig, SupervisorConfig, SupervisorInitMode, SupervisorToolProxyConfig, WorkerBackend,
+    WorkerConfig,
 };
-pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
 pub use experiment::{
-    DefaultRunOptions, experiment_init, experiment_record_codex_only, experiment_record_mixmod,
-    experiment_recover, experiment_run_default,
+    DefaultRunOptions, experiment_init, experiment_record_mixmod, experiment_recover,
+    experiment_run_default,
 };
 pub use harness::codex::ShellCodexRunner;
 pub use harness::opencode::ShellOpenCodeRunner;
@@ -86,14 +91,15 @@ pub use interventions::{
 pub use report::experiment_report;
 pub use run::{run_mixmod_task, run_mixmod_task_with_options};
 
-use diff::{diff_without_unchanged_blocks, git_diff_committed_range, git_diff_with_untracked};
+use diff::{diff_without_unchanged_blocks, git_diff_with_untracked};
 pub(crate) use experiment::{placeholder_experiment_metrics, validate_experiment_name};
 #[cfg(test)]
 pub(crate) use experiment::{write_revision_task, write_worker_brief_task};
 pub(crate) use fs_util::*;
 #[cfg(test)]
+pub(crate) use harness::codex::CodexSandbox;
+#[cfg(test)]
 pub(crate) use harness::codex::codex_home_for_work_dir;
-pub(crate) use harness::codex::{CodexSandbox, run_codex_exec_turn};
 #[cfg(test)]
 pub(crate) use harness::opencode::{
     OpenCodeModelSelection, effective_backend_command_for_base_url, opencode_config_path,
@@ -104,7 +110,7 @@ pub(crate) use harness::opencode::{
 };
 #[cfg(test)]
 pub(crate) use install::is_managed_file;
-pub(crate) use install::{ensure_project_state, find_on_path, load_config, yes_no};
+pub(crate) use install::{ensure_project_state, load_config, yes_no};
 #[cfg(test)]
 pub(crate) use live::supervise_run_args;
 pub(crate) use live::{
@@ -125,15 +131,19 @@ pub(crate) use state::state_layout;
 pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, RevisionHandoff, SupervisorCodexSession, SupervisorFeedbackTurn,
-    aggregate_supervisor_usage, codex_only_prompt, normalize_worker_mode,
-    run_supervisor_brief_turn, run_supervisor_feedback_turn,
+    aggregate_supervisor_usage, normalize_worker_mode, run_supervisor_brief_turn,
+    run_supervisor_feedback_turn, worker_role_expects_patch,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{
     normalize_feedback_value, supervisor_feedback_prompt, supervisor_feedback_repair_prompt,
     supervisor_worker_brief_prompt,
 };
-pub(crate) use tool_events::build_tool_events_jsonl;
+pub(crate) use supervisor_tool_proxy::{
+    codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_ask_tool,
+    run_worker_command_tool,
+};
+pub(crate) use tool_events::{build_tool_events_jsonl, tool_output_paths_from_events};
 pub use worker::WorkerModelProfile;
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
 pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};
@@ -177,12 +187,12 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
         }
         Commands::Exec {
             task,
-            resume_session,
+            resume_session: _,
             supervisor_model,
             worker_model,
             worker_backend,
-            supervisor_init,
-            stop_after_first_worker,
+            supervisor_init: _,
+            stop_after_first_worker: _,
             no_require_local,
             prompt,
         } => {
@@ -191,15 +201,12 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             let out = state_layout(&root).runs().join(make_run_id("run"));
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model)
                 .with_worker_backend(worker_backend);
-            run_default_strategy(
+            run_agent_strategy(
                 &root,
                 &task,
                 &out,
-                DefaultStrategyOptions {
-                    resume_session,
+                AgentStrategyOptions {
                     model_overrides,
-                    supervisor_init,
-                    stop_after_first_worker,
                     no_require_local,
                 },
             )
@@ -281,16 +288,30 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 }
             }
         }
+        Commands::Tool { command } => match command {
+            ToolCommand::Ask { prompt, args } => {
+                ensure_project_state(&root, false)?;
+                let prompt = resolve_tool_prompt(prompt, args)?;
+                run_worker_ask_tool(&root, &prompt)
+            }
+            ToolCommand::RunCommand { command, args } => {
+                ensure_project_state(&root, false)?;
+                let command = resolve_tool_command(command, args)?;
+                run_worker_command_tool(&root, &command)
+            }
+        },
+        Commands::CodexHook { command } => match command {
+            CodexHookCommand::PreToolUse => codex_hook_pre_tool_use(),
+            CodexHookCommand::RunToolProxy { payload } => {
+                run_supervisor_tool_proxy(&payload, &root)
+            }
+        },
         Commands::Experiment { command } => {
             ensure_debug_command_enabled("mixmod experiment")?;
             match command {
                 ExperimentCommand::Init { name, fixture } => {
                     ensure_project_state(&root, false)?;
                     experiment_init(&root, &name, fixture.as_deref())
-                }
-                ExperimentCommand::RecordCodexOnly { name, task } => {
-                    ensure_project_state(&root, false)?;
-                    experiment_record_codex_only(&root, &name, &task)
                 }
                 ExperimentCommand::RecordMixmod { name, task } => {
                     ensure_project_state(&root, false)?;
@@ -350,6 +371,24 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 ExperimentCommand::Report { name } => experiment_report(&root, &name).map(|_| ()),
             }
         }
+    }
+}
+
+fn resolve_tool_command(command: Option<String>, args: Vec<String>) -> Result<String> {
+    match (command, args.is_empty()) {
+        (Some(command), true) if !command.trim().is_empty() => Ok(command),
+        (None, false) => Ok(args.join(" ")),
+        (Some(_), false) => bail!("use either --command or trailing command args, not both"),
+        _ => bail!("tool command must be provided with --command or after --"),
+    }
+}
+
+fn resolve_tool_prompt(prompt: Option<String>, args: Vec<String>) -> Result<String> {
+    match (prompt, args.is_empty()) {
+        (Some(prompt), true) if !prompt.trim().is_empty() => Ok(prompt),
+        (None, false) => Ok(args.join(" ")),
+        (Some(_), false) => bail!("use either --prompt or trailing prompt args, not both"),
+        _ => bail!("tool prompt must be provided with --prompt or after --"),
     }
 }
 

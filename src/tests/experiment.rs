@@ -25,7 +25,7 @@ fn fixture_task_metadata_stays_out_of_worker_workdirs() {
     let task = read_json_file(&exp_dir.join(TASK_JSON)).unwrap();
     assert_eq!(get_str(&task, "title"), Some("Fixture task"));
 
-    for workdir in ["codex-only", "mixmod", "default"] {
+    for workdir in ["mixmod", "default"] {
         let workdir = exp_dir.join("work").join(workdir);
         assert!(!workdir.join(TASK_JSON).exists());
         assert!(!workdir.join(TASK_MD).exists());

@@ -1,82 +1,87 @@
-"""Pier installed-agent wrapper for Codex-only DeepSWE runs."""
+"""Pier installed-agent wrapper for direct Codex DeepSWE baseline runs."""
 
 from __future__ import annotations
 
 import json
 import shlex
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 
 from pier.agents.installed.base import BaseInstalledAgent, with_prompt_template
 from pier.environments.base import BaseEnvironment
 from pier.models.agent.context import AgentContext
-from pier.models.agent.install import AgentInstallSpec
+from pier.models.agent.install import AgentInstallSpec, InstallStep
 from pier.models.agent.network import NetworkAllowlist
 from pier.models.trial.paths import EnvironmentPaths
 
 from scripts.deepswe_mixmod_agent import (
-    LOCAL_MIXMOD_COMMAND,
+    INSTALL_DOMAINS,
+    OPENAI_DOMAINS,
     PATH_SETUP,
-    mixmod_install_spec,
-    mixmod_network_allowlist,
     prepare_codex_auth,
-    prepare_local_mixmod_binary,
 )
 
 
 class CodexAppAgent(BaseInstalledAgent):
-    """Run a Codex-only Mixmod baseline through the Codex app backend."""
+    """Run Codex directly inside a Pier DeepSWE task container."""
 
     SUPPORTS_ATIF = False
 
     def __init__(
         self,
         *args: Any,
-        supervisor_model: str = "gpt-5.5:high",
-        mixmod_command: str = "mixmod",
-        mixmod_install_command: str | None = None,
-        local_mixmod_binary: str | None = None,
-        mixmod_timeout_sec: int | str | None = None,
+        codex_model: str = "gpt-5.5:high",
+        codex_timeout_sec: int | str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.supervisor_model = supervisor_model
-        self.mixmod_command = mixmod_command
-        self.mixmod_install_command = mixmod_install_command
-        self.local_mixmod_binary = (
-            Path(local_mixmod_binary).expanduser().resolve()
-            if local_mixmod_binary
-            else None
-        )
-        self.container_mixmod_command = (
-            LOCAL_MIXMOD_COMMAND.as_posix()
-            if self.local_mixmod_binary
-            else self.mixmod_command
-        )
-        self.mixmod_timeout_sec = (
-            int(mixmod_timeout_sec) if mixmod_timeout_sec not in (None, "") else None
+        self.codex_model = codex_model
+        self.timeout_sec = (
+            int(codex_timeout_sec) if codex_timeout_sec not in (None, "") else None
         )
 
     @staticmethod
     def name() -> str:
-        return "mixmod-codex-only"
+        return "codex-direct"
 
     def get_version_command(self) -> str | None:
-        if self.local_mixmod_binary:
-            return None
-        return PATH_SETUP + f"{shlex.quote(self.mixmod_command)} --version"
+        return PATH_SETUP + "codex --version"
 
     def install_spec(self) -> AgentInstallSpec:
-        return mixmod_install_spec(
-            self.name(),
-            self._version,
-            self.mixmod_command,
-            self.mixmod_install_command,
-            use_local_binary=bool(self.local_mixmod_binary),
+        root_run = (
+            "set -euo pipefail; "
+            "if command -v apt-get >/dev/null 2>&1; then "
+            "apt-get update && "
+            "DEBIAN_FRONTEND=noninteractive apt-get install -y "
+            "bash ca-certificates curl git python3 ripgrep; "
+            "fi"
+        )
+        node_run = (
+            "set -euo pipefail; "
+            'if [ ! -s "$HOME/.nvm/nvm.sh" ]; then '
+            "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash; "
+            "fi; "
+            '. "$HOME/.nvm/nvm.sh"; '
+            "nvm install 22; "
+            "nvm alias default 22; "
+            "npm install -g @openai/codex; "
+            'mkdir -p "$HOME/.local/bin"; '
+            'ln -sf "$(command -v codex)" "$HOME/.local/bin/codex"; '
+            "codex --version"
+        )
+        return AgentInstallSpec(
+            agent_name=self.name(),
+            version=self._version,
+            cache_key="codex-direct-deepswe-agent-v1",
+            steps=[
+                InstallStep(user="root", env={"DEBIAN_FRONTEND": "noninteractive"}, run=root_run),
+                InstallStep(user="agent", run=node_run),
+            ],
+            verification_command=self.get_version_command(),
         )
 
     def network_allowlist(self) -> NetworkAllowlist:
-        return mixmod_network_allowlist()
+        return NetworkAllowlist(domains=sorted(set(OPENAI_DOMAINS) | set(INSTALL_DOMAINS)))
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         return None
@@ -88,139 +93,195 @@ class CodexAppAgent(BaseInstalledAgent):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        task_path = PurePosixPath("/tmp/mixmod-deepswe-task.json")
-        state_dir = PurePosixPath("/tmp/mixmod-state")
-        summary_path = EnvironmentPaths.agent_dir / "mixmod-codex-summary.json"
-
-        task = {
-            "title": "DeepSWE task",
-            "instructions": instruction,
-            "expect_patch": True,
-            "files": [],
-            "tests": [],
-            "constraints": [
-                "Solve the DeepSWE task from the public instruction only.",
-                "Do not inspect /solution or verifier internals.",
-                "Leave the final repository changes for harness capture.",
-            ],
-            "acceptance": [
-                "The final patch should satisfy the DeepSWE verifier.",
-            ],
-            "context": {
-                "benchmark": "DeepSWE",
-                "dataset": "datacurve/deep-swe",
-                "lane": "codex-only",
-            },
-        }
-
+        prompt_path = PurePosixPath("/tmp/deepswe-codex-prompt.md")
+        summary_path = EnvironmentPaths.agent_dir / "codex-summary.json"
         await prepare_codex_auth(environment)
-        if self.local_mixmod_binary:
-            await prepare_local_mixmod_binary(environment, self.local_mixmod_binary)
         await self.exec_as_agent(
             environment,
             command=(
-                f"cat > {shlex.quote(task_path.as_posix())} <<'JSON'\n"
-                f"{json.dumps(task, indent=2)}\n"
-                "JSON\n"
+                "python3 - <<'PY'\n"
+                "from pathlib import Path\n"
+                f"Path({prompt_path.as_posix()!r}).write_text({instruction!r} + '\\n')\n"
+                "PY\n"
             ),
         )
-
-        env = self.build_process_env(
-            {
-                "MIXMOD_DEBUG_COMMANDS": "1",
-                "MIXMOD_CODEX_ONLY_SANDBOX": "danger-full-access",
-                "MIXMOD_STATE_DIR": state_dir.as_posix(),
-            }
-        )
-        command = self._run_command(task_path, state_dir, summary_path)
+        command = self._run_command(prompt_path, summary_path)
         await self.exec_as_agent(
             environment,
             command=command,
-            env=env,
-            timeout_sec=self.mixmod_timeout_sec,
+            env=self.build_process_env(),
+            timeout_sec=self.timeout_sec,
         )
         await self._populate_context_from_summary(environment, summary_path, context)
 
     def _run_command(
         self,
-        task_path: PurePosixPath,
-        state_dir: PurePosixPath,
+        prompt_path: PurePosixPath,
         summary_path: PurePosixPath,
     ) -> str:
+        model, effort = split_codex_model(self.codex_model)
+        agent_dir = EnvironmentPaths.agent_dir
+        stdout_path = agent_dir / "codex.exec.stdout.jsonl"
+        stderr_path = agent_dir / "codex.exec.stderr.txt"
+        metrics_path = agent_dir / "codex-metrics.json"
+        prompt_artifact = agent_dir / "codex-prompt.md"
+        last_message_path = agent_dir / "codex-last-message.md"
+        sessions_dir = agent_dir / "codex-rollouts"
         return f"""set -euo pipefail
-{PATH_SETUP}trap 'rm -f "$HOME/.codex/auth.json"' EXIT
-mkdir -p {shlex.quote(EnvironmentPaths.agent_dir.as_posix())}
-git config user.name "Mixmod"
-git config user.email "mixmod@example.invalid"
-{shlex.quote(self.container_mixmod_command)} init
-python3 - <<'PY'
-from pathlib import Path
-
-supervisor_model = {self.supervisor_model!r}
-
-def split_supervisor(value):
-    if ":" in value:
-        model, effort = value.rsplit(":", 1)
-        return model, effort
-    return value, "high"
-
-def rewrite_toml(path):
-    supervisor, effort = split_supervisor(supervisor_model)
-    section = None
-    lines = []
-    for line in path.read_text().splitlines():
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            section = stripped.strip("[]")
-        if section in {{"supervisor", "codex_worker"}} and stripped.startswith("model = "):
-            line = f'model = "{{supervisor}}"'
-        elif section in {{"supervisor", "codex_worker"}} and stripped.startswith("reasoning_effort = "):
-            line = f'reasoning_effort = "{{effort}}"'
-        lines.append(line)
-    path.write_text("\\n".join(lines) + "\\n")
-
-for path in Path({state_dir.as_posix()!r}).glob("projects/*/config.toml"):
-    rewrite_toml(path)
-PY
-{shlex.quote(self.container_mixmod_command)} experiment init deepswe --fixture .
-exp_dir="$(find {shlex.quote(state_dir.as_posix())}/projects -path '*/experiments/deepswe' -type d | head -1)"
-cp {shlex.quote(task_path.as_posix())} "$exp_dir/task.json"
-{shlex.quote(self.container_mixmod_command)} experiment record-codex-only deepswe --task "$exp_dir/task.json" 2>&1 | tee {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex.txt").as_posix())}
-cp "$exp_dir/codex-only/codex-only-prompt.md" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-prompt.md").as_posix())} || true
-cp "$exp_dir/codex-only/metrics.json" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-metrics.json").as_posix())} || true
-cp "$exp_dir/codex-only/final.patch" {shlex.quote((EnvironmentPaths.agent_dir / "mixmod-codex-final.patch").as_posix())} || true
-mkdir -p {shlex.quote((EnvironmentPaths.agent_dir / "logs").as_posix())}
-cp -R "$exp_dir/codex-only/logs/." {shlex.quote((EnvironmentPaths.agent_dir / "logs").as_posix())}/ || true
-if [ -s "$exp_dir/codex-only/final.patch" ]; then
-  git apply --whitespace=nowarn "$exp_dir/codex-only/final.patch"
+{PATH_SETUP}cd /app
+mkdir -p {shlex.quote(agent_dir.as_posix())}
+mkdir -p /tmp/codex-home
+cp "$HOME/.codex/auth.json" /tmp/codex-home/auth.json
+cp {shlex.quote(prompt_path.as_posix())} {shlex.quote(prompt_artifact.as_posix())}
+git config user.name "Codex"
+git config user.email "codex@example.invalid"
+base_ref="$(git rev-parse HEAD)"
+set +e
+CODEX_HOME=/tmp/codex-home codex \\
+  --ask-for-approval never \\
+  exec \\
+  --json \\
+  --model {shlex.quote(model)} \\
+  --sandbox danger-full-access \\
+  --cd /app \\
+  --config {shlex.quote(f'model_reasoning_effort="{effort}"')} \\
+  --output-last-message {shlex.quote(last_message_path.as_posix())} \\
+  - < {shlex.quote(prompt_path.as_posix())} \\
+  > {shlex.quote(stdout_path.as_posix())} \\
+  2> {shlex.quote(stderr_path.as_posix())}
+codex_status=$?
+set -e
+mkdir -p {shlex.quote(sessions_dir.as_posix())}
+if [ -d /tmp/codex-home/sessions ]; then
+  cp -R /tmp/codex-home/sessions/. {shlex.quote(sessions_dir.as_posix())}/
 fi
-python3 - <<'PY'
+CODEX_STATUS="$codex_status" python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 
-agent_dir = Path({EnvironmentPaths.agent_dir.as_posix()!r})
-metrics_path = agent_dir / "mixmod-codex-metrics.json"
-metrics = json.loads(metrics_path.read_text()) if metrics_path.exists() else {{}}
-summary = {{
-    "codex_backend": metrics.get("codex_backend"),
-    "codex_exit_status": metrics.get("codex_exit_status"),
-    "codex_token_usage_source": metrics.get("codex_token_usage_source"),
-    "codex_rollout_count": metrics.get("codex_rollout_count"),
-    "supervisor_input_tokens": metrics.get("supervisor_input_tokens"),
-    "supervisor_cached_input_tokens": metrics.get("supervisor_cached_input_tokens"),
-    "supervisor_output_tokens": metrics.get("supervisor_output_tokens"),
-    "supervisor_reasoning_tokens": metrics.get("supervisor_reasoning_tokens"),
-    "supervisor_total_tokens": metrics.get("supervisor_total_tokens"),
-    "final_status": metrics.get("final_status"),
+agent_dir = Path({agent_dir.as_posix()!r})
+stdout_path = Path({stdout_path.as_posix()!r})
+stderr_path = Path({stderr_path.as_posix()!r})
+metrics_path = Path({metrics_path.as_posix()!r})
+summary_path = Path({summary_path.as_posix()!r})
+rollouts = sorted((agent_dir / "codex-rollouts").rglob("rollout-*.jsonl"))
+status = int(os.environ.get("CODEX_STATUS", "1"))
+
+def zero_usage():
+    return {{
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_tokens": 0,
+        "total_tokens": 0,
+    }}
+
+def snake_usage(value):
+    return {{
+        "input_tokens": int(value.get("input_tokens") or 0),
+        "cached_input_tokens": int(value.get("cached_input_tokens") or 0),
+        "output_tokens": int(value.get("output_tokens") or 0),
+        "reasoning_tokens": int(value.get("reasoning_output_tokens") or value.get("reasoning_tokens") or 0),
+        "total_tokens": int(value.get("total_tokens") or 0),
+    }}
+
+def camel_usage(value):
+    return {{
+        "input_tokens": int(value.get("inputTokens") or 0),
+        "cached_input_tokens": int(value.get("cachedInputTokens") or 0),
+        "output_tokens": int(value.get("outputTokens") or 0),
+        "reasoning_tokens": int(value.get("reasoningOutputTokens") or value.get("reasoningTokens") or 0),
+        "total_tokens": int(value.get("totalTokens") or 0),
+    }}
+
+def usage_from_value(value):
+    payload = value.get("payload")
+    if value.get("type") == "event_msg" and isinstance(payload, dict):
+        if payload.get("type") == "token_count":
+            info = payload.get("info") or {{}}
+            total = info.get("total_token_usage")
+            if isinstance(total, dict):
+                return snake_usage(total)
+    if value.get("type") == "token_count":
+        info = value.get("info") or {{}}
+        total = info.get("total_token_usage")
+        if isinstance(total, dict):
+            return snake_usage(total)
+    if value.get("method") == "thread/tokenUsage/updated":
+        params = value.get("params") or {{}}
+        token_usage = params.get("tokenUsage") or {{}}
+        total = token_usage.get("total")
+        last = token_usage.get("last")
+        if isinstance(total, dict):
+            return camel_usage(total)
+        if isinstance(last, dict):
+            return camel_usage(last)
+    return None
+
+def usage_from_jsonl(path):
+    usage = zero_usage()
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return usage
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        next_usage = usage_from_value(value)
+        if next_usage is not None:
+            usage = next_usage
+    return usage
+
+usage = zero_usage()
+source = "none"
+for rollout in rollouts:
+    next_usage = usage_from_jsonl(rollout)
+    if next_usage["total_tokens"]:
+        for key, value in next_usage.items():
+            usage[key] += value
+        source = "codex_rollout_total_token_usage"
+
+if not usage["total_tokens"]:
+    next_usage = usage_from_jsonl(stdout_path)
+    if next_usage["total_tokens"]:
+        usage = next_usage
+        source = "codex_stdout_total_token_usage"
+
+metrics = {{
+    "kind": "external-codex-baseline",
+    "runner_mode": "codex-direct",
+    "codex_exit_status": status,
+    "codex_model": {model!r},
+    "codex_reasoning_effort": {effort!r},
+    "codex_input_tokens": usage["input_tokens"],
+    "codex_cached_input_tokens": usage["cached_input_tokens"],
+    "codex_output_tokens": usage["output_tokens"],
+    "codex_reasoning_tokens": usage["reasoning_tokens"],
+    "codex_total_tokens": usage["total_tokens"],
+    "codex_token_usage": usage["total_tokens"],
+    "codex_token_usage_source": source,
+    "codex_rollout_count": len(rollouts),
+    "stdout_bytes": stdout_path.stat().st_size if stdout_path.exists() else 0,
+    "stderr_bytes": stderr_path.stat().st_size if stderr_path.exists() else 0,
+    "final_status": "success" if status == 0 else "needs_review",
 }}
-Path({summary_path.as_posix()!r}).write_text(json.dumps(summary, indent=2) + "\\n")
+metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\\n")
+summary_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\\n")
 PY
 if [ -n "$(git status --porcelain)" ]; then
   git add -A
-  git commit -m "Codex-only solution"
+  git commit -m "Codex solution"
+elif [ "$(git rev-parse HEAD)" != "$base_ref" ]; then
+  true
 else
-  git commit --allow-empty -m "Codex-only empty solution"
+  git commit --allow-empty -m "Codex empty solution"
 fi
+exit "$codex_status"
 """
 
     async def _populate_context_from_summary(
@@ -236,7 +297,15 @@ fi
             summary = json.loads(result.stdout)
         except json.JSONDecodeError:
             return
-        context.n_input_tokens = summary.get("supervisor_input_tokens")
-        context.n_cache_tokens = summary.get("supervisor_cached_input_tokens")
-        context.n_output_tokens = summary.get("supervisor_output_tokens")
-        context.metadata = {"mixmod_codex_app": summary}
+        context.n_input_tokens = summary.get("codex_input_tokens")
+        context.n_cache_tokens = summary.get("codex_cached_input_tokens")
+        context.n_output_tokens = summary.get("codex_output_tokens")
+        context.metadata = {"codex_direct": summary}
+
+
+def split_codex_model(value: str) -> tuple[str, str]:
+    """Split a model string such as `gpt-5.5:high` into model and effort."""
+    if ":" in value:
+        model, effort = value.rsplit(":", 1)
+        return model, effort
+    return value, "high"

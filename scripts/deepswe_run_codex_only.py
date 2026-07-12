@@ -23,7 +23,6 @@ from scripts.deepswe_artifacts import normalize_pier_job
 
 DEFAULT_MODEL = "openai/gpt-5.5"
 DEFAULT_REASONING_EFFORT = "high"
-LOCAL_MIXMOD_TARGET = "x86_64-unknown-linux-musl"
 
 
 def fnv1a64(value: bytes) -> int:
@@ -190,7 +189,7 @@ def collect_records(job_dir: Path) -> list[dict[str, Any]]:
     return records
 
 
-def supervisor_model_arg(args: argparse.Namespace) -> str:
+def codex_model_arg(args: argparse.Namespace) -> str:
     model = args.model.split("/", 1)[-1]
     if ":" in model:
         return model
@@ -215,7 +214,6 @@ def build_pier_command(
     args: argparse.Namespace,
     jobs_dir: Path,
     job_name: str,
-    local_mixmod_binary: Path | None,
 ) -> list[str]:
     cmd = [
         "uvx",
@@ -228,11 +226,11 @@ def build_pier_command(
         "--agent-import-path",
         "scripts.deepswe_codex_app_agent:CodexAppAgent",
         "--model",
-        "mixmod/gpt-5.5-codex-only",
+        "codex/gpt-5.5-direct",
         "--agent-kwarg",
-        f"supervisor_model={supervisor_model_arg(args)}",
+        f"codex_model={codex_model_arg(args)}",
         "--agent-kwarg",
-        f"mixmod_timeout_sec={args.mixmod_timeout_seconds}",
+        f"codex_timeout_sec={args.codex_timeout_seconds}",
         "--jobs-dir",
         str(jobs_dir),
         "--job-name",
@@ -245,10 +243,6 @@ def build_pier_command(
         str(args.limit),
         "--yes",
     ]
-    if local_mixmod_binary is not None:
-        cmd.extend(["--agent-kwarg", f"local_mixmod_binary={local_mixmod_binary}"])
-    if args.mixmod_install_command:
-        cmd.extend(["--agent-kwarg", f"mixmod_install_command={args.mixmod_install_command}"])
     if args.task:
         cmd.extend(["--include-task-name", args.task])
     if args.sample_seed is not None:
@@ -256,21 +250,6 @@ def build_pier_command(
     if args.no_delete:
         cmd.append("--no-delete")
     return cmd
-
-
-def build_local_mixmod_binary(root: Path, log: Path) -> Path:
-    code, _, timed_out = run_logged(
-        ["cargo", "build", "--target", LOCAL_MIXMOD_TARGET, "--bin", "mixmod"],
-        root,
-        log,
-        timeout_seconds=None,
-    )
-    if code != 0 or timed_out:
-        raise RuntimeError(f"local Mixmod binary build failed; see {log}")
-    binary = root / "target" / LOCAL_MIXMOD_TARGET / "debug" / "mixmod"
-    if not binary.is_file():
-        raise RuntimeError(f"local Mixmod binary was not produced: {binary}")
-    return binary.resolve()
 
 
 def main() -> int:
@@ -283,10 +262,7 @@ def main() -> int:
     parser.add_argument("--sample-seed", type=int)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--reasoning-effort", default=DEFAULT_REASONING_EFFORT)
-    parser.add_argument("--mixmod-install-command")
-    parser.add_argument("--local-mixmod-binary", type=Path)
-    parser.add_argument("--no-local-mixmod-binary", action="store_true")
-    parser.add_argument("--mixmod-timeout-seconds", type=int, default=3 * 60 * 60)
+    parser.add_argument("--codex-timeout-seconds", type=int, default=3 * 60 * 60)
     parser.add_argument("--agent-timeout-multiplier", type=float, default=3.0)
     parser.add_argument("--job-name", default="")
     parser.add_argument("--timeout-seconds", type=int, default=3 * 60 * 60)
@@ -303,16 +279,7 @@ def main() -> int:
     jobs_dir = pool / "pier-jobs"
     log = pool / "logs" / "pier-run.log"
     state_path = pool / "codex-only-state.json"
-    local_mixmod_binary = None
-    if not args.no_local_mixmod_binary:
-        local_mixmod_binary = (
-            args.local_mixmod_binary.expanduser().resolve()
-            if args.local_mixmod_binary
-            else build_local_mixmod_binary(root, pool / "logs" / "local-mixmod-build.log")
-        )
-        if not local_mixmod_binary.is_file():
-            raise RuntimeError(f"local Mixmod binary not found: {local_mixmod_binary}")
-    cmd = build_pier_command(args, jobs_dir, job_name, local_mixmod_binary)
+    cmd = build_pier_command(args, jobs_dir, job_name)
 
     state: dict[str, Any] = {
         "kind": "deepswe-codex-only",
@@ -321,12 +288,11 @@ def main() -> int:
         "deep_swe": str(args.deep_swe),
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
-        "supervisor_model": supervisor_model_arg(args),
+        "codex_model": codex_model_arg(args),
         "limit": args.limit,
         "task": args.task,
         "agent_timeout_multiplier": args.agent_timeout_multiplier,
-        "mixmod_timeout_seconds": args.mixmod_timeout_seconds,
-        "local_mixmod_binary": str(local_mixmod_binary) if local_mixmod_binary else None,
+        "codex_timeout_seconds": args.codex_timeout_seconds,
         "command": [str(part) for part in cmd],
         "started_at": datetime.now(timezone.utc).isoformat(),
     }

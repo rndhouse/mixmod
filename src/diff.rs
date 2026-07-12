@@ -155,25 +155,3 @@ pub(crate) fn git_diff_with_untracked(root: &Path) -> Result<String> {
     }
     Ok(patch)
 }
-
-pub(crate) fn git_diff_committed_range(
-    root: &Path,
-    base_ref: &str,
-    head_ref: &str,
-) -> Result<String> {
-    let range = format!("{base_ref}..{head_ref}");
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["diff", "--no-ext-diff", "--binary", &range])
-        .output()
-        .with_context(|| format!("failed to run git diff {range} in {}", root.display()))?;
-    if !output.status.success() {
-        bail!(
-            "git diff {range} failed in {}: {}",
-            root.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}

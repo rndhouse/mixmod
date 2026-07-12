@@ -166,12 +166,6 @@ pub enum ExperimentCommand {
         #[arg(long)]
         fixture: Option<PathBuf>,
     },
-    /// Create or update the Codex-only result slot.
-    RecordCodexOnly {
-        name: String,
-        #[arg(long)]
-        task: PathBuf,
-    },
     /// Legacy one-shot Mixmod trial. Prefer `run-default`.
     #[command(hide = true)]
     RecordMixmod {

@@ -13,7 +13,6 @@ pub(crate) use live::LiveSupervisorAdvisor;
 #[cfg(test)]
 pub(crate) use normalize::normalize_feedback_value;
 pub(crate) use normalize::normalize_worker_mode;
-pub(crate) use prompts::codex_only_prompt;
 #[cfg(test)]
 pub(crate) use prompts::{
     supervisor_feedback_prompt, supervisor_feedback_repair_prompt, supervisor_live_control_prompt,

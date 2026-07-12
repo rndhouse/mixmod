@@ -2,27 +2,6 @@ use std::collections::BTreeSet;
 
 use crate::*;
 
-pub(crate) fn codex_only_prompt(work_dir: &Path, task: &Value) -> Result<String> {
-    let visible_task = agent_visible_task_value(task);
-    let task_json = serde_json::to_string_pretty(&visible_task)
-        .context("failed to serialize agent-visible task for Codex-only prompt")?;
-    Ok(format!(
-        r#"You are the Codex-only baseline for a Mixmod experiment.
-Solve the task directly in this repo. Edit files as needed, run the requested tests, and keep the final answer compact.
-Do not use Mixmod or OpenCode.
-Do not commit. Leave the final repository changes as an uncommitted git diff so Mixmod can record the patch.
-Working repo: {work_dir}
-
-Task JSON:
-```json
-{}
-```
-"#,
-        task_json,
-        work_dir = work_dir.display()
-    ))
-}
-
 fn supervisor_worktree_policy() -> &'static str {
     "Workspace access is for supervision, not implementation. You may use git/worktree commands such as `git status`, `git diff`, `git show`, `git grep`, and checkpoint-oriented `git restore` or `git apply` when needed to inspect or manage state. Do not author task-solving source edits, rewrite code, or create the solution patch yourself; the worker owns implementation."
 }
