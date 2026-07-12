@@ -252,8 +252,10 @@ tests do not exercise. Ask for targeted hunks or grep rather than a full diff,
 and ask the worker to run probes before broad analysis. For test probes, prefer
 the changed package's full test suite or the exact tests you added/changed;
 avoid narrow regexes that can skip new tests unless there is a clear cost
-reason. Treat the worker's output as evidence to use or reject; final task
-completion is your responsibility.
+reason. For ad hoc probes, ask the worker to copy existing test harness/API
+patterns from nearby tests instead of inventing constructors or helper APIs.
+Treat the worker's output as evidence to use or reject; final task completion is
+your responsibility.
 
 Each local-worker call prints an artifact directory. Inspect those artifacts
 when the compact summary is insufficient; they include the rendered worker
@@ -451,7 +453,9 @@ mod tests {
         assert!(prompt.contains("run probes before broad analysis"));
         assert!(prompt.contains("changed package's full test"));
         assert!(prompt.contains("suite or the exact tests"));
-        assert!(prompt.contains("completion is your responsibility"));
+        assert!(prompt.contains("copy existing test harness/API"));
+        assert!(prompt.contains("completion is"));
+        assert!(prompt.contains("your responsibility"));
         assert!(prompt.contains("tool run-command"));
         assert!(prompt.contains("tool ask"));
         assert!(!prompt.contains("Return only JSON"));
