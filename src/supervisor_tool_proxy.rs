@@ -299,16 +299,18 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": "Supervisor tool proxy: local worker ask",
                 "instructions": format!(
-                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit files and do not commit. Return compact evidence the supervisor can use: commands run, exit status when applicable, pass/fail facts, and the smallest relevant excerpts or file/line references."
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. For behavioral review, do not treat passing existing tests as sufficient by itself: derive a few focused probes from the requested behavior and run them when the repository has a cheap harness, or state exactly which edge cases remain unprobed. Return compact evidence the supervisor can use: commands run, exit status when applicable, pass/fail facts, and the smallest relevant excerpts or file/line references."
                 ),
                 "expect_patch": false,
                 "tests": [],
                 "constraints": [
-                    "Do not edit files.",
+                    "Do not edit repository files.",
                     "Do not commit changes.",
                     "Do not inspect /solution or verifier internals.",
                     "Keep stdout compact.",
                     "Use focused commands instead of broad repository reads when possible.",
+                    "For behavioral review, derive focused probes from the requirements instead of only rerunning existing happy-path tests.",
+                    "Temporary files outside the repository are acceptable when needed for a focused probe.",
                     "If evidence is inconclusive, say exactly what remains unverified."
                 ],
                 "context": {
@@ -517,5 +519,26 @@ mod tests {
         let config = load_tool_proxy_config(&config_path, temp.path()).unwrap();
 
         assert_eq!(config.opencode.provider, "llama.cpp");
+    }
+
+    #[test]
+    fn ask_tool_task_requests_derived_behavior_probes() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = SupervisorToolProxyPayload::from_prompt(
+            "Review the final diff for missing behavior.",
+            temp.path(),
+        );
+
+        let task = tool_proxy_task(&payload);
+        let instructions = task["instructions"].as_str().unwrap();
+        let constraints = task["constraints"].as_array().unwrap();
+
+        assert!(instructions.contains("derive a few focused probes"));
+        assert!(
+            constraints
+                .iter()
+                .any(|value| value.as_str().unwrap_or("").contains("focused probes"))
+        );
+        assert_eq!(task["context"]["worker_role"], json!("bounded_review"));
     }
 }
