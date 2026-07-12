@@ -24,6 +24,9 @@ pub(crate) struct CodexTurnResult {
     pub(crate) stdout: Vec<u8>,
     pub(crate) stderr: Vec<u8>,
     pub(crate) last_message: String,
+    pub(crate) turn_status: Option<String>,
+    pub(crate) error_info: Option<String>,
+    pub(crate) error_message: Option<String>,
     pub(crate) usage: CodexUsage,
     pub(crate) input_bytes: u64,
     pub(crate) output_bytes: u64,
@@ -176,6 +179,15 @@ pub(crate) fn run_codex_exec_turn(
         stderr,
         output_bytes: stdout.len() as u64 + last_message.len() as u64,
         last_message,
+        turn_status: exit_status.map(|status| {
+            if status == 0 {
+                "completed".to_string()
+            } else {
+                "failed".to_string()
+            }
+        }),
+        error_info: None,
+        error_message: None,
         usage,
         input_bytes: prompt.len() as u64,
         model,
@@ -300,7 +312,10 @@ impl AgentHarness for ShellCodexRunner {
                 "reasoning_tokens": result.usage.reasoning_tokens,
                 "total_tokens": result.usage.total_tokens,
                 "input_bytes": result.input_bytes,
-                "output_bytes": result.output_bytes
+                "output_bytes": result.output_bytes,
+                "turn_status": result.turn_status,
+                "error_info": result.error_info,
+                "error_message": result.error_message
             })],
             exit_status: result.exit_status,
             success,
@@ -437,7 +452,7 @@ impl CodexAppServer {
         let mut delta_messages = BTreeMap::<String, String>::new();
         let mut usage = CodexUsage::default();
 
-        let exit_status = loop {
+        let (exit_status, turn_status, error_info, error_message) = loop {
             let message = self.read_message()?;
             if self.handle_server_request(&message)? {
                 events.push(message);
@@ -483,6 +498,16 @@ impl CodexAppServer {
                         if let Some(turn) = params.get("turn")
                             && get_str(turn, "id") == Some(turn_id.as_str())
                         {
+                            let completed_turn_status =
+                                get_str(turn, "status").map(ToOwned::to_owned);
+                            let completed_error_info = turn
+                                .get("error")
+                                .and_then(|error| get_str(error, "codexErrorInfo"))
+                                .map(ToOwned::to_owned);
+                            let completed_error_message = turn
+                                .get("error")
+                                .and_then(|error| get_str(error, "message"))
+                                .map(ToOwned::to_owned);
                             if let Some(text) = final_agent_message_from_turn(turn) {
                                 last_agent_message = text;
                             }
@@ -491,7 +516,12 @@ impl CodexAppServer {
                                 _ => Some(1),
                             };
                             events.push(message);
-                            break status;
+                            break (
+                                status,
+                                completed_turn_status,
+                                completed_error_info,
+                                completed_error_message,
+                            );
                         }
                     }
                     _ => {}
@@ -523,6 +553,9 @@ impl CodexAppServer {
             stderr,
             output_bytes: event_log.len() as u64 + last_agent_message.len() as u64,
             last_message: last_agent_message,
+            turn_status,
+            error_info,
+            error_message,
             usage,
             input_bytes: prompt.len() as u64,
             model: self.model.clone(),
