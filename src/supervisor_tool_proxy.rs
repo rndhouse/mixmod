@@ -16,8 +16,8 @@ use crate::{
 
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
-const ASK_WORKER_TIMEOUT_SECONDS: u64 = 240;
-const ASK_IDLE_TIMEOUT_SECONDS: u64 = 90;
+const ASK_WORKER_TIMEOUT_SECONDS: u64 = 120;
+const ASK_IDLE_TIMEOUT_SECONDS: u64 = 45;
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
