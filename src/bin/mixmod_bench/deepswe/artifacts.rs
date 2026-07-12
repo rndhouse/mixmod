@@ -338,8 +338,12 @@ fn tool_proxy_runs(tool_proxy_root: &Path) -> Result<Vec<Value>> {
             ] {
                 let path = run_dir.join(name);
                 if path.exists() {
-                    artifact_sizes.insert(name.to_string(), path.metadata()?.len());
+                    artifact_sizes.insert(name.to_string(), path_size(&path)?);
                 }
+            }
+            let tool_output_dir = run_dir.join("tool-output");
+            if tool_output_dir.exists() {
+                artifact_sizes.insert("tool-output".to_string(), path_size(&tool_output_dir)?);
             }
             Ok(json!({
                 "name": file_name_string(&run_dir),
@@ -396,8 +400,12 @@ fn worker_runs(worker_root: &Path) -> Result<Vec<Value>> {
             ] {
                 let path = worker_dir.join(name);
                 if path.exists() {
-                    artifact_sizes.insert(name.to_string(), path.metadata()?.len());
+                    artifact_sizes.insert(name.to_string(), path_size(&path)?);
                 }
+            }
+            let tool_output_dir = worker_dir.join("tool-output");
+            if tool_output_dir.exists() {
+                artifact_sizes.insert("tool-output".to_string(), path_size(&tool_output_dir)?);
             }
             let run_root = worker_root
                 .parent()
@@ -467,6 +475,23 @@ fn copy_dir(source: &Path, target: &Path) -> Result<()> {
         copy_path(&child, &target.join(file_name(&child)))?;
     }
     Ok(())
+}
+
+fn path_size(path: &Path) -> Result<u64> {
+    let metadata =
+        fs::metadata(path).with_context(|| format!("failed to inspect {}", path.display()))?;
+    if metadata.is_file() {
+        return Ok(metadata.len());
+    }
+    if !metadata.is_dir() {
+        return Ok(0);
+    }
+
+    let mut total = 0;
+    for child in sorted_entries(path)? {
+        total += path_size(&child)?;
+    }
+    Ok(total)
 }
 
 #[cfg(unix)]
@@ -619,6 +644,10 @@ mod tests {
             trial_dir.join("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/logs"),
         )
         .unwrap();
+        fs::create_dir_all(
+            trial_dir.join("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/tool-output"),
+        )
+        .unwrap();
         fs::create_dir_all(trial_dir.join("artifacts")).unwrap();
         fs::write(
             trial_dir.join("config.json"),
@@ -655,6 +684,13 @@ mod tests {
             "tool output\n",
         )
         .unwrap();
+        fs::write(
+            trial_dir.join(
+                "agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/tool-output/output.txt",
+            ),
+            "full output\n",
+        )
+        .unwrap();
         fs::write(trial_dir.join("artifacts/model.patch"), "diff\n").unwrap();
 
         let bundles = normalize_pier_job(&pool, &job_dir, &[]).unwrap();
@@ -679,6 +715,10 @@ mod tests {
         );
         assert_eq!(
             manifest["tool_proxy_runs"][0]["artifact_sizes"]["logs/opencode.stdout.txt"],
+            json!(12)
+        );
+        assert_eq!(
+            manifest["tool_proxy_runs"][0]["artifact_sizes"]["tool-output"],
             json!(12)
         );
         assert_eq!(

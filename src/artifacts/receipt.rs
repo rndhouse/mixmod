@@ -71,6 +71,8 @@ pub struct RunMetrics {
     pub reasoning_trace_event_count: u64,
     pub tool_events_bytes: u64,
     pub tool_event_count: u64,
+    pub tool_output_artifact_count: u64,
+    pub tool_output_artifact_bytes: u64,
     pub report_bytes: u64,
     pub patch_bytes: u64,
     pub worktree_patch_bytes: u64,

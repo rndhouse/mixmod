@@ -48,9 +48,9 @@ pub(crate) use artifacts::{
     PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, REASONING_TRACE_JSONL,
     RECEIPT_JSON, REPORT_MD, ROLLBACK_CURRENT_PATCH, ROLLBACK_RESTORED_PATCH,
     RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISION_LOOP_SUMMARY_JSON, SUPERVISOR_CONTROL_LOG,
-    SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, TOOL_EVENTS_JSONL, WORKER_BRIEF_JSON,
-    WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH, is_static_mixmod_artifact_name,
-    supervisor_review_artifact_paths,
+    SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, TOOL_EVENTS_JSONL, TOOL_OUTPUT_DIR,
+    WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH,
+    is_static_mixmod_artifact_name, supervisor_review_artifact_paths,
 };
 pub use artifacts::{
     CodexOnlyMetrics, DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL,
@@ -142,7 +142,7 @@ pub(crate) use supervisor::{
 pub(crate) use supervisor_tool_proxy::{
     codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_command_tool,
 };
-pub(crate) use tool_events::build_tool_events_jsonl;
+pub(crate) use tool_events::{build_tool_events_jsonl, tool_output_paths_from_events};
 pub use worker::WorkerModelProfile;
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
 pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};

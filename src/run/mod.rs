@@ -473,6 +473,7 @@ impl MixmodRun<'_> {
         )?;
         let (tool_events, tool_event_count) = build_tool_events_jsonl(&output.stdout)?;
         atomic_write(&out_dir.join(TOOL_EVENTS_JSONL), tool_events.as_bytes())?;
+        let tool_output_artifacts = copy_tool_output_artifacts(&tool_events, &out_dir)?;
         let context_overflow = worker_context_signals(&output.stdout);
         if context_overflow.context_overflow_count > 0 {
             notes.push(format!(
@@ -530,6 +531,8 @@ impl MixmodRun<'_> {
         let session_bytes = file_len(&out_dir.join(SESSION_JSONL))?;
         let reasoning_trace_bytes = file_len(&out_dir.join(REASONING_TRACE_JSONL))?;
         let tool_events_bytes = file_len(&out_dir.join(TOOL_EVENTS_JSONL))?;
+        let tool_output_artifact_count = tool_output_artifacts.count;
+        let tool_output_artifact_bytes = tool_output_artifacts.bytes;
         let mut metrics = RunMetrics {
             start_timestamp: start_timestamp.to_rfc3339(),
             end_timestamp: end_timestamp.to_rfc3339(),
@@ -581,6 +584,8 @@ impl MixmodRun<'_> {
             reasoning_trace_event_count,
             tool_events_bytes,
             tool_event_count,
+            tool_output_artifact_count,
+            tool_output_artifact_bytes,
             report_bytes,
             patch_bytes,
             worktree_patch_bytes,
@@ -666,4 +671,87 @@ fn intervention_details(
         .into_iter()
         .map(|(key, value)| (key.to_string(), value))
         .collect()
+}
+
+#[derive(Default)]
+struct ToolOutputArtifacts {
+    count: u64,
+    bytes: u64,
+}
+
+fn copy_tool_output_artifacts(
+    tool_events_jsonl: &str,
+    out_dir: &Path,
+) -> Result<ToolOutputArtifacts> {
+    let output_paths = tool_output_paths_from_events(tool_events_jsonl);
+    if output_paths.is_empty() {
+        return Ok(ToolOutputArtifacts::default());
+    }
+
+    let target_dir = out_dir.join(TOOL_OUTPUT_DIR);
+    fs::create_dir_all(&target_dir)
+        .with_context(|| format!("failed to create {}", target_dir.display()))?;
+    let mut artifacts = ToolOutputArtifacts::default();
+    for (index, source) in output_paths.iter().enumerate() {
+        if !source.is_file() {
+            continue;
+        }
+        let name = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .map(sanitize_tool_output_name)
+            .unwrap_or_else(|| format!("tool-output-{index}.txt"));
+        let destination = unique_tool_output_destination(&target_dir, &name, index);
+        fs::copy(source, &destination).with_context(|| {
+            format!(
+                "failed to copy tool output {} to {}",
+                source.display(),
+                destination.display()
+            )
+        })?;
+        artifacts.count += 1;
+        artifacts.bytes += file_len(&destination)?;
+    }
+    Ok(artifacts)
+}
+
+fn unique_tool_output_destination(target_dir: &Path, name: &str, index: usize) -> PathBuf {
+    let destination = target_dir.join(name);
+    if !destination.exists() {
+        return destination;
+    }
+
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("tool-output");
+    let extension = path.extension().and_then(|value| value.to_str());
+    let indexed_name = match extension {
+        Some(extension) if !extension.is_empty() => format!("{stem}-{index}.{extension}"),
+        _ => format!("{stem}-{index}"),
+    };
+    target_dir.join(indexed_name)
+}
+
+fn sanitize_tool_output_name(name: &str) -> String {
+    let cleaned = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii() && (ch.is_alphanumeric() || matches!(ch, '.' | '-' | '_')) {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches(['.', '-'])
+        .to_string();
+    if cleaned.is_empty() {
+        "tool-output.txt".to_string()
+    } else {
+        cleaned
+    }
 }

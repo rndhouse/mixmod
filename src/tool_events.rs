@@ -1,6 +1,9 @@
 //! Structured worker tool-event extraction.
 
 use anyhow::{Context, Result};
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
 use serde_json::Value;
 
 use crate::get_str;
@@ -28,6 +31,40 @@ pub(crate) fn build_tool_events_jsonl(stdout: &[u8]) -> Result<(String, u64)> {
     Ok((trace, count))
 }
 
+/// Extract OpenCode full-output file paths referenced by tool events.
+pub(crate) fn tool_output_paths_from_events(tool_events_jsonl: &str) -> Vec<PathBuf> {
+    let mut paths = BTreeSet::new();
+    for line in tool_events_jsonl.lines() {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        collect_output_paths(&event, &mut paths);
+    }
+    paths.into_iter().map(PathBuf::from).collect()
+}
+
+fn collect_output_paths(value: &Value, paths: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if key == "outputPath"
+                    && let Some(path) = value.as_str().filter(|path| !path.is_empty())
+                {
+                    paths.insert(path.to_string());
+                    continue;
+                }
+                collect_output_paths(value, paths);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_output_paths(value, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +87,23 @@ plain output
         assert!(events.contains("\"tool\":\"read\""));
         assert!(!events.contains("plain output"));
         assert!(!events.contains("\"type\":\"reasoning\""));
+    }
+
+    #[test]
+    fn output_paths_extracts_unique_nested_paths() {
+        let events = r#"
+{"type":"tool_use","part":{"state":{"outputPath":"/tmp/opencode/tool-output/a.txt","metadata":{"outputPath":"/tmp/opencode/tool-output/a.txt"}}}}
+{"type":"tool_use","part":{"state":{"metadata":{"outputPath":"/tmp/opencode/tool-output/b.txt"}}}}
+"#;
+
+        let paths = tool_output_paths_from_events(events);
+
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("/tmp/opencode/tool-output/a.txt"),
+                PathBuf::from("/tmp/opencode/tool-output/b.txt")
+            ]
+        );
     }
 }

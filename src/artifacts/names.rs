@@ -50,6 +50,8 @@ pub const SUPERVISOR_CONTROL_LOG: &str = "supervisor-control.jsonl";
 pub const REASONING_TRACE_JSONL: &str = "reasoning-trace.jsonl";
 /// Extracted worker tool-call events from structured OpenCode output.
 pub const TOOL_EVENTS_JSONL: &str = "tool-events.jsonl";
+/// Full tool-output files copied from OpenCode outputPath references.
+pub const TOOL_OUTPUT_DIR: &str = "tool-output";
 /// Compact cross-turn telemetry for the supervisor's worker loop.
 pub const SUPERVISION_LOOP_SUMMARY_JSON: &str = "supervision-loop-summary.json";
 
