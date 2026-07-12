@@ -211,6 +211,7 @@ fn copy_trial_bundle(
     }
 
     let worker_runs = worker_runs(&target.join("agent/worker-runs"))?;
+    let tool_proxy_runs = tool_proxy_runs(&target.join("agent/tool-proxy-runs"))?;
     let manifest = json!({
         "kind": "deepswe-task-artifact-bundle",
         "task": task_name,
@@ -221,6 +222,7 @@ fn copy_trial_bundle(
         "records": related_records,
         "important_artifacts": important_artifacts(target),
         "worker_runs": worker_runs,
+        "tool_proxy_runs": tool_proxy_runs,
     });
     write_json(&target.join("artifact-manifest.json"), &manifest)?;
     Ok(json!({
@@ -233,6 +235,12 @@ fn copy_trial_bundle(
         "latest_worker_run": manifest["worker_runs"].as_array()
             .and_then(|runs| runs.last())
             .and_then(|run| run.get("name"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "tool_proxy_run_count": manifest["tool_proxy_runs"].as_array().map(Vec::len).unwrap_or(0),
+        "latest_tool_proxy_run": manifest["tool_proxy_runs"].as_array()
+            .and_then(|runs| runs.last())
+            .and_then(|run| run.get("path"))
             .cloned()
             .unwrap_or(Value::Null),
     }))
@@ -282,6 +290,7 @@ fn important_artifacts(target: &Path) -> BTreeMap<String, String> {
         ("mixmod_summary", "agent/mixmod-summary.json"),
         ("mixmod_metrics", "agent/mixmod-metrics.json"),
         ("mixmod_final_patch", "agent/mixmod-final.patch"),
+        ("tool_proxy_runs", "agent/tool-proxy-runs"),
         ("model_patch", "artifacts/model.patch"),
         ("git_status", "artifacts/git-status.txt"),
     ];
@@ -293,6 +302,65 @@ fn important_artifacts(target: &Path) -> BTreeMap<String, String> {
                 .then(|| (key.to_string(), relative_to(target, &path)))
         })
         .collect()
+}
+
+fn tool_proxy_runs(tool_proxy_root: &Path) -> Result<Vec<Value>> {
+    if !tool_proxy_root.exists() {
+        return Ok(Vec::new());
+    }
+    let run_root = tool_proxy_root
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or(tool_proxy_root);
+    let mut run_dirs = Vec::new();
+    collect_tool_proxy_run_dirs(tool_proxy_root, &mut run_dirs)?;
+    run_dirs.sort_by_key(|path| relative_to(run_root, path));
+
+    run_dirs
+        .into_iter()
+        .map(|run_dir| {
+            let mut artifact_sizes = BTreeMap::new();
+            for name in [
+                "opencode-instructions.md",
+                "reasoning-trace.jsonl",
+                "tool-events.jsonl",
+                "tool-task.json",
+                "report.md",
+                "metrics.json",
+                "changes.patch",
+                "worktree.patch",
+                "receipt.json",
+                "session.jsonl",
+                "supervisor-control.jsonl",
+                "logs/opencode.stdout.txt",
+                "logs/opencode.stderr.txt",
+                "logs/heartbeat.jsonl",
+            ] {
+                let path = run_dir.join(name);
+                if path.exists() {
+                    artifact_sizes.insert(name.to_string(), path.metadata()?.len());
+                }
+            }
+            Ok(json!({
+                "name": file_name_string(&run_dir),
+                "path": relative_to(run_root, &run_dir),
+                "artifact_sizes": artifact_sizes,
+            }))
+        })
+        .collect()
+}
+
+fn collect_tool_proxy_run_dirs(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    if root.join("metrics.json").exists() || root.join("opencode-instructions.md").exists() {
+        out.push(root.to_path_buf());
+        return Ok(());
+    }
+    for entry in sorted_entries(root)? {
+        if entry.is_dir() {
+            collect_tool_proxy_run_dirs(&entry, out)?;
+        }
+    }
+    Ok(())
 }
 
 fn worker_runs(worker_root: &Path) -> Result<Vec<Value>> {
@@ -547,6 +615,10 @@ mod tests {
         let job_dir = temp.path().join("pier-jobs/job-1");
         let trial_dir = job_dir.join("trial-a");
         fs::create_dir_all(trial_dir.join("agent/worker-runs/proposal/logs")).unwrap();
+        fs::create_dir_all(
+            trial_dir.join("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/logs"),
+        )
+        .unwrap();
         fs::create_dir_all(trial_dir.join("artifacts")).unwrap();
         fs::write(
             trial_dir.join("config.json"),
@@ -562,6 +634,25 @@ mod tests {
         fs::write(
             trial_dir.join("agent/worker-runs/proposal/opencode-instructions.md"),
             "rendered prompt\n",
+        )
+        .unwrap();
+        fs::write(
+            trial_dir.join(
+                "agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/opencode-instructions.md",
+            ),
+            "tool prompt\n",
+        )
+        .unwrap();
+        fs::write(
+            trial_dir.join("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/metrics.json"),
+            "{}\n",
+        )
+        .unwrap();
+        fs::write(
+            trial_dir.join(
+                "agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z/logs/opencode.stdout.txt",
+            ),
+            "tool output\n",
         )
         .unwrap();
         fs::write(trial_dir.join("artifacts/model.patch"), "diff\n").unwrap();
@@ -581,6 +672,18 @@ mod tests {
         assert_eq!(
             manifest["worker_runs"][0]["artifact_sizes"]["opencode-instructions.md"],
             json!(16)
+        );
+        assert_eq!(
+            manifest["tool_proxy_runs"][0]["path"],
+            json!("agent/tool-proxy-runs/app-123/cli/tool-20260712T000000Z")
+        );
+        assert_eq!(
+            manifest["tool_proxy_runs"][0]["artifact_sizes"]["logs/opencode.stdout.txt"],
+            json!(12)
+        );
+        assert_eq!(
+            manifest["important_artifacts"]["tool_proxy_runs"],
+            json!("agent/tool-proxy-runs")
         );
         assert!(pool.join("artifact-bundles.json").exists());
         assert_eq!(
