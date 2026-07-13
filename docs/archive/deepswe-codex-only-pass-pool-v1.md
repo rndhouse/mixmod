@@ -27,6 +27,27 @@ Both runs reported:
 - Codex exit status: 0
 - Final status: `success`
 
+## Clean Direct Rerun
+
+On 2026-07-14, `tengo-callable-instance-isolation` was rerun with the
+clean Codex-only baseline path: direct `codex exec`, no Mixmod CLI, no
+Mixmod app-server, and no supervisor/worker loop.
+
+| Task | Runtime | Reward | F2P | P2P | Input | Cached input | Output | Reasoning | Total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `tengo-callable-instance-isolation` | 477.615s | 1 | 23/23 | 122/122 | 1,820,246 | 1,723,776 | 19,557 | 9,315 | 1,839,803 |
+
+Cost at `$5/M` input tokens and `$30/M` output tokens was about `$9.69`.
+The token source was `codex_rollout_total_token_usage`, with one Codex
+rollout and exit status 0.
+
+Artifacts:
+
+```text
+/home/user/.local/state/mixmod/projects/mixmod-b12fba6f00055314/deepswe/codex-only/deepswe-codex-direct-tengo-callable-20260714T001411Z/codex-only-state.json
+/home/user/.local/state/mixmod/projects/mixmod-b12fba6f00055314/deepswe/codex-only/deepswe-codex-direct-tengo-callable-20260714T001411Z/tasks/tengo-callable-instance-isolation
+```
+
 ## Patch Sizes
 
 | Task | Patch bytes | Patch lines |
