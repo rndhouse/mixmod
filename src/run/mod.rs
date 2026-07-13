@@ -8,7 +8,7 @@ mod recovery;
 mod report;
 mod session;
 
-pub(crate) use command::shell_command;
+pub(crate) use command::{prioritize_virtual_env_path, shell_command};
 pub(crate) use context::{WorkerContextSignals, worker_context_signals, worker_session_token_peak};
 pub(crate) use prompts::build_opencode_instruction;
 use recovery::{

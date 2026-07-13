@@ -149,6 +149,32 @@ def swebench_eval_env() -> dict[str, str]:
     return {"LD_LIBRARY_PATH": os.pathsep.join(unique_paths(paths))}
 
 
+def agent_venv_bin(venv: Path) -> Path:
+    return venv / ("Scripts" if os.name == "nt" else "bin")
+
+
+def agent_venv_python(venv: Path) -> Path:
+    return agent_venv_bin(venv) / ("python.exe" if os.name == "nt" else "python")
+
+
+def swebench_agent_env(
+    extra: dict[str, str] | None = None, venv: Path | None = None
+) -> dict[str, str]:
+    """Return environment overrides for local SWE-bench agent commands."""
+    env = {
+        "PYTHONNOUSERSITE": "1",
+        "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+        "PIP_NO_INPUT": "1",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    }
+    if venv:
+        env["VIRTUAL_ENV"] = str(venv)
+        env["PATH"] = str(agent_venv_bin(venv)) + os.pathsep + os.environ.get("PATH", "")
+    if extra:
+        env.update(extra)
+    return env
+
+
 def run_logged(
     cmd: list[str | Path],
     cwd: Path,
@@ -269,12 +295,44 @@ def prepare_worktree(root: Path, run_parent: Path, task: InstanceTask) -> Path:
     return worktree
 
 
-def init_mixmod(root: Path, worktree: Path, state_dir: Path, run_parent: Path) -> None:
+def prepare_agent_python_env(worktree: Path, run_parent: Path) -> Path:
+    """Create a clean local Python environment for agent-side checks."""
+    venv = run_parent / "agent-env" / "venv"
+    log = run_parent / "logs" / "agent-env.log"
+    if not agent_venv_python(venv).exists():
+        code, _, _ = run_logged(
+            [sys.executable, "-m", "venv", venv],
+            worktree,
+            log,
+            env=swebench_agent_env(),
+            timeout_seconds=15 * 60,
+        )
+        if code != 0:
+            raise RuntimeError(f"agent Python venv creation failed: {code}")
+
+    code, _, _ = run_logged(
+        [agent_venv_python(venv), "-m", "pip", "install", "-q", "-e", "."],
+        worktree,
+        log,
+        env=swebench_agent_env(venv=venv),
+        timeout_seconds=15 * 60,
+    )
+    if code != 0:
+        raise RuntimeError(f"agent Python editable install failed: {code}")
+    return venv
+
+
+def init_mixmod(
+    root: Path, worktree: Path, state_dir: Path, run_parent: Path, agent_venv: Path
+) -> None:
     run_logged(
         [root / "target" / "debug" / "mixmod", "init"],
         worktree,
         run_parent / "logs" / "init.log",
-        env={"MIXMOD_DEBUG_COMMANDS": "1", "MIXMOD_STATE_DIR": str(state_dir)},
+        env=swebench_agent_env(
+            {"MIXMOD_DEBUG_COMMANDS": "1", "MIXMOD_STATE_DIR": str(state_dir)},
+            venv=agent_venv,
+        ),
     )
 
 
@@ -283,6 +341,7 @@ def run_mixmod_exec(
     worktree: Path,
     run_parent: Path,
     state_dir: Path,
+    agent_venv: Path,
     args: argparse.Namespace,
 ) -> tuple[int, float, bool]:
     return run_logged(
@@ -298,7 +357,7 @@ def run_mixmod_exec(
         ],
         worktree,
         run_parent / "logs" / "mixmod-exec.log",
-        env={"MIXMOD_STATE_DIR": str(state_dir)},
+        env=swebench_agent_env({"MIXMOD_STATE_DIR": str(state_dir)}, venv=agent_venv),
         timeout_seconds=args.mixmod_timeout_seconds,
     )
 
@@ -453,9 +512,10 @@ def run_instance(root: Path, batch_dir: Path, task: InstanceTask, args: argparse
     started = time.monotonic()
 
     worktree = prepare_worktree(root, run_parent, task)
-    init_mixmod(root, worktree, state_dir, run_parent)
+    agent_venv = prepare_agent_python_env(worktree, run_parent)
+    init_mixmod(root, worktree, state_dir, run_parent, agent_venv)
     code, mixmod_seconds, mixmod_timed_out = run_mixmod_exec(
-        root, worktree, run_parent, state_dir, args
+        root, worktree, run_parent, state_dir, agent_venv, args
     )
 
     run_dir = find_run_dir(state_dir)
@@ -471,6 +531,7 @@ def run_instance(root: Path, batch_dir: Path, task: InstanceTask, args: argparse
             "mixmod_timed_out": mixmod_timed_out,
             "patch_bytes": patch_bytes,
             "reused_run": False,
+            "agent_python_venv": str(agent_venv),
         }
     )
     copy_metric_fields(record, metrics)

@@ -5,7 +5,10 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Map, Value, json};
 
-use crate::{OpenCodeConfig, atomic_write, get_str, is_cloud_opencode_provider, state_layout};
+use crate::{
+    OpenCodeConfig, atomic_write, get_str, is_cloud_opencode_provider, prioritize_virtual_env_path,
+    state_layout,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct OpenCodeModelSelection {
@@ -222,6 +225,7 @@ pub(super) fn opencode_command(command: &str, root: &Path) -> Command {
         .env("XDG_DATA_HOME", state.join("xdg-data"))
         .env("XDG_STATE_HOME", state.join("xdg-state"))
         .env("XDG_CACHE_HOME", state.join("xdg-cache"));
+    prioritize_virtual_env_path(&mut process);
     process
 }
 

@@ -18,6 +18,8 @@ use crate::{
     MixmodConfig, SupervisorConfig, append_file, atomic_write, get_str, get_u64, state_layout,
 };
 
+const CODEX_SHELL_ENV_INHERIT_CONFIG: &str = "shell_environment_policy.inherit=all";
+
 /// Result of one Codex app-server turn.
 pub(crate) struct CodexTurnResult {
     pub(crate) exit_status: Option<i32>,
@@ -196,6 +198,8 @@ impl AgentHarness for ShellCodexRunner {
                 "app-server".to_string(),
                 "--listen".to_string(),
                 "stdio://".to_string(),
+                "--config".to_string(),
+                CODEX_SHELL_ENV_INHERIT_CONFIG.to_string(),
             ],
             segments: vec![json!({
                 "backend": "codex",
@@ -262,7 +266,7 @@ impl CodexAppServer {
         let reasoning_effort = normalized_reasoning_effort(&supervisor.reasoning_effort)?;
         let mut command = Command::new("codex");
         command
-            .args(["app-server", "--listen", "stdio://"])
+            .args(codex_app_server_args())
             .env("CODEX_HOME", &code_home)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -660,6 +664,30 @@ impl CodexAppServer {
             .map(|guard| guard.clone())
             .unwrap_or_default()
     }
+}
+
+fn codex_app_server_args() -> [&'static str; 5] {
+    [
+        "app-server",
+        "--listen",
+        "stdio://",
+        "--config",
+        CODEX_SHELL_ENV_INHERIT_CONFIG,
+    ]
+}
+
+#[test]
+fn codex_app_server_args_inherit_launcher_shell_environment() {
+    assert_eq!(
+        codex_app_server_args(),
+        [
+            "app-server",
+            "--listen",
+            "stdio://",
+            "--config",
+            "shell_environment_policy.inherit=all",
+        ]
+    );
 }
 
 impl Drop for CodexAppServer {

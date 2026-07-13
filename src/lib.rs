@@ -119,8 +119,8 @@ pub(crate) use live::{
 pub(crate) use loop_summary::write_supervision_loop_summary;
 pub(crate) use report::budgeted_report;
 pub(crate) use run::{
-    WorkerRunOptions, run_mixmod_task_with_session, run_mixmod_task_with_worker_options,
-    shell_command, worker_session_token_peak,
+    WorkerRunOptions, prioritize_virtual_env_path, run_mixmod_task_with_session,
+    run_mixmod_task_with_worker_options, shell_command, worker_session_token_peak,
 };
 #[cfg(test)]
 pub(crate) use run::{

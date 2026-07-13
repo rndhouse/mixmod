@@ -14,8 +14,9 @@ use crate::TOOL_EVENTS_JSONL;
 use crate::{
     DelegationMode, METRICS_JSON, MixmodConfig, REPORT_MD, ShellOpenCodeRunner, WORKTREE_PATCH,
     WorkerRunOptions, absolutize, append_jsonl, atomic_write, diff_without_unchanged_blocks,
-    display_path, get_str, git_diff_with_untracked, load_config, patch_stats, read_json_file,
-    run_mixmod_task_with_worker_options, shell_command, state_layout, write_pretty_json,
+    display_path, get_str, git_diff_with_untracked, load_config, patch_stats,
+    prioritize_virtual_env_path, read_json_file, run_mixmod_task_with_worker_options,
+    shell_command, state_layout, write_pretty_json,
 };
 
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
@@ -476,10 +477,13 @@ fn deterministic_shell_command(command: &str, timeout_seconds: u64) -> std::proc
                 .arg("sh")
                 .arg("-c")
                 .arg(command);
+            prioritize_virtual_env_path(&mut cmd);
             return cmd;
         }
     }
-    shell_command(command)
+    let mut cmd = shell_command(command);
+    prioritize_virtual_env_path(&mut cmd);
+    cmd
 }
 
 fn command_timeout_seconds(config: &MixmodConfig) -> u64 {

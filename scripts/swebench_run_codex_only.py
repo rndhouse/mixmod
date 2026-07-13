@@ -24,11 +24,13 @@ from scripts.swebench_run_exec_batch import (  # noqa: E402
     choose_task,
     evaluate_patch,
     parse_task,
+    prepare_agent_python_env,
     prepare_worktree,
     project_state,
     read_json,
     safe_name,
     selected_instances,
+    swebench_agent_env,
     write_json,
 )
 
@@ -99,6 +101,7 @@ def run_codex_exec(
     worktree: Path,
     run_parent: Path,
     codex_home: Path,
+    agent_venv: Path,
     args: argparse.Namespace,
 ) -> tuple[int, float, bool]:
     model, effort = split_model(args.model, args.reasoning_effort)
@@ -123,6 +126,8 @@ def run_codex_exec(
         str(worktree),
         "--config",
         f'model_reasoning_effort="{effort}"',
+        "--config",
+        "shell_environment_policy.inherit=all",
         "--output-last-message",
         str(last_message_path),
         "-",
@@ -140,7 +145,7 @@ def run_codex_exec(
 
     started = time.monotonic()
     env = os.environ.copy()
-    env["CODEX_HOME"] = str(codex_home)
+    env.update(swebench_agent_env({"CODEX_HOME": str(codex_home)}, venv=agent_venv))
     if os.environ.get("OPENAI_API_KEY"):
         env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
 
@@ -296,13 +301,14 @@ def run_instance(
     started = time.monotonic()
 
     worktree = prepare_worktree(root, run_parent, task)
+    agent_venv = prepare_agent_python_env(worktree, run_parent)
     codex_home = prepare_codex_home(run_parent)
     prompt = build_prompt(task)
     (run_parent / "codex" / "codex-prompt.md").parent.mkdir(parents=True, exist_ok=True)
     (run_parent / "codex" / "codex-prompt.md").write_text(prompt)
 
     code, codex_seconds, codex_timed_out = run_codex_exec(
-        worktree, run_parent, codex_home, args
+        worktree, run_parent, codex_home, agent_venv, args
     )
     rollouts = copy_codex_rollouts(run_parent, codex_home)
     usage, source, rollout_count = collect_usage(run_parent, rollouts)
@@ -325,6 +331,7 @@ def run_instance(
         "codex_rollout_count": rollout_count,
         "codex_seconds": round(codex_seconds, 3),
         "codex_timed_out": codex_timed_out,
+        "agent_python_venv": str(agent_venv),
         "final_status": "success" if code == 0 else "needs_review",
         "patch_bytes": patch_bytes,
         "stdout_bytes": (run_parent / "codex" / "codex.exec.stdout.jsonl").stat().st_size,
