@@ -1069,18 +1069,23 @@ enum SearchCommandKind {
 }
 
 fn search_command_kind(command: &str) -> Option<SearchCommandKind> {
-    for segment in command_segments(command) {
-        if segment == "find" || segment.starts_with("find ") {
-            return Some(SearchCommandKind::PathList);
-        }
-        if segment == "rg"
-            || segment.starts_with("rg ")
-            || segment == "grep"
-            || segment.starts_with("grep ")
-            || segment == "git grep"
-            || segment.starts_with("git grep ")
-        {
-            return Some(SearchCommandKind::LineSearch);
+    for view in command_views(command) {
+        for segment in command_segments(&view) {
+            if segment == "find" || segment.starts_with("find ") {
+                return Some(SearchCommandKind::PathList);
+            }
+            if segment == "rg --files" || segment.starts_with("rg --files ") {
+                return Some(SearchCommandKind::PathList);
+            }
+            if segment == "rg"
+                || segment.starts_with("rg ")
+                || segment == "grep"
+                || segment.starts_with("grep ")
+                || segment == "git grep"
+                || segment.starts_with("git grep ")
+            {
+                return Some(SearchCommandKind::LineSearch);
+            }
         }
     }
     None
@@ -1424,10 +1429,10 @@ impl SupervisorToolProxyPayload {
 }
 
 fn shell_command_from_pre_tool_use(event: &Value) -> Option<&str> {
-    if get_str(event, "hook_event_name") != Some("PreToolUse") {
+    if get_str_any(event, &["hook_event_name", "hookEventName"]) != Some("PreToolUse") {
         return None;
     }
-    let tool_name = get_str(event, "tool_name")?;
+    let tool_name = get_str_any(event, &["tool_name", "toolName"])?;
     if !matches!(
         tool_name,
         "Bash" | "exec_command" | "functions.exec_command"
@@ -1436,7 +1441,12 @@ fn shell_command_from_pre_tool_use(event: &Value) -> Option<&str> {
     }
     event
         .get("tool_input")
+        .or_else(|| event.get("toolInput"))
         .and_then(|input| get_str(input, "command").or_else(|| get_str(input, "cmd")))
+}
+
+fn get_str_any<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| get_str(value, key))
 }
 
 fn payload_path(code_home: &Path, payload: &SupervisorToolProxyPayload) -> Result<PathBuf> {
@@ -1544,14 +1554,104 @@ pub(crate) fn should_proxy_bash_command(command: &str) -> bool {
     if command.is_empty() {
         return false;
     }
-    if command_segments(command).any(is_tool_recursion_command) {
+    let views = command_views(command);
+    if views
+        .iter()
+        .any(|view| command_segments(view).any(is_tool_recursion_command))
+    {
         return false;
     }
-    if contains_obvious_mutation(command) {
+    if views.iter().any(|view| contains_obvious_mutation(view)) {
         return false;
     }
-    command_segments(command)
-        .any(|segment| is_inspection_command(segment) || is_test_or_build_command(segment))
+    views.iter().any(|view| {
+        command_segments(view)
+            .any(|segment| is_inspection_command(segment) || is_test_or_build_command(segment))
+    })
+}
+
+fn command_views(command: &str) -> Vec<String> {
+    let mut views = Vec::new();
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return views;
+    }
+    views.push(trimmed.to_string());
+    let mut current = trimmed.to_string();
+    for _ in 0..3 {
+        let Some(inner) = unwrap_shell_exec_command(&current) else {
+            break;
+        };
+        if inner.is_empty() || views.iter().any(|view| view == &inner) {
+            break;
+        }
+        current = inner.clone();
+        views.push(inner);
+    }
+    views
+}
+
+fn unwrap_shell_exec_command(command: &str) -> Option<String> {
+    let trimmed = command.trim();
+    for prefix in [
+        "/bin/bash -lc ",
+        "bash -lc ",
+        "/bin/bash -c ",
+        "bash -c ",
+        "/bin/sh -c ",
+        "sh -c ",
+    ] {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            return Some(shell_first_argument(rest.trim()));
+        }
+    }
+    None
+}
+
+fn shell_first_argument(value: &str) -> String {
+    let trimmed = value.trim();
+    let Some(first) = trimmed.chars().next() else {
+        return String::new();
+    };
+    match first {
+        '\'' => parse_single_quoted_argument(trimmed),
+        '"' => parse_double_quoted_argument(trimmed),
+        _ => trimmed
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string(),
+    }
+}
+
+fn parse_single_quoted_argument(value: &str) -> String {
+    let mut output = String::new();
+    let mut chars = value[1..].chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            break;
+        }
+        output.push(ch);
+    }
+    output
+}
+
+fn parse_double_quoted_argument(value: &str) -> String {
+    let mut output = String::new();
+    let mut escaped = false;
+    for ch in value[1..].chars() {
+        if escaped {
+            output.push(ch);
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '"' => break,
+            _ => output.push(ch),
+        }
+    }
+    output
 }
 
 fn command_segments(command: &str) -> impl Iterator<Item = &str> {
@@ -1701,6 +1801,8 @@ mod tests {
             "git status --short",
             "git grep TypeBinding",
             "rg TypeBinding",
+            "/bin/bash -lc \"rg -n TypeBinding vm parser\"",
+            "/bin/bash -lc \"rg --files -g '!*vendor*' | sed -n '1,120p'\"",
             "git status --short && rg -n TypeBinding vm parser",
             "python -m pytest tests/test_bindings.py -q 2>&1 | tail -80",
             "go test ./vm -run TestVar",
@@ -1862,6 +1964,19 @@ src/other.rs:4:target_symbol();
         assert_eq!(summary["kind"], json!("path_search"));
         assert_eq!(summary["total_output_lines"], json!(2));
         assert_eq!(summary["paths"][0], json!("./src/lib.rs"));
+    }
+
+    #[test]
+    fn wrapped_rg_files_command_summary_groups_paths() {
+        let summary = search_output_summary(
+            "/bin/bash -lc \"rg --files -g '!*vendor*' | sed -n '1,120p'\"",
+            "src/lib.rs\ntests/a.rs\n",
+        )
+        .expect("wrapped rg --files output should be summarized");
+
+        assert_eq!(summary["kind"], json!("path_search"));
+        assert_eq!(summary["total_output_lines"], json!(2));
+        assert_eq!(summary["paths"][0], json!("src/lib.rs"));
     }
 
     #[test]
@@ -2030,8 +2145,10 @@ tests/lib.rs:5:assert!(target_symbol());
     fn does_not_proxy_mutating_or_recursive_commands() {
         for command in [
             "gofmt -w vm/vm.go",
+            "/bin/bash -lc \"gofmt -w vm.go\"",
             "git add .",
             "git status --short && mixmod tool run-command --command 'rg x'",
+            "/bin/bash -lc \"rg x && mixmod tool run-command --command 'rg y'\"",
             "git status --short && codex exec --help",
             "git status --short && opencode run hi",
             "mixmod codex-hook run-tool-proxy --payload x",
@@ -2054,6 +2171,22 @@ tests/lib.rs:5:assert!(target_symbol());
         assert_eq!(
             shell_command_from_pre_tool_use(&event),
             Some("git status --short")
+        );
+    }
+
+    #[test]
+    fn pre_tool_use_command_parser_accepts_camel_case_hook_shape() {
+        let event = json!({
+            "hookEventName": "PreToolUse",
+            "toolName": "Bash",
+            "toolInput": {
+                "command": "/bin/bash -lc \"rg -n target src\""
+            }
+        });
+
+        assert_eq!(
+            shell_command_from_pre_tool_use(&event),
+            Some("/bin/bash -lc \"rg -n target src\"")
         );
     }
 
