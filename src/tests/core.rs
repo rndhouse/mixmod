@@ -287,13 +287,21 @@ fn exec_command_is_public_cli_surface() {
         "run-command",
         "--command",
         "git status --short",
+        "--need",
+        "tracked changes only",
     ])
     .unwrap();
     match cli.command {
         Commands::Tool {
-            command: ToolCommand::RunCommand { command, args },
+            command:
+                ToolCommand::RunCommand {
+                    command,
+                    need,
+                    args,
+                },
         } => {
             assert_eq!(command.as_deref(), Some("git status --short"));
+            assert_eq!(need.as_deref(), Some("tracked changes only"));
             assert!(args.is_empty());
         }
         _ => panic!("expected tool run-command"),
@@ -310,9 +318,15 @@ fn exec_command_is_public_cli_surface() {
     .unwrap();
     match cli.command {
         Commands::Tool {
-            command: ToolCommand::RunCommand { command, args },
+            command:
+                ToolCommand::RunCommand {
+                    command,
+                    need,
+                    args,
+                },
         } => {
             assert!(command.is_none());
+            assert!(need.is_none());
             assert_eq!(args, vec!["git", "status", "--short"]);
         }
         _ => panic!("expected tool run-command"),

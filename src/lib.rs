@@ -294,10 +294,14 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 let prompt = resolve_tool_prompt(prompt, args)?;
                 run_worker_ask_tool(&root, &prompt)
             }
-            ToolCommand::RunCommand { command, args } => {
+            ToolCommand::RunCommand {
+                command,
+                need,
+                args,
+            } => {
                 ensure_project_state(&root, false)?;
                 let command = resolve_tool_command(command, args)?;
-                run_worker_command_tool(&root, &command)
+                run_worker_command_tool(&root, &command, need.as_deref())
             }
         },
         Commands::CodexHook { command } => match command {

@@ -232,7 +232,7 @@ you reading long files or command output directly. When a bounded command can
 save GPT tokens, call:
 
 ```bash
-{mixmod_tool_command} tool run-command --command "git status --short"
+{mixmod_tool_command} tool run-command --command "git status --short" --need "Tell me whether the worktree has tracked changes. Mention untracked task files only if relevant."
 ```
 
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
@@ -246,6 +246,10 @@ When routing commands through the local worker, prefer bounded commands that
 return compact evidence: narrow paths or globs, `rg --max-count`, targeted
 `sed -n` ranges, and package-level checks. Avoid broad repository-wide searches
 with many alternations when a smaller probe would answer the question.
+Use `--need` to tell the worker exactly what to surface back: pass/fail only,
+the failing assertion and first relevant traceback line, the files/symbols that
+match, or the changed files and notable hunks. A good `--need` should make the
+returned answer smaller than the raw command output.
 For routed `rg` or `grep` commands, include path limits and match limits such as
 `--max-count`, `--glob`, or explicit directories unless the repository is tiny.
 For non-tiny repositories, the path argument must be narrower than `.`; a

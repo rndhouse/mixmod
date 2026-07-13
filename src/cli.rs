@@ -140,6 +140,9 @@ pub enum ToolCommand {
         /// Command string to delegate to the worker.
         #[arg(long, value_name = "SHELL_COMMAND")]
         command: Option<String>,
+        /// What the supervisor needs back from the local worker.
+        #[arg(long, value_name = "NEED")]
+        need: Option<String>,
         /// Command tokens after `--`, joined with spaces.
         #[arg(value_name = "COMMAND", num_args = 0.., trailing_var_arg = true)]
         args: Vec<String>,

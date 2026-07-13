@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt::Write as _;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
@@ -33,12 +34,16 @@ pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
 }
 
 /// Run a supervisor-requested command through the configured low-cost worker.
-pub(crate) fn run_worker_command_tool(root: &Path, command: &str) -> Result<()> {
+pub(crate) fn run_worker_command_tool(
+    root: &Path,
+    command: &str,
+    need: Option<&str>,
+) -> Result<()> {
     let command = command.trim();
     if command.is_empty() {
         anyhow::bail!("worker command must not be empty");
     }
-    let payload = SupervisorToolProxyPayload::from_command(command, root);
+    let payload = SupervisorToolProxyPayload::from_command(command, need, root);
     run_supervisor_tool_proxy_payload(&payload, root)
 }
 
@@ -140,32 +145,119 @@ fn run_supervisor_tool_proxy_payload(
         .then(|| command_tool_result(&out_dir, payload.command.trim()))
         .flatten();
     let worker_status = tool_proxy_worker_status(&receipt.status, command_result.as_ref());
-    println!("Mixmod supervisor tool proxy");
     match payload.kind {
-        SupervisorToolProxyKind::Command => {
-            println!("original_command: {}", payload.command.trim());
-        }
-        SupervisorToolProxyKind::Ask => {
-            println!(
-                "worker_request: {}",
-                compact_text(payload.request_text(), 1_000)
-            );
-        }
+        SupervisorToolProxyKind::Command => print_command_tool_result(
+            payload,
+            &root,
+            &out_dir,
+            &metrics,
+            &receipt,
+            command_result.as_ref(),
+            &worker_status,
+            &worker_text,
+        ),
+        SupervisorToolProxyKind::Ask => print_ask_tool_result(
+            payload,
+            &root,
+            &out_dir,
+            &metrics,
+            &receipt,
+            &worker_status,
+            &worker_text,
+        ),
     }
-    println!("worker_status: {worker_status}");
-    if let Some(result) = &command_result
+    Ok(())
+}
+
+fn print_command_tool_result(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    metrics: &Value,
+    receipt: &crate::Receipt,
+    command_result: Option<&CommandToolResult>,
+    worker_status: &str,
+    worker_text: &str,
+) {
+    print!(
+        "{}",
+        render_command_tool_result(
+            payload,
+            root,
+            out_dir,
+            metrics,
+            receipt,
+            command_result,
+            worker_status,
+            worker_text,
+        )
+    );
+}
+
+fn render_command_tool_result(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    metrics: &Value,
+    receipt: &crate::Receipt,
+    command_result: Option<&CommandToolResult>,
+    worker_status: &str,
+    worker_text: &str,
+) -> String {
+    let mut output = String::new();
+    writeln!(output, "Mixmod command proxy result").expect("write to string");
+    writeln!(output, "status: {worker_status}").expect("write to string");
+    writeln!(output, "command: {}", payload.command.trim()).expect("write to string");
+    if let Some(need) = payload.need_text() {
+        writeln!(output, "need: {}", compact_text(need, 600)).expect("write to string");
+    }
+    if let Some(result) = command_result
         && let Some(exit_status) = result.exit_status
     {
-        println!("command_exit_status: {exit_status}");
+        writeln!(output, "command_exit_status: {exit_status}").expect("write to string");
     }
+    if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
+        writeln!(output, "worker_exit_status: {exit_status}").expect("write to string");
+    }
+    if let Some(notice) = tool_proxy_side_effect_notice(receipt, metrics) {
+        writeln!(output, "{notice}").expect("write to string");
+        writeln!(output, "side_effect_patch_artifact: {}", WORKTREE_PATCH)
+            .expect("write to string");
+    }
+    writeln!(output, "artifacts_dir: {}", display_path(root, out_dir)).expect("write to string");
+    writeln!(output, "answer:").expect("write to string");
+    writeln!(
+        output,
+        "{}",
+        compact_text(worker_text, COMMAND_SUMMARY_BYTES)
+    )
+    .expect("write to string");
+    output
+}
+
+fn print_ask_tool_result(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    metrics: &Value,
+    receipt: &crate::Receipt,
+    worker_status: &str,
+    worker_text: &str,
+) {
+    println!("Mixmod supervisor tool proxy");
+    println!(
+        "worker_request: {}",
+        compact_text(payload.request_text(), 1_000)
+    );
+    println!("worker_status: {worker_status}");
     if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
         println!("worker_exit_status: {exit_status}");
     }
-    if let Some(notice) = tool_proxy_side_effect_notice(&receipt, &metrics) {
+    if let Some(notice) = tool_proxy_side_effect_notice(receipt, metrics) {
         println!("{notice}");
         println!("side_effect_patch_artifact: {}", WORKTREE_PATCH);
     }
-    println!("artifacts: {}", display_path(&root, &out_dir));
+    println!("artifacts: {}", display_path(root, out_dir));
     println!("prompt_artifact: {}", OPENCODE_INSTRUCTIONS_MD);
     println!("report_artifact: {}", REPORT_MD);
     println!("stdout_artifact: logs/opencode.stdout.txt");
@@ -175,11 +267,7 @@ fn run_supervisor_tool_proxy_payload(
     println!("worktree_patch_artifact: {}", WORKTREE_PATCH);
     println!();
     println!("worker_summary:");
-    println!(
-        "{}",
-        compact_text(&worker_text, tool_proxy_summary_bytes(payload.kind))
-    );
-    Ok(())
+    println!("{}", compact_text(worker_text, ASK_SUMMARY_BYTES));
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -233,13 +321,6 @@ fn tool_proxy_worker_status(
     receipt_status.to_string()
 }
 
-fn tool_proxy_summary_bytes(kind: SupervisorToolProxyKind) -> usize {
-    match kind {
-        SupervisorToolProxyKind::Command => COMMAND_SUMMARY_BYTES,
-        SupervisorToolProxyKind::Ask => ASK_SUMMARY_BYTES,
-    }
-}
-
 fn tool_proxy_side_effect_notice(receipt: &crate::Receipt, metrics: &Value) -> Option<String> {
     let changed_files = metrics
         .get("changed_file_count")
@@ -291,6 +372,8 @@ struct SupervisorToolProxyPayload {
     kind: SupervisorToolProxyKind,
     command: String,
     #[serde(default)]
+    need: Option<String>,
+    #[serde(default)]
     prompt: Option<String>,
     cwd: Option<String>,
     session_id: Option<String>,
@@ -310,10 +393,14 @@ enum SupervisorToolProxyKind {
 }
 
 impl SupervisorToolProxyPayload {
-    fn from_command(command: &str, root: &Path) -> Self {
+    fn from_command(command: &str, need: Option<&str>, root: &Path) -> Self {
         Self {
             kind: SupervisorToolProxyKind::Command,
             command: command.to_string(),
+            need: need
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
             prompt: None,
             cwd: Some(root.to_string_lossy().to_string()),
             session_id: None,
@@ -329,6 +416,7 @@ impl SupervisorToolProxyPayload {
         Self {
             kind: SupervisorToolProxyKind::Ask,
             command: String::new(),
+            need: None,
             prompt: Some(prompt.to_string()),
             cwd: Some(root.to_string_lossy().to_string()),
             session_id: None,
@@ -344,6 +432,7 @@ impl SupervisorToolProxyPayload {
         Self {
             kind: SupervisorToolProxyKind::Command,
             command: command.to_string(),
+            need: None,
             prompt: None,
             cwd: get_str(event, "cwd").map(ToOwned::to_owned),
             session_id: get_str(event, "session_id").map(ToOwned::to_owned),
@@ -360,6 +449,13 @@ impl SupervisorToolProxyPayload {
             SupervisorToolProxyKind::Command => self.command.trim(),
             SupervisorToolProxyKind::Ask => self.prompt.as_deref().unwrap_or("").trim(),
         }
+    }
+
+    fn need_text(&self) -> Option<&str> {
+        self.need
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
     }
 }
 
@@ -401,10 +497,18 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
         SupervisorToolProxyKind::Command => {
             let command = payload.command.trim();
             let role = worker_role_for_command(command);
+            let need = payload.need_text();
+            let need_instruction = need
+                .map(|need| {
+                    format!(
+                        "\n\nSupervisor information need:\n{need}\n\nUse your best judgment to return only the evidence needed to satisfy this request. If the command output does not answer it, say that directly and include the smallest relevant evidence."
+                    )
+                })
+                .unwrap_or_default();
             json!({
                 "title": format!("Supervisor tool proxy: {command}"),
                 "instructions": format!(
-                    "A GPT supervisor requested this Bash command:\n\n```bash\n{command}\n```\n\nRun exactly that command from the current repository context. Do not edit files, do not commit, and do not run unrelated exploratory commands. Return only the useful minimal result for the supervisor: command, exit status, pass/fail when applicable, and the smallest relevant excerpt or summary. For git diff/status, summarize changed files and notable hunks instead of pasting a long diff. For search commands with many matches, summarize the matching files, symbols, and most relevant lines instead of replaying the full output."
+                    "A GPT supervisor requested this Bash command:\n\n```bash\n{command}\n```{need_instruction}\n\nRun exactly that command from the current repository context. Do not edit files, do not commit, and do not run unrelated exploratory commands unless the command cannot run as written and a tiny bounded probe is necessary to explain why. Return only the useful minimal result for the supervisor: command, exit status, pass/fail when applicable, and the smallest relevant excerpt or summary. For git diff/status, summarize changed files and notable hunks instead of pasting a long diff. For search commands with many matches, summarize the matching files, symbols, and most relevant lines instead of replaying the full output."
                 ),
                 "expect_patch": false,
                 "tests": [command],
@@ -413,6 +517,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Do not commit changes.",
                     "Do not inspect /solution or verifier internals.",
                     "Keep stdout compact.",
+                    "Optimize the final answer for the supervisor information need when one is provided.",
                     "If the command produces long output, summarize and include only the most relevant failing lines or diff facts.",
                     "For search output, report matching files, symbols, and representative lines instead of full output."
                 ],
@@ -420,7 +525,8 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "worker_role": role,
                     "expect_patch": false,
                     "delegated_from": "mixmod_cli_tool",
-                    "original_command": command
+                    "original_command": command,
+                    "supervisor_need": need
                 }
             })
         }
@@ -619,33 +725,42 @@ mod tests {
     #[test]
     fn command_tool_task_requests_compact_search_summaries() {
         let temp = tempfile::tempdir().unwrap();
-        let payload =
-            SupervisorToolProxyPayload::from_command("rg -n TypedBindings vm parser", temp.path());
+        let payload = SupervisorToolProxyPayload::from_command(
+            "rg -n TypedBindings vm parser",
+            Some("Return matching files and the most relevant line numbers only."),
+            temp.path(),
+        );
 
         let task = tool_proxy_task(&payload);
         let instructions = task["instructions"].as_str().unwrap();
         let constraints = task["constraints"].as_array().unwrap();
 
+        assert!(instructions.contains("Supervisor information need"));
+        assert!(instructions.contains("most relevant line numbers"));
         assert!(instructions.contains("For search commands with many matches"));
         assert!(
             constraints
                 .iter()
                 .any(|value| { value.as_str().unwrap_or("").contains("For search output") })
         );
+        assert!(constraints.iter().any(|value| {
+            value
+                .as_str()
+                .unwrap_or("")
+                .contains("supervisor information need")
+        }));
         assert_eq!(task["context"]["worker_role"], json!("inspect"));
+        assert_eq!(
+            task["context"]["supervisor_need"],
+            json!("Return matching files and the most relevant line numbers only.")
+        );
     }
 
     #[test]
     fn tool_proxy_summary_limits_keep_codex_output_compact() {
-        assert_eq!(
-            tool_proxy_summary_bytes(SupervisorToolProxyKind::Command),
-            COMMAND_SUMMARY_BYTES
-        );
-        assert_eq!(
-            tool_proxy_summary_bytes(SupervisorToolProxyKind::Ask),
-            ASK_SUMMARY_BYTES
-        );
         assert!(COMMAND_SUMMARY_BYTES < ASK_SUMMARY_BYTES);
+        assert!(COMMAND_SUMMARY_BYTES <= 2_000);
+        assert!(ASK_SUMMARY_BYTES <= 3_000);
     }
 
     #[test]
@@ -823,6 +938,43 @@ mod tests {
             tool_proxy_worker_status("success", Some(&passed)),
             "success"
         );
+    }
+
+    #[test]
+    fn command_tool_result_stdout_is_compact() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let payload = SupervisorToolProxyPayload::from_command(
+            "git diff --check",
+            Some("Report only pass/fail and whitespace errors."),
+            temp.path(),
+        );
+        let receipt = receipt_with_changed_files(Vec::new());
+        let result = CommandToolResult {
+            exit_status: Some(0),
+        };
+
+        let output = render_command_tool_result(
+            &payload,
+            temp.path(),
+            &out_dir,
+            &json!({"opencode_exit_status": 0}),
+            &receipt,
+            Some(&result),
+            "success",
+            "No whitespace errors.",
+        );
+
+        assert!(output.contains("Mixmod command proxy result"));
+        assert!(output.contains("status: success"));
+        assert!(output.contains("command_exit_status: 0"));
+        assert!(output.contains("need: Report only pass/fail"));
+        assert!(output.contains("artifacts_dir:"));
+        assert!(output.contains("answer:\nNo whitespace errors."));
+        assert!(!output.contains("prompt_artifact:"));
+        assert!(!output.contains("report_artifact:"));
+        assert!(!output.contains("tool_events_artifact:"));
+        assert!(!output.contains("worker_summary:"));
     }
 
     #[test]
