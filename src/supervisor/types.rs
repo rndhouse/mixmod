@@ -23,6 +23,7 @@ pub(crate) struct SupervisorFeedbackTurn {
     pub(crate) output_bytes: u64,
     pub(crate) thread_id: String,
     pub(crate) turn_id: String,
+    pub(crate) token_usage_comparable: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -90,6 +91,7 @@ pub(crate) struct SupervisorBriefTurn {
     pub(crate) output_bytes: u64,
     pub(crate) thread_id: String,
     pub(crate) turn_id: String,
+    pub(crate) token_usage_comparable: bool,
 }
 
 #[derive(Clone)]
@@ -103,6 +105,7 @@ pub(crate) struct SupervisorUsageSample {
     pub(super) output_bytes: u64,
     pub(super) thread_id: String,
     pub(super) turn_id: String,
+    pub(super) token_usage_comparable: bool,
 }
 
 impl SupervisorFeedbackTurn {
@@ -117,6 +120,7 @@ impl SupervisorFeedbackTurn {
             output_bytes: self.output_bytes,
             thread_id: self.thread_id.clone(),
             turn_id: self.turn_id.clone(),
+            token_usage_comparable: self.token_usage_comparable,
         }
     }
 }
@@ -133,6 +137,7 @@ impl SupervisorBriefTurn {
             output_bytes: self.output_bytes,
             thread_id: self.thread_id.clone(),
             turn_id: self.turn_id.clone(),
+            token_usage_comparable: self.token_usage_comparable,
         }
     }
 }
@@ -149,6 +154,7 @@ pub(crate) struct SupervisorUsage {
     pub(crate) turn_count: u64,
     pub(crate) thread_ids: Vec<String>,
     pub(crate) turn_ids: Vec<String>,
+    pub(crate) token_usage_comparable: bool,
 }
 
 impl SupervisorUsage {
@@ -173,7 +179,10 @@ impl SupervisorUsage {
 }
 
 pub(crate) fn aggregate_supervisor_usage(turns: &[SupervisorUsageSample]) -> SupervisorUsage {
-    let mut usage = SupervisorUsage::default();
+    let mut usage = SupervisorUsage {
+        token_usage_comparable: !turns.is_empty(),
+        ..SupervisorUsage::default()
+    };
     for turn in turns {
         usage.input_tokens += turn.input_tokens;
         usage.output_tokens += turn.output_tokens;
@@ -185,6 +194,7 @@ pub(crate) fn aggregate_supervisor_usage(turns: &[SupervisorUsageSample]) -> Sup
         usage.turn_count += 1;
         usage.thread_ids.push(turn.thread_id.clone());
         usage.turn_ids.push(turn.turn_id.clone());
+        usage.token_usage_comparable &= turn.token_usage_comparable;
     }
     usage
 }

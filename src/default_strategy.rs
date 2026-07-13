@@ -278,6 +278,16 @@ impl DefaultStrategyRun<'_> {
         } else {
             "needs_review"
         };
+        let supervisor_token_usage_source = if supervisor_usage.token_usage_comparable {
+            "codex_app_server_total_token_usage"
+        } else {
+            "incomplete_or_noncomparable"
+        };
+        let supervisor_token_usage_scope = if supervisor_usage.token_usage_comparable {
+            "cumulative"
+        } else {
+            "incomplete"
+        };
         let worker_run_dirs = worker_run_dirs
             .iter()
             .map(|dir| display_path(root, dir))
@@ -305,6 +315,9 @@ impl DefaultStrategyRun<'_> {
             "codex_app_server_thread_ids": supervisor_usage.thread_ids.clone(),
             "codex_app_server_turn_ids": supervisor_usage.turn_ids.clone(),
             "codex_app_server_thread_count": supervisor_usage.thread_count(),
+            "supervisor_token_usage_source": supervisor_token_usage_source,
+            "supervisor_token_usage_scope": supervisor_token_usage_scope,
+            "supervisor_token_usage_comparable": supervisor_usage.token_usage_comparable,
             "supervisor_session_reused": supervisor_usage.session_reused(),
             "supervisor_resume_count": supervisor_usage.thread_reuse_count(),
             "did_codex_read_full_mixmod_session": false,

@@ -35,6 +35,7 @@ fn revision_task_preserves_codex_focus_files() {
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     };
 
     let path =
@@ -107,6 +108,7 @@ fn inspect_revision_role_does_not_expect_delta() {
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     };
 
     let path =
@@ -165,6 +167,7 @@ fn context_focus_revision_task_uses_focused_prompt() {
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     };
 
     let path =
@@ -214,6 +217,7 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     };
 
     let path =
@@ -280,6 +284,7 @@ fn small_patch_slice_revision_task_preserves_explicit_supervisor_gate() {
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     };
 
     let path =
@@ -360,6 +365,7 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     };
 
     let path =

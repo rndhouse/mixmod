@@ -135,6 +135,43 @@ fn codex_usage_reads_app_server_total_fallback() {
 }
 
 #[test]
+fn codex_app_server_turn_delta_uses_cumulative_total_not_last_request() {
+    let token_usage = json!({
+        "last": {
+            "inputTokens": 1,
+            "cachedInputTokens": 0,
+            "outputTokens": 1,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 2
+        },
+        "total": {
+            "inputTokens": 40,
+            "cachedInputTokens": 30,
+            "outputTokens": 6,
+            "reasoningOutputTokens": 2,
+            "totalTokens": 46
+        }
+    });
+    let previous = crate::harness::codex::CodexUsage {
+        input_tokens: 10,
+        cached_input_tokens: 8,
+        output_tokens: 3,
+        reasoning_tokens: 1,
+        total_tokens: 13,
+    };
+
+    let cumulative =
+        crate::harness::codex::codex_app_server_cumulative_usage(&token_usage).unwrap();
+    let delta = cumulative.delta_since(&previous);
+
+    assert_eq!(delta.input_tokens, 30);
+    assert_eq!(delta.cached_input_tokens, 22);
+    assert_eq!(delta.output_tokens, 3);
+    assert_eq!(delta.reasoning_tokens, 1);
+    assert_eq!(delta.total_tokens, 33);
+}
+
+#[test]
 fn supervise_args_launch_background_run_with_resume() {
     let args = supervise_run_args(
         DelegationMode::Patch,
@@ -753,6 +790,7 @@ fn supervisor_reuse_metrics_are_derived_from_thread_ids() {
             output_bytes: 20,
             thread_id: thread_id.to_string(),
             turn_id: turn_id.to_string(),
+            token_usage_comparable: true,
         }
         .usage_sample()
     };

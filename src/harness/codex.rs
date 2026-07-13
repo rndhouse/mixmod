@@ -35,6 +35,8 @@ pub(crate) struct CodexTurnResult {
     pub(crate) thread_id: String,
     pub(crate) turn_id: String,
     pub(crate) token_usage_source: String,
+    pub(crate) token_usage_scope: String,
+    pub(crate) token_usage_comparable: bool,
 }
 
 /// Codex sandbox profile used for an app-server thread or turn.
@@ -79,6 +81,24 @@ pub(crate) struct CodexUsage {
     pub(crate) total_tokens: u64,
 }
 
+impl CodexUsage {
+    /// Return this cumulative usage with the previous cumulative reading
+    /// subtracted, saturating if Codex reports a reset.
+    pub(crate) fn delta_since(&self, previous: &Self) -> Self {
+        Self {
+            input_tokens: self.input_tokens.saturating_sub(previous.input_tokens),
+            cached_input_tokens: self
+                .cached_input_tokens
+                .saturating_sub(previous.cached_input_tokens),
+            output_tokens: self.output_tokens.saturating_sub(previous.output_tokens),
+            reasoning_tokens: self
+                .reasoning_tokens
+                .saturating_sub(previous.reasoning_tokens),
+            total_tokens: self.total_tokens.saturating_sub(previous.total_tokens),
+        }
+    }
+}
+
 /// Persistent Codex app-server process plus one active thread.
 pub(crate) struct CodexAppServer {
     child: Child,
@@ -94,6 +114,7 @@ pub(crate) struct CodexAppServer {
     model: String,
     reasoning_effort: String,
     thread_id: String,
+    total_usage: CodexUsage,
 }
 
 /// Codex app-server worker harness.
@@ -190,6 +211,9 @@ impl AgentHarness for ShellCodexRunner {
                 "output_tokens": result.usage.output_tokens,
                 "reasoning_tokens": result.usage.reasoning_tokens,
                 "total_tokens": result.usage.total_tokens,
+                "token_usage_source": result.token_usage_source.clone(),
+                "token_usage_scope": result.token_usage_scope.clone(),
+                "token_usage_comparable": result.token_usage_comparable,
                 "input_bytes": result.input_bytes,
                 "output_bytes": result.output_bytes,
                 "turn_status": result.turn_status,
@@ -282,6 +306,7 @@ impl CodexAppServer {
             model,
             reasoning_effort,
             thread_id: String::new(),
+            total_usage: CodexUsage::default(),
         };
         server.initialize()?;
         server.start_thread()?;
@@ -329,7 +354,8 @@ impl CodexAppServer {
             .to_string();
         let mut last_agent_message = String::new();
         let mut delta_messages = BTreeMap::<String, String>::new();
-        let mut usage = CodexUsage::default();
+        let mut cumulative_usage = None;
+        let mut fallback_last_request_usage = None;
 
         let (exit_status, turn_status, error_info, error_message) = loop {
             let message = self.read_message()?;
@@ -365,10 +391,13 @@ impl CodexAppServer {
                         if get_str(params, "threadId") == Some(self.thread_id.as_str())
                             && get_str(params, "turnId") == Some(turn_id.as_str()) =>
                     {
-                        if let Some(last) =
-                            params.get("tokenUsage").and_then(|value| value.get("last"))
-                        {
-                            usage = codex_usage_from_breakdown(last);
+                        if let Some(token_usage) = params.get("tokenUsage") {
+                            if let Some(total) = codex_app_server_cumulative_usage(token_usage) {
+                                cumulative_usage = Some(total);
+                            }
+                            if let Some(last) = codex_app_server_last_request_usage(token_usage) {
+                                fallback_last_request_usage = Some(last);
+                            }
                         }
                     }
                     "turn/completed"
@@ -415,6 +444,32 @@ impl CodexAppServer {
             last_agent_message = text.clone();
         }
 
+        let (usage, token_usage_source, token_usage_scope, token_usage_comparable) =
+            if let Some(total_usage) = cumulative_usage {
+                let usage = total_usage.delta_since(&self.total_usage);
+                self.total_usage = total_usage;
+                (
+                    usage,
+                    "codex_app_server_total_token_usage".to_string(),
+                    "turn_delta_from_cumulative".to_string(),
+                    true,
+                )
+            } else if let Some(last_request_usage) = fallback_last_request_usage {
+                (
+                    last_request_usage,
+                    "codex_app_server_last_token_usage".to_string(),
+                    "last_request".to_string(),
+                    false,
+                )
+            } else {
+                (
+                    CodexUsage::default(),
+                    "codex_app_server_missing_token_usage".to_string(),
+                    "unavailable".to_string(),
+                    false,
+                )
+            };
+
         let event_log = jsonl_bytes(&events)?;
         let stderr = self.stderr_snapshot();
         atomic_write(&logs_dir.join(format!("codex-{label}.jsonl")), &event_log)?;
@@ -441,7 +496,9 @@ impl CodexAppServer {
             auth_copied_then_removed: self.copied_auth,
             thread_id: self.thread_id.clone(),
             turn_id,
-            token_usage_source: "codex_app_server_last_token_usage".to_string(),
+            token_usage_source,
+            token_usage_scope,
+            token_usage_comparable,
         })
     }
 
@@ -716,6 +773,14 @@ fn codex_usage_from_breakdown(value: &Value) -> CodexUsage {
                 + get_u64(value, "reasoningOutputTokens").unwrap_or(0)
         }),
     }
+}
+
+pub(crate) fn codex_app_server_cumulative_usage(token_usage: &Value) -> Option<CodexUsage> {
+    token_usage.get("total").map(codex_usage_from_breakdown)
+}
+
+fn codex_app_server_last_request_usage(token_usage: &Value) -> Option<CodexUsage> {
+    token_usage.get("last").map(codex_usage_from_breakdown)
 }
 
 #[cfg(test)]

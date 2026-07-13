@@ -92,6 +92,11 @@ impl AgentStrategyRun<'_> {
         let codex_error_info = result.error_info.clone();
         let codex_error_message = result.error_message.clone();
         let final_status = agent_final_status(success, codex_error_info.as_deref());
+        let supervisor_token_usage_scope = if result.token_usage_comparable {
+            "cumulative"
+        } else {
+            result.token_usage_scope.as_str()
+        };
         let worker_tool_metrics = worker_tool_proxy_metrics(root, run_start_time);
         let metrics = json!({
             "kind": "mixmod-agent-strategy",
@@ -119,6 +124,8 @@ impl AgentStrategyRun<'_> {
             "codex_error_info": codex_error_info,
             "codex_error_message": codex_error_message,
             "supervisor_token_usage_source": result.token_usage_source,
+            "supervisor_token_usage_scope": supervisor_token_usage_scope,
+            "supervisor_token_usage_comparable": result.token_usage_comparable,
             "supervisor_session_reused": false,
             "supervisor_resume_count": 0,
             "strategy_phases": ["codex_primary_agent"],
