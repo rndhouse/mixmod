@@ -112,6 +112,43 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
+def unique_paths(paths: list[str]) -> list[str]:
+    seen = set()
+    unique = []
+    for path in paths:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        unique.append(path)
+    return unique
+
+
+def detected_libstdcxx_dirs() -> list[str]:
+    nix_store = Path("/nix/store")
+    if not nix_store.exists():
+        return []
+    matches = []
+    for pattern in [
+        "*gcc*-lib/lib/libstdc++.so.6",
+        "*gfortran*-lib/lib/libstdc++.so.6",
+        "*profile/lib/libstdc++.so.6",
+    ]:
+        matches.extend(nix_store.glob(pattern))
+    return unique_paths([str(path.parent) for path in sorted(matches)])
+
+
+def swebench_eval_env() -> dict[str, str]:
+    extra = os.environ.get("MIXMOD_SWEBENCH_EXTRA_LD_LIBRARY_PATH", "")
+    paths = [
+        *extra.split(os.pathsep),
+        "/run/opengl-driver/lib",
+        "/run/current-system/sw/lib",
+        *detected_libstdcxx_dirs(),
+        *os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep),
+    ]
+    return {"LD_LIBRARY_PATH": os.pathsep.join(unique_paths(paths))}
+
+
 def run_logged(
     cmd: list[str | Path],
     cwd: Path,
@@ -308,12 +345,6 @@ def evaluate_patch(
     prediction = run_parent / "eval" / f"{safe_name(instance_id)}.jsonl"
     write_prediction_jsonl(instance_id, args.model_name, patch_path, prediction)
 
-    env = {
-        "LD_LIBRARY_PATH": (
-            f"/run/opengl-driver/lib:/run/current-system/sw/lib:"
-            f"{os.environ.get('LD_LIBRARY_PATH', '')}"
-        ),
-    }
     code, seconds, timed_out = run_logged(
         [
             "swebench-eval",
@@ -334,7 +365,7 @@ def evaluate_patch(
         ],
         root,
         run_parent / "logs" / "eval.log",
-        env=env,
+        env=swebench_eval_env(),
         timeout_seconds=args.eval_timeout_seconds,
     )
     summary = move_eval_summary(root, run_parent, args.model_name, run_id)

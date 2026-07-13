@@ -74,6 +74,43 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
+def unique_paths(paths: list[str]) -> list[str]:
+    seen = set()
+    unique = []
+    for path in paths:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        unique.append(path)
+    return unique
+
+
+def detected_libstdcxx_dirs() -> list[str]:
+    nix_store = Path("/nix/store")
+    if not nix_store.exists():
+        return []
+    matches = []
+    for pattern in [
+        "*gcc*-lib/lib/libstdc++.so.6",
+        "*gfortran*-lib/lib/libstdc++.so.6",
+        "*profile/lib/libstdc++.so.6",
+    ]:
+        matches.extend(nix_store.glob(pattern))
+    return unique_paths([str(path.parent) for path in sorted(matches)])
+
+
+def swebench_eval_env() -> dict[str, str]:
+    extra = os.environ.get("MIXMOD_SWEBENCH_EXTRA_LD_LIBRARY_PATH", "")
+    paths = [
+        *extra.split(os.pathsep),
+        "/run/opengl-driver/lib",
+        "/run/current-system/sw/lib",
+        *detected_libstdcxx_dirs(),
+        *os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep),
+    ]
+    return {"LD_LIBRARY_PATH": os.pathsep.join(unique_paths(paths))}
+
+
 def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None, log: Path | None = None) -> int:
     merged_env = os.environ.copy()
     if env:
@@ -146,9 +183,6 @@ def move_eval_summary(root: Path, run_id: str) -> Path:
 
 
 def evaluate(root: Path, item: dict[str, Any], prediction: Path, run_id: str, log_dir: Path) -> tuple[bool, Path | None]:
-    env = {
-        "LD_LIBRARY_PATH": f"/run/opengl-driver/lib:/run/current-system/sw/lib:{os.environ.get('LD_LIBRARY_PATH', '')}",
-    }
     log = log_dir / f"eval-mixmod-{item['instance_id']}.txt"
     code = run(
         [
@@ -169,7 +203,7 @@ def evaluate(root: Path, item: dict[str, Any], prediction: Path, run_id: str, lo
             str(project_state(root) / "swebench" / "current-default-v1-expansion" / "eval"),
         ],
         cwd=root,
-        env=env,
+        env=swebench_eval_env(),
         log=log,
     )
     summary = move_eval_summary(root, run_id)
