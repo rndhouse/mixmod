@@ -21,6 +21,7 @@ const ASK_WORKER_TIMEOUT_SECONDS: u64 = 90;
 const ASK_IDLE_TIMEOUT_SECONDS: u64 = 60;
 const COMMAND_SUMMARY_BYTES: usize = 2_000;
 const ASK_SUMMARY_BYTES: usize = 3_000;
+const TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,reasoning-trace.jsonl,worktree.patch} if answer is insufficient";
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
@@ -224,6 +225,7 @@ fn render_command_tool_result(
             .expect("write to string");
     }
     writeln!(output, "artifacts_dir: {}", display_path(root, out_dir)).expect("write to string");
+    writeln!(output, "artifacts: {TOOL_ARTIFACT_HINT}").expect("write to string");
     writeln!(output, "answer:").expect("write to string");
     writeln!(
         output,
@@ -284,6 +286,7 @@ fn render_ask_tool_result(
             .expect("write to string");
     }
     writeln!(output, "artifacts_dir: {}", display_path(root, out_dir)).expect("write to string");
+    writeln!(output, "artifacts: {TOOL_ARTIFACT_HINT}").expect("write to string");
     writeln!(output, "answer:").expect("write to string");
     writeln!(output, "{}", compact_text(worker_text, ASK_SUMMARY_BYTES)).expect("write to string");
     output
@@ -989,6 +992,9 @@ mod tests {
         assert!(output.contains("command_exit_status: 0"));
         assert!(output.contains("need: Report only pass/fail"));
         assert!(output.contains("artifacts_dir:"));
+        assert!(output.contains("artifacts: inspect artifacts_dir/{logs/opencode.stdout.txt"));
+        assert!(output.contains("tool-events.jsonl"));
+        assert!(output.contains("worktree.patch} if answer is insufficient"));
         assert!(output.contains("answer:\nNo whitespace errors."));
         assert!(!output.contains("prompt_artifact:"));
         assert!(!output.contains("report_artifact:"));
@@ -1021,6 +1027,9 @@ mod tests {
         assert!(output.contains("status: success"));
         assert!(output.contains("worker_exit_status: 0"));
         assert!(output.contains("artifacts_dir:"));
+        assert!(output.contains("artifacts: inspect artifacts_dir/{logs/opencode.stdout.txt"));
+        assert!(output.contains("reasoning-trace.jsonl"));
+        assert!(output.contains("worktree.patch} if answer is insufficient"));
         assert!(output.contains("answer:\nverdict: pass"));
         assert!(!output.contains("prompt_artifact:"));
         assert!(!output.contains("report_artifact:"));
