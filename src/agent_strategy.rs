@@ -318,10 +318,8 @@ manually inspected the skipped behavior surface.
 Treat the worker's output as evidence to use or reject; final task completion is
 your responsibility.
 
-Each local-worker call prints an artifact directory. Inspect those artifacts
-when the compact summary is insufficient; they include the rendered worker
-prompt, stdout/stderr logs, reasoning trace when available, tool events, and
-patch files.
+Each local-worker call returns a compact answer and one artifact directory.
+Inspect that directory only when the answer is insufficient.
 
 Worker guidance:
 {worker_guidance}

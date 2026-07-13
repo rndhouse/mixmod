@@ -8,13 +8,12 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::TOOL_EVENTS_JSONL;
 use crate::{
-    DelegationMode, METRICS_JSON, MixmodConfig, OPENCODE_INSTRUCTIONS_MD, REPORT_MD,
-    ShellOpenCodeRunner, WORKTREE_PATCH, WorkerRunOptions, absolutize, display_path, get_str,
-    load_config, read_json_file, run_mixmod_task_with_worker_options, state_layout,
-    write_pretty_json,
+    DelegationMode, METRICS_JSON, MixmodConfig, ShellOpenCodeRunner, WORKTREE_PATCH,
+    WorkerRunOptions, absolutize, display_path, get_str, load_config, read_json_file,
+    run_mixmod_task_with_worker_options, state_layout, write_pretty_json,
 };
-use crate::{REASONING_TRACE_JSONL, TOOL_EVENTS_JSONL};
 
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
@@ -244,30 +243,50 @@ fn print_ask_tool_result(
     worker_status: &str,
     worker_text: &str,
 ) {
-    println!("Mixmod supervisor tool proxy");
-    println!(
-        "worker_request: {}",
-        compact_text(payload.request_text(), 1_000)
+    print!(
+        "{}",
+        render_ask_tool_result(
+            payload,
+            root,
+            out_dir,
+            metrics,
+            receipt,
+            worker_status,
+            worker_text,
+        )
     );
-    println!("worker_status: {worker_status}");
+}
+
+fn render_ask_tool_result(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    metrics: &Value,
+    receipt: &crate::Receipt,
+    worker_status: &str,
+    worker_text: &str,
+) -> String {
+    let mut output = String::new();
+    writeln!(output, "Mixmod ask proxy result").expect("write to string");
+    writeln!(
+        output,
+        "request: {}",
+        compact_text(payload.request_text(), 1_000)
+    )
+    .expect("write to string");
+    writeln!(output, "status: {worker_status}").expect("write to string");
     if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
-        println!("worker_exit_status: {exit_status}");
+        writeln!(output, "worker_exit_status: {exit_status}").expect("write to string");
     }
     if let Some(notice) = tool_proxy_side_effect_notice(receipt, metrics) {
-        println!("{notice}");
-        println!("side_effect_patch_artifact: {}", WORKTREE_PATCH);
+        writeln!(output, "{notice}").expect("write to string");
+        writeln!(output, "side_effect_patch_artifact: {}", WORKTREE_PATCH)
+            .expect("write to string");
     }
-    println!("artifacts: {}", display_path(root, out_dir));
-    println!("prompt_artifact: {}", OPENCODE_INSTRUCTIONS_MD);
-    println!("report_artifact: {}", REPORT_MD);
-    println!("stdout_artifact: logs/opencode.stdout.txt");
-    println!("stderr_artifact: logs/opencode.stderr.txt");
-    println!("reasoning_trace_artifact: {}", REASONING_TRACE_JSONL);
-    println!("tool_events_artifact: tool-events.jsonl");
-    println!("worktree_patch_artifact: {}", WORKTREE_PATCH);
-    println!();
-    println!("worker_summary:");
-    println!("{}", compact_text(worker_text, ASK_SUMMARY_BYTES));
+    writeln!(output, "artifacts_dir: {}", display_path(root, out_dir)).expect("write to string");
+    writeln!(output, "answer:").expect("write to string");
+    writeln!(output, "{}", compact_text(worker_text, ASK_SUMMARY_BYTES)).expect("write to string");
+    output
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -971,6 +990,38 @@ mod tests {
         assert!(output.contains("need: Report only pass/fail"));
         assert!(output.contains("artifacts_dir:"));
         assert!(output.contains("answer:\nNo whitespace errors."));
+        assert!(!output.contains("prompt_artifact:"));
+        assert!(!output.contains("report_artifact:"));
+        assert!(!output.contains("tool_events_artifact:"));
+        assert!(!output.contains("worker_summary:"));
+    }
+
+    #[test]
+    fn ask_tool_result_stdout_is_compact() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("ask-run");
+        let payload = SupervisorToolProxyPayload::from_prompt(
+            "Review the final diff for missing behavior.",
+            temp.path(),
+        );
+        let receipt = receipt_with_changed_files(Vec::new());
+
+        let output = render_ask_tool_result(
+            &payload,
+            temp.path(),
+            &out_dir,
+            &json!({"opencode_exit_status": 0}),
+            &receipt,
+            "success",
+            "verdict: pass\nNo missing edge case found in the bounded review.",
+        );
+
+        assert!(output.contains("Mixmod ask proxy result"));
+        assert!(output.contains("request: Review the final diff"));
+        assert!(output.contains("status: success"));
+        assert!(output.contains("worker_exit_status: 0"));
+        assert!(output.contains("artifacts_dir:"));
+        assert!(output.contains("answer:\nverdict: pass"));
         assert!(!output.contains("prompt_artifact:"));
         assert!(!output.contains("report_artifact:"));
         assert!(!output.contains("tool_events_artifact:"));
