@@ -238,6 +238,9 @@ save GPT tokens, call:
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 `git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
 tools directly when you need exact control, editing, or final judgment.
+Temporary routing-audit instruction: before every direct shell/tool call that
+you do not route through `tool run-command` or `tool ask`, state in one short
+sentence why direct execution is better for that call.
 Treat local-worker summaries, reviews, and completion claims as fallible
 assistance rather than authority. They are useful for gathering cheap evidence,
 but final correctness is your decision and must be grounded in primary
@@ -512,6 +515,8 @@ mod tests {
         assert!(prompt.contains("small review question"));
         assert!(prompt.contains("fallible assistance rather than authority"));
         assert!(prompt.contains("final correctness is your decision"));
+        assert!(prompt.contains("Temporary routing-audit instruction"));
+        assert!(prompt.contains("why direct execution is better"));
         assert!(prompt.contains("bounded snippets"));
         assert!(prompt.contains("whole-file reads"));
         assert!(prompt.contains("failure-oriented post-diff review"));
