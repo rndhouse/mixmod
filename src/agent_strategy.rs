@@ -251,20 +251,18 @@ Treat local-worker summaries, reviews, and completion claims as fallible
 assistance rather than authority. They are useful for gathering cheap evidence,
 but final correctness is your decision and must be grounded in primary
 artifacts or concrete probes.
-When routing commands through Mixmod, prefer bounded commands that
-return compact evidence: narrow paths or globs, `rg --max-count`, targeted
-`sed -n` ranges, and package-level checks. Avoid broad repository-wide searches
-with many alternations when a smaller probe would answer the question.
+When routing commands through Mixmod, prefer commands that can be compactly
+summarized: narrow paths or globs, `rg --max-count`, targeted `sed -n` ranges,
+package-level checks, or broad read-only searches where Mixmod can capture the
+full output and return grouped matches.
 Use `--need` to tell the command-output summarizer exactly what to surface back:
 pass/fail only, the failing assertion and first relevant traceback line, the
 files/symbols that match, or the changed files and notable hunks. A good
 `--need` should make the returned answer smaller than the raw command output.
-For routed `rg` or `grep` commands, include path limits and match limits such as
-`--max-count`, `--glob`, or explicit directories unless the repository is tiny.
-For non-tiny repositories, the path argument must be narrower than `.`; a
-match limit alone is not a path limit. Do not route broad root searches with
-loose alternations through the local worker; make the search narrower first or
-run it yourself.
+For routed `rg`, `grep`, `git grep`, or `find` commands, include `--need` with
+the grouping you want, such as files only, first hits per file, relevant line
+numbers, or whether a symbol appears anywhere. Broad read-only searches are good
+Mixmod candidates when reading the raw output yourself would waste GPT tokens.
 Prefer `tool run-command` for concrete shell evidence. Use `tool ask` only when
 the useful local work is a small review question rather than a command result.
 For bounded review or investigation that is not naturally one command, call:
@@ -511,12 +509,13 @@ mod tests {
         assert!(prompt.contains("local worker"));
         assert!(prompt.contains("cheap helper"));
         assert!(prompt.contains("zero marginal GPT-token cost"));
-        assert!(prompt.contains("prefer bounded commands"));
+        assert!(prompt.contains("prefer commands that can be compactly"));
+        assert!(prompt.contains("summarized: narrow paths or globs"));
         assert!(prompt.contains("rg --max-count"));
-        assert!(prompt.contains("For routed `rg` or `grep` commands"));
-        assert!(prompt.contains("--glob"));
-        assert!(prompt.contains("broad root searches"));
-        assert!(prompt.contains("match limit alone is not a path limit"));
+        assert!(prompt.contains("broad read-only searches"));
+        assert!(prompt.contains("full output and return grouped matches"));
+        assert!(prompt.contains("For routed `rg`, `grep`, `git grep`, or `find` commands"));
+        assert!(prompt.contains("first hits per file"));
         assert!(prompt.contains("Prefer `tool run-command`"));
         assert!(prompt.contains("small review question"));
         assert!(prompt.contains("fallible assistance rather than authority"));

@@ -26,8 +26,11 @@ const COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS: u64 = 45;
 const COMMAND_SUMMARY_IDLE_TIMEOUT_SECONDS: u64 = 30;
 const COMMAND_SUMMARY_BYTES: usize = 2_000;
 const ASK_SUMMARY_BYTES: usize = 3_000;
-const COMMAND_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/command.stdout.txt,logs/command.stderr.txt,command-result.json,logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,worktree.patch} if answer is insufficient";
+const COMMAND_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/command.stdout.txt,logs/command.stderr.txt,command-result.json,search-summary.json,logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,worktree.patch} if answer is insufficient";
 const ASK_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,reasoning-trace.jsonl,worktree.patch} if answer is insufficient";
+const SEARCH_SUMMARY_MAX_FILES: usize = 80;
+const SEARCH_SUMMARY_HITS_PER_FILE: usize = 3;
+const SEARCH_SUMMARY_HIT_CHARS: usize = 240;
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
@@ -519,7 +522,15 @@ fn command_summary_task(
         String::from_utf8_lossy(&fs::read(&command_result.stderr_path).unwrap_or_default())
             .to_string()
     });
-    let stdout_excerpt = output_excerpt(&stdout, 12_000);
+    let search_summary = search_output_summary(payload.command.trim(), &stdout);
+    if let Some(summary) = &search_summary {
+        write_pretty_json(
+            &out_dir.join("search-summary.json"),
+            summary,
+            "command search summary",
+        )?;
+    }
+    let stdout_section = command_stdout_summary_section(out_dir, &stdout, search_summary.as_ref());
     let stderr_excerpt = output_excerpt(&stderr, 8_000);
     let need = payload
         .need_text()
@@ -527,7 +538,7 @@ fn command_summary_task(
     Ok(json!({
         "title": format!("Summarize command result: {}", payload.command.trim()),
         "instructions": format!(
-            "A GPT supervisor requested a deterministic shell command. Mixmod already ran the command; do not run shell commands, do not inspect the repository, do not edit files, and do not commit. Summarize only the captured command result below for the supervisor information need.\n\nSupervisor information need:\n{need}\n\nCommand:\n```bash\n{command}\n```\n\nExit status: {exit_status}\nTimed out: {timed_out}\nDuration ms: {duration_ms}\nStdout artifact: {stdout_path}\nStderr artifact: {stderr_path}\nStdout bytes: {stdout_bytes}\nStderr bytes: {stderr_bytes}\n\nStdout excerpt:\n```text\n{stdout_excerpt}\n```\n\nStderr excerpt:\n```text\n{stderr_excerpt}\n```\n\nReturn only compact evidence: exit status, pass/fail when applicable, and the smallest relevant stdout/stderr excerpt or summary. If the output excerpt is truncated and the answer may depend on omitted output, say that and point to the artifact path.",
+            "A GPT supervisor requested a deterministic shell command. Mixmod already ran the command; do not run shell commands, do not inspect the repository, do not edit files, and do not commit. Summarize only the captured command result below for the supervisor information need.\n\nSupervisor information need:\n{need}\n\nCommand:\n```bash\n{command}\n```\n\nExit status: {exit_status}\nTimed out: {timed_out}\nDuration ms: {duration_ms}\nStdout artifact: {stdout_path}\nStderr artifact: {stderr_path}\nStdout bytes: {stdout_bytes}\nStderr bytes: {stderr_bytes}\n\n{stdout_section}\n\nStderr excerpt:\n```text\n{stderr_excerpt}\n```\n\nReturn only compact evidence: exit status, pass/fail when applicable, and the smallest relevant stdout/stderr excerpt or summary. For search commands, prefer the structured search summary over raw stdout and mention the full stdout artifact path if the omitted output may matter.",
             command = payload.command.trim(),
             exit_status = command_result
                 .exit_status
@@ -539,7 +550,7 @@ fn command_summary_task(
             stderr_path = out_dir.join("logs/command.stderr.txt").display(),
             stdout_bytes = command_result.stdout_bytes,
             stderr_bytes = command_result.stderr_bytes,
-            stdout_excerpt = stdout_excerpt,
+            stdout_section = stdout_section,
             stderr_excerpt = stderr_excerpt,
         ),
         "expect_patch": false,
@@ -562,9 +573,160 @@ fn command_summary_task(
             "command_exit_status": command_result.exit_status,
             "command_timed_out": command_result.timed_out,
             "stdout_artifact": out_dir.join("logs/command.stdout.txt"),
-            "stderr_artifact": out_dir.join("logs/command.stderr.txt")
+            "stderr_artifact": out_dir.join("logs/command.stderr.txt"),
+            "search_summary_artifact": search_summary.as_ref().map(|_| out_dir.join("search-summary.json"))
         }
     }))
+}
+
+fn command_stdout_summary_section(
+    out_dir: &Path,
+    stdout: &str,
+    search_summary: Option<&Value>,
+) -> String {
+    if let Some(summary) = search_summary {
+        let pretty = serde_json::to_string_pretty(summary).unwrap_or_else(|_| "{}".to_string());
+        return format!(
+            "Structured stdout summary:\n```json\n{}\n```\n\nSearch summary artifact: {}",
+            output_excerpt(&pretty, 16_000),
+            out_dir.join("search-summary.json").display()
+        );
+    }
+    format!(
+        "Stdout excerpt:\n```text\n{}\n```",
+        output_excerpt(stdout, 12_000)
+    )
+}
+
+fn search_output_summary(command: &str, stdout: &str) -> Option<Value> {
+    let kind = search_command_kind(command)?;
+    match kind {
+        SearchCommandKind::PathList => Some(path_search_summary(stdout)),
+        SearchCommandKind::LineSearch => Some(line_search_summary(stdout)),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SearchCommandKind {
+    LineSearch,
+    PathList,
+}
+
+fn search_command_kind(command: &str) -> Option<SearchCommandKind> {
+    let command = command.trim();
+    if command == "find" || command.starts_with("find ") {
+        return Some(SearchCommandKind::PathList);
+    }
+    if command == "rg"
+        || command.starts_with("rg ")
+        || command == "grep"
+        || command.starts_with("grep ")
+        || command == "git grep"
+        || command.starts_with("git grep ")
+    {
+        return Some(SearchCommandKind::LineSearch);
+    }
+    None
+}
+
+fn path_search_summary(stdout: &str) -> Value {
+    let mut total_lines = 0usize;
+    let mut paths = Vec::new();
+    for line in stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        total_lines += 1;
+        if paths.len() < SEARCH_SUMMARY_MAX_FILES && !paths.iter().any(|path| path == line) {
+            paths.push(line.to_string());
+        }
+    }
+    json!({
+        "kind": "path_search",
+        "total_output_lines": total_lines,
+        "returned_paths": paths.len(),
+        "paths_truncated": total_lines > paths.len(),
+        "paths": paths,
+    })
+}
+
+fn line_search_summary(stdout: &str) -> Value {
+    let mut total_lines = 0usize;
+    let mut files = Vec::<SearchFileSummary>::new();
+    let mut overflow_hits = 0usize;
+
+    for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
+        total_lines += 1;
+        let (path, hit) = parse_search_hit(line);
+        if let Some(index) = files.iter().position(|file| file.path == path) {
+            files[index].match_count += 1;
+            if files[index].hits.len() < SEARCH_SUMMARY_HITS_PER_FILE {
+                files[index].hits.push(hit);
+            }
+        } else if files.len() < SEARCH_SUMMARY_MAX_FILES {
+            files.push(SearchFileSummary {
+                path,
+                match_count: 1,
+                hits: vec![hit],
+            });
+        } else {
+            overflow_hits += 1;
+        }
+    }
+
+    json!({
+        "kind": "line_search",
+        "total_output_lines": total_lines,
+        "returned_files": files.len(),
+        "files_truncated": overflow_hits > 0,
+        "omitted_hits_after_file_limit": overflow_hits,
+        "files": files,
+    })
+}
+
+#[derive(Debug, Serialize)]
+struct SearchFileSummary {
+    path: String,
+    match_count: usize,
+    hits: Vec<String>,
+}
+
+fn parse_search_hit(line: &str) -> (String, String) {
+    let mut parts = line.splitn(3, ':');
+    let first = parts.next().unwrap_or("").trim();
+    let second = parts.next().unwrap_or("").trim();
+    let third = parts.next().unwrap_or("").trim();
+    if !first.is_empty() && !second.is_empty() && second.chars().all(|ch| ch.is_ascii_digit()) {
+        return (
+            first.to_string(),
+            format!(
+                "{}: {}",
+                second,
+                compact_chars(third, SEARCH_SUMMARY_HIT_CHARS)
+            ),
+        );
+    }
+    if !first.is_empty() && !second.is_empty() {
+        return (
+            first.to_string(),
+            compact_chars(&line[first.len() + 1..], SEARCH_SUMMARY_HIT_CHARS),
+        );
+    }
+    (
+        "<stdout>".to_string(),
+        compact_chars(line, SEARCH_SUMMARY_HIT_CHARS),
+    )
+}
+
+fn compact_chars(text: &str, max_chars: usize) -> String {
+    let text = text.trim();
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let mut value: String = text.chars().take(max_chars.saturating_sub(3)).collect();
+    value.push_str("...");
+    value
 }
 
 fn fallback_command_summary(
@@ -588,7 +750,19 @@ fn fallback_command_summary(
         writeln!(summary, "need: {}", compact_text(need, 400)).expect("write to string");
     }
     if !stdout.trim().is_empty() {
-        writeln!(summary, "stdout:\n{}", output_excerpt(&stdout, 1_200)).expect("write to string");
+        if let Some(search_summary) = search_output_summary(payload.command.trim(), &stdout) {
+            let pretty =
+                serde_json::to_string_pretty(&search_summary).unwrap_or_else(|_| "{}".to_string());
+            writeln!(
+                summary,
+                "search_summary:\n{}",
+                output_excerpt(&pretty, 1_600)
+            )
+            .expect("write to string");
+        } else {
+            writeln!(summary, "stdout:\n{}", output_excerpt(&stdout, 1_200))
+                .expect("write to string");
+        }
     }
     if !stderr.trim().is_empty() {
         writeln!(summary, "stderr:\n{}", output_excerpt(&stderr, 1_200)).expect("write to string");
@@ -961,6 +1135,7 @@ fn is_inspection_command(command: &str) -> bool {
         "git status",
         "git show",
         "git log",
+        "git grep",
         "rg ",
         "grep ",
         "sed -n ",
@@ -1033,7 +1208,10 @@ fn compact_text(text: &str, max_bytes: usize) -> String {
     if text.len() <= max_bytes {
         return text.trim().to_string();
     }
-    let start = text.len().saturating_sub(max_bytes);
+    let mut start = text.len().saturating_sub(max_bytes);
+    while start < text.len() && !text.is_char_boundary(start) {
+        start += 1;
+    }
     format!("<truncated>\n{}", text[start..].trim())
 }
 
@@ -1071,6 +1249,7 @@ mod tests {
         for command in [
             "git diff --stat",
             "git status --short",
+            "git grep TypeBinding",
             "rg TypeBinding",
             "go test ./vm -run TestVar",
             "cargo test run_writes_full_artifact_bundle",
@@ -1117,6 +1296,63 @@ mod tests {
             task["context"]["supervisor_need"],
             json!("Return matching files and the most relevant line numbers only.")
         );
+    }
+
+    #[test]
+    fn search_command_summary_writes_structured_artifact() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let stdout = "\
+src/lib.rs:10:fn target_symbol() {}
+src/lib.rs:20:target_symbol();
+tests/lib.rs:5:assert!(target_symbol());
+";
+        std::fs::write(logs.join("command.stdout.txt"), stdout).unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "rg -n 'target_symbol' .",
+            Some("Return files and first hits per file."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 12,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        let task = command_summary_task(&payload, &out_dir, &result).unwrap();
+
+        let instructions = task["instructions"].as_str().unwrap();
+        assert!(instructions.contains("Structured stdout summary"));
+        assert!(instructions.contains("Search summary artifact"));
+        assert!(instructions.contains("search-summary.json"));
+        assert_eq!(
+            task["context"]["search_summary_artifact"],
+            json!(out_dir.join("search-summary.json"))
+        );
+        let summary = read_json_file(&out_dir.join("search-summary.json")).unwrap();
+        assert_eq!(summary["kind"], json!("line_search"));
+        assert_eq!(summary["total_output_lines"], json!(3));
+        assert_eq!(summary["returned_files"], json!(2));
+        assert_eq!(summary["files"][0]["path"], json!("src/lib.rs"));
+        assert_eq!(summary["files"][0]["match_count"], json!(2));
+        assert_eq!(summary["files"][1]["path"], json!("tests/lib.rs"));
+    }
+
+    #[test]
+    fn find_command_summary_groups_paths() {
+        let summary = search_output_summary("find . -name '*.rs'", "./src/lib.rs\n./tests/a.rs\n")
+            .expect("find output should be summarized");
+
+        assert_eq!(summary["kind"], json!("path_search"));
+        assert_eq!(summary["total_output_lines"], json!(2));
+        assert_eq!(summary["paths"][0], json!("./src/lib.rs"));
     }
 
     #[test]
