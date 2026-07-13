@@ -10,8 +10,8 @@ use crate::task::{read_task_json, write_agent_visible_task_file};
 use crate::{
     FINAL_PATCH, METRICS_JSON, MixmodConfig, ModelOverrides, REPORT_MD, SupervisorCodexSession,
     TASK_JSON, TOOL_OUTPUT_DIR, WORKTREE_PATCH, WorkerSupervisorGuidance, absolutize, atomic_write,
-    budgeted_report, display_path, git_diff_with_untracked, load_config, patch_stats, state_layout,
-    write_pretty_json,
+    budgeted_report, display_path, git_diff_with_untracked, load_config, patch_stats,
+    read_json_file, state_layout, write_pretty_json,
 };
 
 /// Options for the primary Codex-agent strategy.
@@ -130,13 +130,14 @@ impl AgentStrategyRun<'_> {
             "supervisor_resume_count": 0,
             "strategy_phases": ["codex_primary_agent"],
             "mixmod_delegations": worker_tool_metrics.call_count,
-            "opencode_calls": worker_tool_metrics.call_count,
+            "opencode_calls": worker_tool_metrics.opencode_call_count,
+            "deterministic_command_summaries": worker_tool_metrics.deterministic_command_count,
             "worker_backend": config.worker.backend.as_str(),
             "opencode_provider": config.opencode.provider,
             "opencode_model": config.opencode.model,
             "opencode_model_arg": format!("{}/{}", config.opencode.provider, config.opencode.model),
             "require_local": config.opencode.require_local,
-            "local_inference_verified": worker_tool_metrics.call_count > 0 && config.opencode.require_local,
+            "local_inference_verified": worker_tool_metrics.opencode_call_count > 0 && config.opencode.require_local,
             "local_worker_stdout_bytes": worker_tool_metrics.stdout_bytes,
             "local_worker_stderr_bytes": worker_tool_metrics.stderr_bytes,
             "local_worker_text_bytes": worker_tool_metrics.stdout_bytes + worker_tool_metrics.stderr_bytes,
@@ -241,8 +242,10 @@ Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 tools directly for editing, final judgment, or small facts where routing would
 cost more than it saves.
 `tool run-command` executes the shell command deterministically through Mixmod;
-the local worker only summarizes the captured stdout/stderr afterward. It
-should not run the command, debug setup, edit files, or decide completion.
+Mixmod returns deterministic summaries for simple command output, searches,
+status, diff-stat/diff-check, and passing checks. For larger or ambiguous
+outputs, the local worker only summarizes the captured stdout/stderr afterward;
+it should not run the command, debug setup, edit files, or decide completion.
 After routing a command through Mixmod, wait for the returned command result.
 Do not poll logs, process state, or follow-up status commands just to check
 whether the routed command is still running.
@@ -271,6 +274,10 @@ Mixmod candidates when reading the raw output yourself would waste GPT tokens.
 Compound read-only Bash commands with pipes or shell control are also good
 Mixmod candidates when they gather shell evidence; Mixmod still executes the
 exact command and reports side effects.
+Batch related evidence into one `tool run-command` call when the commands answer
+one information need, for example `git status && rg ... && sed -n ...` or a
+setup probe plus the focused check. Prefer one bundled command with a precise
+`--need` over several tiny routed calls that Codex must process separately.
 Prefer `tool run-command` for concrete shell evidence. Prefer `tool ask` for
 bounded non-command work where the local worker can inspect a small area and
 return compact findings instead of making GPT read the same files directly:
@@ -384,6 +391,8 @@ fn render_worker_tool_guidance(guidance: &WorkerSupervisorGuidance) -> String {
 #[derive(Default)]
 struct WorkerToolProxyMetrics {
     call_count: u64,
+    opencode_call_count: u64,
+    deterministic_command_count: u64,
     stdout_bytes: u64,
     stderr_bytes: u64,
     reasoning_trace_bytes: u64,
@@ -408,11 +417,17 @@ fn worker_tool_proxy_metrics(root: &Path, since: SystemTime) -> WorkerToolProxyM
         for run in walk_dirs(&path) {
             let metrics_path = run.join(METRICS_JSON);
             if metrics_path.exists() && modified_at_or_after(&metrics_path, since) {
+                let run_metrics = read_json_file(&metrics_path).ok();
                 metrics.call_count += 1;
-                metrics.stdout_bytes += file_len_or_zero(&run.join("logs/opencode.stdout.txt"));
-                metrics.stderr_bytes += file_len_or_zero(&run.join("logs/opencode.stderr.txt"));
-                metrics.reasoning_trace_bytes +=
-                    file_len_or_zero(&run.join("reasoning-trace.jsonl"));
+                if tool_proxy_metrics_is_opencode_call(run_metrics.as_ref()) {
+                    metrics.opencode_call_count += 1;
+                    metrics.stdout_bytes += file_len_or_zero(&run.join("logs/opencode.stdout.txt"));
+                    metrics.stderr_bytes += file_len_or_zero(&run.join("logs/opencode.stderr.txt"));
+                    metrics.reasoning_trace_bytes +=
+                        file_len_or_zero(&run.join("reasoning-trace.jsonl"));
+                } else if tool_proxy_metrics_is_deterministic_command(run_metrics.as_ref()) {
+                    metrics.deterministic_command_count += 1;
+                }
                 metrics.tool_events_bytes += file_len_or_zero(&run.join("tool-events.jsonl"));
                 let tool_output = tool_output_artifact_metrics(&run.join(TOOL_OUTPUT_DIR));
                 metrics.tool_output_artifact_count += tool_output.count;
@@ -421,6 +436,30 @@ fn worker_tool_proxy_metrics(root: &Path, since: SystemTime) -> WorkerToolProxyM
         }
     }
     metrics
+}
+
+fn tool_proxy_metrics_is_opencode_call(metrics: Option<&serde_json::Value>) -> bool {
+    let Some(metrics) = metrics else {
+        return true;
+    };
+    if let Some(opencode_call) = metrics
+        .get("opencode_call")
+        .and_then(|value| value.as_bool())
+    {
+        return opencode_call;
+    }
+    metrics.get("opencode_exit_status").is_some()
+        || metrics
+            .get("worker_backend")
+            .and_then(|value| value.as_str())
+            == Some("opencode")
+}
+
+fn tool_proxy_metrics_is_deterministic_command(metrics: Option<&serde_json::Value>) -> bool {
+    metrics
+        .and_then(|metrics| metrics.get("summary_source"))
+        .and_then(|value| value.as_str())
+        == Some("mixmod_deterministic")
 }
 
 #[derive(Default)]
@@ -544,13 +583,18 @@ mod tests {
         assert!(prompt.contains("first hits per file"));
         assert!(prompt.contains("Compound read-only Bash commands"));
         assert!(prompt.contains("exact command and reports side effects"));
+        assert!(prompt.contains("Batch related evidence into one"));
+        assert!(prompt.contains("one bundled command with a precise"));
         assert!(prompt.contains("Prefer `tool run-command` for concrete shell evidence"));
         assert!(prompt.contains("Prefer `tool ask` for"));
         assert!(prompt.contains("bounded non-command work"));
         assert!(prompt.contains("fallible assistance rather than authority"));
         assert!(prompt.contains("final correctness is your decision"));
         assert!(prompt.contains("executes the shell command deterministically through Mixmod"));
-        assert!(prompt.contains("only summarizes the captured stdout/stderr"));
+        assert!(prompt.contains("Mixmod returns deterministic summaries"));
+        assert!(prompt.contains("simple command output"));
+        assert!(prompt.contains("passing checks"));
+        assert!(prompt.contains("only summarizes the captured stdout/stderr afterward"));
         assert!(prompt.contains("wait for the returned command result"));
         assert!(prompt.contains("Do not poll logs"));
         assert!(prompt.contains("Temporary routing-audit instruction"));
@@ -615,5 +659,49 @@ mod tests {
             "codex_system_error"
         );
         assert_eq!(agent_final_status(false, None), "codex_failed");
+    }
+
+    #[test]
+    fn worker_tool_proxy_metrics_split_deterministic_and_opencode_calls() {
+        let temp = tempfile::tempdir().unwrap();
+        let since = SystemTime::now()
+            .checked_sub(std::time::Duration::from_secs(1))
+            .unwrap();
+        let proxy_root = state_layout(temp.path())
+            .project_dir()
+            .join("supervisor-tool-proxy")
+            .join("cli");
+        let deterministic = proxy_root.join("tool-fast");
+        let opencode = proxy_root.join("tool-worker");
+        std::fs::create_dir_all(&deterministic).unwrap();
+        std::fs::create_dir_all(opencode.join("logs")).unwrap();
+        write_pretty_json(
+            &deterministic.join(METRICS_JSON),
+            &json!({
+                "summary_source": "mixmod_deterministic",
+                "opencode_call": false
+            }),
+            "deterministic metrics",
+        )
+        .unwrap();
+        std::fs::write(deterministic.join("tool-events.jsonl"), "{}\n").unwrap();
+        write_pretty_json(
+            &opencode.join(METRICS_JSON),
+            &json!({
+                "worker_backend": "opencode",
+                "opencode_exit_status": 0
+            }),
+            "opencode metrics",
+        )
+        .unwrap();
+        std::fs::write(opencode.join("logs/opencode.stdout.txt"), "worker").unwrap();
+
+        let metrics = worker_tool_proxy_metrics(temp.path(), since);
+
+        assert_eq!(metrics.call_count, 2);
+        assert_eq!(metrics.opencode_call_count, 1);
+        assert_eq!(metrics.deterministic_command_count, 1);
+        assert_eq!(metrics.stdout_bytes, 6);
+        assert_eq!(metrics.tool_events_bytes, 3);
     }
 }

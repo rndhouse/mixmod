@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::TOOL_EVENTS_JSONL;
 use crate::{
-    DelegationMode, METRICS_JSON, MixmodConfig, ShellOpenCodeRunner, WORKTREE_PATCH,
+    DelegationMode, METRICS_JSON, MixmodConfig, REPORT_MD, ShellOpenCodeRunner, WORKTREE_PATCH,
     WorkerRunOptions, absolutize, append_jsonl, atomic_write, diff_without_unchanged_blocks,
     display_path, get_str, git_diff_with_untracked, load_config, patch_stats, read_json_file,
     run_mixmod_task_with_worker_options, shell_command, state_layout, write_pretty_json,
@@ -25,6 +25,8 @@ const ASK_IDLE_TIMEOUT_SECONDS: u64 = 60;
 const COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS: u64 = 45;
 const COMMAND_SUMMARY_IDLE_TIMEOUT_SECONDS: u64 = 30;
 const COMMAND_SUMMARY_BYTES: usize = 2_000;
+const DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES: u64 = 1_200;
+const DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES: u64 = 600;
 const ASK_SUMMARY_BYTES: usize = 3_000;
 const COMMAND_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/command.stdout.txt,logs/command.stderr.txt,command-result.json,search-summary.json,logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,worktree.patch} if answer is insufficient";
 const ASK_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,reasoning-trace.jsonl,worktree.patch} if answer is insufficient";
@@ -179,14 +181,18 @@ fn run_supervisor_command_tool_proxy(
 
     let command_delta = diff_without_unchanged_blocks(&after_command_diff, &before_diff);
     let command_delta_stats = patch_stats(&command_delta);
-    let summary = run_command_summary_worker(
-        payload,
-        root,
-        out_dir,
-        &config,
-        &command_result,
-        &after_command_diff,
-    )?;
+    let summary = deterministic_command_summary(payload, out_dir, &command_result)?
+        .map(Ok)
+        .unwrap_or_else(|| {
+            run_command_summary_worker(
+                payload,
+                root,
+                out_dir,
+                &config,
+                &command_result,
+                &after_command_diff,
+            )
+        })?;
     let final_patch = git_diff_with_untracked(root).unwrap_or(after_command_diff);
     atomic_write(&out_dir.join(WORKTREE_PATCH), final_patch.as_bytes())?;
 
@@ -524,24 +530,275 @@ fn run_command_summary_worker(
     })
 }
 
+fn deterministic_command_summary(
+    payload: &SupervisorToolProxyPayload,
+    out_dir: &Path,
+    command_result: &CommandToolResult,
+) -> Result<Option<CommandSummaryResult>> {
+    let stdout = read_text_lossy(&command_result.stdout_path);
+    let stderr = read_text_lossy(&command_result.stderr_path);
+    let search_summary = write_search_summary_artifact(payload, out_dir, &stdout)?;
+    let Some(summary_kind) = direct_summary_kind(
+        payload.command.trim(),
+        command_result,
+        search_summary.as_ref(),
+    ) else {
+        return Ok(None);
+    };
+    let text = deterministic_command_summary_text(
+        payload,
+        command_result,
+        &stdout,
+        &stderr,
+        search_summary.as_ref(),
+        summary_kind,
+    );
+    let metrics = json!({
+        "kind": "mixmod-command-proxy",
+        "status": tool_proxy_command_status(command_result),
+        "summary_source": "mixmod_deterministic",
+        "summary_kind": summary_kind.as_str(),
+        "opencode_call": false,
+        "local_inference_verified": false,
+        "command_exit_status": command_result.exit_status,
+        "command_timed_out": command_result.timed_out,
+        "duration_ms": command_result.duration_ms,
+        "stdout_bytes": command_result.stdout_bytes,
+        "stderr_bytes": command_result.stderr_bytes,
+        "search_summary_artifact": search_summary.as_ref().map(|_| "search-summary.json"),
+    });
+    write_pretty_json(
+        &out_dir.join(METRICS_JSON),
+        &metrics,
+        "deterministic command proxy metrics",
+    )?;
+    atomic_write(
+        &out_dir.join(REPORT_MD),
+        deterministic_command_report(payload, command_result, summary_kind, &text).as_bytes(),
+    )?;
+    Ok(Some(CommandSummaryResult {
+        text,
+        metrics: Some(metrics),
+        summary_delta_stats: Some(crate::PatchStats::default()),
+    }))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DirectCommandSummaryKind {
+    DiffCheck,
+    DiffStat,
+    GitStatus,
+    Search,
+    SmallExactOutput,
+    TestPass,
+}
+
+impl DirectCommandSummaryKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            DirectCommandSummaryKind::DiffCheck => "git_diff_check",
+            DirectCommandSummaryKind::DiffStat => "git_diff_stat",
+            DirectCommandSummaryKind::GitStatus => "git_status",
+            DirectCommandSummaryKind::Search => "search_summary",
+            DirectCommandSummaryKind::SmallExactOutput => "small_exact_output",
+            DirectCommandSummaryKind::TestPass => "test_pass",
+        }
+    }
+}
+
+fn direct_summary_kind(
+    command: &str,
+    command_result: &CommandToolResult,
+    search_summary: Option<&Value>,
+) -> Option<DirectCommandSummaryKind> {
+    if search_summary.is_some() {
+        return Some(DirectCommandSummaryKind::Search);
+    }
+    if command_segments(command).any(is_git_status_command) {
+        return Some(DirectCommandSummaryKind::GitStatus);
+    }
+    if command_segments(command).any(is_git_diff_check_command) {
+        return Some(DirectCommandSummaryKind::DiffCheck);
+    }
+    if command_segments(command).any(is_git_diff_stat_command) {
+        return Some(DirectCommandSummaryKind::DiffStat);
+    }
+    if command_result.exit_status == Some(0)
+        && command_segments(command).any(is_test_or_build_command)
+    {
+        return Some(DirectCommandSummaryKind::TestPass);
+    }
+    if command_result.stdout_bytes <= DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES
+        && command_result.stderr_bytes <= DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES
+    {
+        return Some(DirectCommandSummaryKind::SmallExactOutput);
+    }
+    None
+}
+
+fn deterministic_command_summary_text(
+    payload: &SupervisorToolProxyPayload,
+    command_result: &CommandToolResult,
+    stdout: &str,
+    stderr: &str,
+    search_summary: Option<&Value>,
+    summary_kind: DirectCommandSummaryKind,
+) -> String {
+    let mut summary = String::new();
+    writeln!(summary, "summary_source: mixmod_deterministic").expect("write to string");
+    writeln!(summary, "summary_kind: {}", summary_kind.as_str()).expect("write to string");
+    writeln!(
+        summary,
+        "exit_status: {}",
+        command_result
+            .exit_status
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    )
+    .expect("write to string");
+    writeln!(summary, "timed_out: {}", command_result.timed_out).expect("write to string");
+    if let Some(need) = payload.need_text() {
+        writeln!(summary, "need: {}", compact_text(need, 300)).expect("write to string");
+    }
+    match summary_kind {
+        DirectCommandSummaryKind::Search => {
+            if let Some(search_summary) = search_summary {
+                append_search_summary_text(&mut summary, search_summary);
+            }
+            writeln!(summary, "search_summary: search-summary.json").expect("write to string");
+            writeln!(summary, "stdout_artifact: logs/command.stdout.txt").expect("write to string");
+        }
+        DirectCommandSummaryKind::TestPass => {
+            writeln!(summary, "pass: command exited 0").expect("write to string");
+            append_last_nonempty_line(&mut summary, "stdout_last_line", stdout);
+            append_last_nonempty_line(&mut summary, "stderr_last_line", stderr);
+        }
+        DirectCommandSummaryKind::GitStatus
+        | DirectCommandSummaryKind::DiffCheck
+        | DirectCommandSummaryKind::DiffStat
+        | DirectCommandSummaryKind::SmallExactOutput => {
+            append_exact_output(&mut summary, "stdout", stdout, command_result.stdout_bytes);
+            append_exact_output(&mut summary, "stderr", stderr, command_result.stderr_bytes);
+        }
+    }
+    writeln!(summary, "stdout_bytes: {}", command_result.stdout_bytes).expect("write to string");
+    writeln!(summary, "stderr_bytes: {}", command_result.stderr_bytes).expect("write to string");
+    writeln!(summary, "stdout_artifact: logs/command.stdout.txt").expect("write to string");
+    writeln!(summary, "stderr_artifact: logs/command.stderr.txt").expect("write to string");
+    compact_text(&summary, COMMAND_SUMMARY_BYTES)
+}
+
+fn append_search_summary_text(output: &mut String, summary: &Value) {
+    if let Some(kind) = summary.get("kind").and_then(Value::as_str) {
+        writeln!(output, "search_kind: {kind}").expect("write to string");
+    }
+    for key in [
+        "total_output_lines",
+        "returned_files",
+        "returned_paths",
+        "files_truncated",
+        "paths_truncated",
+        "omitted_hits_after_file_limit",
+    ] {
+        if let Some(value) = summary.get(key) {
+            writeln!(output, "{key}: {value}").expect("write to string");
+        }
+    }
+    if let Some(files) = summary.get("files").and_then(Value::as_array) {
+        for file in files.iter().take(8) {
+            let path = file
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("<unknown>");
+            let matches = file.get("match_count").and_then(Value::as_u64).unwrap_or(0);
+            let first_hit = file
+                .get("hits")
+                .and_then(Value::as_array)
+                .and_then(|hits| hits.first())
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            writeln!(
+                output,
+                "- {path}: matches={matches} first_hit={}",
+                compact_chars(first_hit, 160)
+            )
+            .expect("write to string");
+        }
+    }
+    if let Some(paths) = summary.get("paths").and_then(Value::as_array) {
+        for path in paths.iter().take(12).filter_map(Value::as_str) {
+            writeln!(output, "- {path}").expect("write to string");
+        }
+    }
+}
+
+fn append_exact_output(output: &mut String, label: &str, text: &str, bytes: u64) {
+    let text = text.trim_end();
+    if text.is_empty() {
+        writeln!(output, "{label}: <empty>").expect("write to string");
+        return;
+    }
+    let limit = if label == "stdout" {
+        DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES
+    } else {
+        DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES
+    };
+    if bytes <= limit {
+        writeln!(output, "{label}:").expect("write to string");
+        writeln!(output, "```text").expect("write to string");
+        writeln!(output, "{text}").expect("write to string");
+        writeln!(output, "```").expect("write to string");
+    } else {
+        writeln!(output, "{label}: <see {label}_artifact; {bytes} bytes>")
+            .expect("write to string");
+    }
+}
+
+fn append_last_nonempty_line(output: &mut String, label: &str, text: &str) {
+    if let Some(line) = text.lines().rev().find(|line| !line.trim().is_empty()) {
+        writeln!(output, "{label}: {}", compact_chars(line, 240)).expect("write to string");
+    }
+}
+
+fn deterministic_command_report(
+    payload: &SupervisorToolProxyPayload,
+    command_result: &CommandToolResult,
+    summary_kind: DirectCommandSummaryKind,
+    text: &str,
+) -> String {
+    format!(
+        "# Mixmod Command Proxy Report\n\n\
+         - Status: {}\n\
+         - Summary source: mixmod_deterministic\n\
+         - Summary kind: {}\n\
+         - Command: `{}`\n\
+         - Exit status: {}\n\
+         - Timed out: {}\n\
+         - Stdout bytes: {}\n\
+         - Stderr bytes: {}\n\n\
+         ## Answer\n\n{}\n",
+        tool_proxy_command_status(command_result),
+        summary_kind.as_str(),
+        payload.command.trim().replace('`', "\\`"),
+        command_result
+            .exit_status
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        command_result.timed_out,
+        command_result.stdout_bytes,
+        command_result.stderr_bytes,
+        text
+    )
+}
+
 fn command_summary_task(
     payload: &SupervisorToolProxyPayload,
     root: &Path,
     out_dir: &Path,
     command_result: &CommandToolResult,
 ) -> Result<Value> {
-    let stdout = fs::read_to_string(&command_result.stdout_path).unwrap_or_else(|_| {
-        String::from_utf8_lossy(&fs::read(&command_result.stdout_path).unwrap_or_default())
-            .to_string()
-    });
-    let search_summary = search_output_summary(payload.command.trim(), &stdout);
-    if let Some(summary) = &search_summary {
-        write_pretty_json(
-            &out_dir.join("search-summary.json"),
-            summary,
-            "command search summary",
-        )?;
-    }
+    let stdout = read_text_lossy(&command_result.stdout_path);
+    let search_summary = write_search_summary_artifact(payload, out_dir, &stdout)?;
     let readable_artifacts =
         prepare_readable_command_artifacts(root, out_dir, search_summary.is_some())?;
     let artifact_section = command_artifact_section(&readable_artifacts);
@@ -589,6 +846,28 @@ fn command_summary_task(
             "search_summary_artifact": readable_artifacts.search_summary_path
         }
     }))
+}
+
+fn read_text_lossy(path: &Path) -> String {
+    fs::read_to_string(path).unwrap_or_else(|_| {
+        String::from_utf8_lossy(&fs::read(path).unwrap_or_default()).to_string()
+    })
+}
+
+fn write_search_summary_artifact(
+    payload: &SupervisorToolProxyPayload,
+    out_dir: &Path,
+    stdout: &str,
+) -> Result<Option<Value>> {
+    let search_summary = search_output_summary(payload.command.trim(), stdout);
+    if let Some(summary) = &search_summary {
+        write_pretty_json(
+            &out_dir.join("search-summary.json"),
+            summary,
+            "command search summary",
+        )?;
+    }
+    Ok(search_summary)
 }
 
 fn prepare_readable_command_artifacts(
@@ -1220,6 +1499,18 @@ fn is_test_or_build_command(command: &str) -> bool {
     .any(|prefix| command == *prefix || command.starts_with(&format!("{prefix} ")))
 }
 
+fn is_git_status_command(command: &str) -> bool {
+    command == "git status" || command.starts_with("git status ")
+}
+
+fn is_git_diff_check_command(command: &str) -> bool {
+    command == "git diff --check" || command.starts_with("git diff --check ")
+}
+
+fn is_git_diff_stat_command(command: &str) -> bool {
+    command == "git diff --stat" || command.starts_with("git diff --stat ")
+}
+
 fn contains_obvious_mutation(command: &str) -> bool {
     [
         "rm ",
@@ -1500,6 +1791,124 @@ src/other.rs:4:target_symbol();
         assert!(summary.contains("search_summary: search-summary.json"));
         assert!(!summary.contains("secret stdout"));
         assert!(!summary.contains("secret stderr"));
+    }
+
+    #[test]
+    fn deterministic_command_summary_handles_small_exact_output() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::write(logs.join("command.stdout.txt"), "ok\n").unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "python -c 'print(\"ok\")'",
+            Some("Return the exact short output."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 10,
+            stdout_bytes: 3,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        let summary = deterministic_command_summary(&payload, &out_dir, &result)
+            .unwrap()
+            .expect("small output should be summarized directly");
+
+        assert!(
+            summary
+                .text
+                .contains("summary_source: mixmod_deterministic")
+        );
+        assert!(summary.text.contains("summary_kind: small_exact_output"));
+        assert!(summary.text.contains("ok"));
+        assert_eq!(
+            summary.metrics.unwrap()["opencode_call"],
+            json!(false),
+            "direct summaries must not count as OpenCode calls"
+        );
+        assert!(out_dir.join(METRICS_JSON).exists());
+        assert!(out_dir.join(REPORT_MD).exists());
+    }
+
+    #[test]
+    fn deterministic_command_summary_handles_search_output() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let stdout = "\
+src/lib.rs:10:fn target_symbol() {}
+src/lib.rs:20:target_symbol();
+tests/lib.rs:5:assert!(target_symbol());
+";
+        std::fs::write(logs.join("command.stdout.txt"), stdout).unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "rg -n target_symbol .",
+            Some("Return grouped hits."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 10,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        let summary = deterministic_command_summary(&payload, &out_dir, &result)
+            .unwrap()
+            .expect("search output should be summarized directly");
+
+        assert!(summary.text.contains("summary_kind: search_summary"));
+        assert!(summary.text.contains("search_kind: line_search"));
+        assert!(summary.text.contains("returned_files: 2"));
+        assert!(summary.text.contains("search_summary: search-summary.json"));
+        assert!(out_dir.join("search-summary.json").exists());
+        assert_eq!(
+            read_json_file(&out_dir.join(METRICS_JSON)).unwrap()["summary_source"],
+            json!("mixmod_deterministic")
+        );
+    }
+
+    #[test]
+    fn deterministic_command_summary_leaves_large_ambiguous_output_to_worker() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let stdout = "x".repeat((DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES + 1) as usize);
+        std::fs::write(logs.join("command.stdout.txt"), stdout.as_bytes()).unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "python script.py",
+            Some("Summarize the important semantic output."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 10,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        assert!(
+            deterministic_command_summary(&payload, &out_dir, &result)
+                .unwrap()
+                .is_none()
+        );
+        assert!(!out_dir.join(METRICS_JSON).exists());
     }
 
     #[test]
