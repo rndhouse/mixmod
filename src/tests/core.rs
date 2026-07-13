@@ -565,7 +565,25 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("concrete command-style local help"))
+            .any(|item| item.contains("Use it actively"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("source maps"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("focused probe design"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("bounded helper questions"))
     );
     assert!(
         guidance
@@ -577,13 +595,13 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("open-ended final diff review"))
+            .any(|item| item.contains("broad open-ended final diff review"))
     );
     assert!(
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("concrete commands or probes"))
+            .any(|item| item.contains("concrete commands, probes"))
     );
     assert!(
         guidance

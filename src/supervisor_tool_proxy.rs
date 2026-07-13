@@ -1070,7 +1070,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": "Supervisor tool proxy: local worker ask",
                 "instructions": format!(
-                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools only as needed to answer this request. Do not edit repository files and do not commit. Use at most four repository tool calls. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. Avoid whole-file reads on non-tiny files; prefer `git diff -- path`, `rg -n --max-count`, `grep -n`, or `sed -n` around named anchors. For behavioral review, do not treat passing existing tests as sufficient by itself: inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. For parser, binding, destructuring, or assignment changes, include one alternate-shape check when relevant, such as single target versus multi-target or scalar versus aggregate/multi-value RHS. Prefer existing package tests or exact focused tests from the changed area. Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern; otherwise state the unverified edge case instead of building a new harness. Stop as soon as you find one concrete issue or finish the bounded checks. If you hit the tool-call budget, return the best verdict and evidence you have. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, or fail; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools as needed to answer this specific request. Do not edit repository files and do not commit. Good ask tasks include file/symbol localization, source maps, targeted code reading, comparing nearby branches, diff-risk review, focused probe design, and checking whether one named edge case is covered. Keep the investigation bounded to the requested area and use targeted repository tool calls only. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. Avoid whole-file reads on non-tiny files; prefer `git diff -- path`, `rg -n --max-count`, `grep -n`, or `sed -n` around named anchors. For behavioral review, do not treat passing existing tests as sufficient by itself: inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. For parser, binding, destructuring, or assignment changes, include one alternate-shape check when relevant, such as single target versus multi-target or scalar versus aggregate/multi-value RHS. Prefer existing package tests or exact focused tests from the changed area. Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern; otherwise state the unverified edge case instead of building a new harness. Stop as soon as you have compact evidence for the requested question, one concrete issue, or the bounded checks finish. If evidence remains incomplete, say exactly what is still unverified. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, fail, or findings; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
                 ),
                 "expect_patch": false,
                 "tests": [],
@@ -1079,7 +1079,9 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Do not commit changes.",
                     "Do not inspect /solution or verifier internals.",
                     "Keep stdout compact.",
-                    "Use at most four repository tool calls.",
+                    "Use targeted repository tool calls only.",
+                    "Stay bounded to the supervisor's requested question.",
+                    "Good ask tasks include localization, source maps, targeted code reading, diff-risk review, probe design, and edge-case coverage checks.",
                     "Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets.",
                     "Avoid whole-file reads on non-tiny files; prefer bounded shell snippets around named anchors.",
                     "Use focused commands instead of broad repository reads when possible.",
@@ -1088,10 +1090,9 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Prefer existing package tests or exact focused tests from the changed area.",
                     "Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern.",
                     "State unverified edge cases instead of building a new harness.",
-                    "Stop after one concrete issue or after the bounded checks finish.",
-                    "Start the final answer with `verdict: pass`, `verdict: risk`, or `verdict: fail`.",
+                    "Stop after compact evidence answers the request, one concrete issue is found, or the bounded checks finish.",
+                    "Start the final answer with `verdict: pass`, `verdict: risk`, `verdict: fail`, or `findings:`.",
                     "Temporary files outside the repository are acceptable when needed for a focused probe.",
-                    "If the tool-call budget is exhausted, return the best verdict and evidence available.",
                     "If evidence is inconclusive, say exactly what remains unverified."
                 ],
                 "context": {
@@ -1480,6 +1481,11 @@ src/other.rs:4:target_symbol();
         let instructions = task["instructions"].as_str().unwrap();
         let constraints = task["constraints"].as_array().unwrap();
 
+        assert!(instructions.contains("file/symbol localization"));
+        assert!(instructions.contains("source maps"));
+        assert!(instructions.contains("targeted code reading"));
+        assert!(instructions.contains("focused probe design"));
+        assert!(instructions.contains("checking whether one named edge case is covered"));
         assert!(instructions.contains("Do not read or print the full diff"));
         assert!(instructions.contains("Avoid whole-file reads"));
         assert!(instructions.contains("sed -n"));
@@ -1490,9 +1496,9 @@ src/other.rs:4:target_symbol();
         assert!(instructions.contains("existing package tests"));
         assert!(instructions.contains("exact invocation pattern"));
         assert!(instructions.contains("unverified edge case"));
-        assert!(instructions.contains("at most four repository tool calls"));
-        assert!(instructions.contains("tool-call budget"));
+        assert!(instructions.contains("targeted repository tool calls"));
         assert!(instructions.contains("first-line verdict"));
+        assert!(instructions.contains("findings"));
         assert!(
             constraints
                 .iter()
@@ -1526,16 +1532,15 @@ src/other.rs:4:target_symbol();
                 .unwrap_or("")
                 .contains("unverified edge cases")
         }));
-        assert!(constraints.iter().any(|value| {
-            value
-                .as_str()
-                .unwrap_or("")
-                .contains("at most four repository tool calls")
-        }));
         assert!(
             constraints
                 .iter()
-                .any(|value| { value.as_str().unwrap_or("").contains("tool-call budget") })
+                .any(|value| { value.as_str().unwrap_or("").contains("targeted repository") })
+        );
+        assert!(
+            constraints
+                .iter()
+                .any(|value| { value.as_str().unwrap_or("").contains("source maps") })
         );
         assert!(
             constraints

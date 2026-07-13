@@ -227,9 +227,10 @@ Mixmod can capture it.
 
 Mixmod is a tool/router, not a separate supervisor. The configured local worker
 is available as a cheap helper through Mixmod's CLI. It is effectively zero
-marginal GPT-token cost, so prefer it for bounded repo evidence when that saves
-you reading long files or command output directly. When a bounded command can
-save GPT tokens, call:
+marginal GPT-token cost. Use it actively for bounded repo work that can save
+GPT tokens: file/symbol localization, source maps, targeted code reading,
+command evidence, diff review, risk checks, and probe suggestions. When a
+bounded command can save GPT tokens, call:
 
 ```bash
 {mixmod_tool_command} tool run-command --command "git status --short" --need "Tell me whether the worktree has tracked changes. Mention untracked task files only if relevant."
@@ -237,7 +238,8 @@ save GPT tokens, call:
 
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 `git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
-tools directly when you need exact control, editing, or final judgment.
+tools directly for editing, final judgment, or small facts where routing would
+cost more than it saves.
 `tool run-command` executes the shell command deterministically through Mixmod;
 the local worker only summarizes the captured stdout/stderr afterward. It
 should not run the command, debug setup, edit files, or decide completion.
@@ -266,13 +268,24 @@ Mixmod candidates when reading the raw output yourself would waste GPT tokens.
 Compound read-only Bash commands with pipes or shell control are also good
 Mixmod candidates when they gather shell evidence; Mixmod still executes the
 exact command and reports side effects.
-Prefer `tool run-command` for concrete shell evidence. Use `tool ask` only when
-the useful local work is a small review question rather than a command result.
+Prefer `tool run-command` for concrete shell evidence. Prefer `tool ask` for
+bounded non-command work where the local worker can inspect a small area and
+return compact findings instead of making GPT read the same files directly:
+localize likely files/symbols, summarize one source path, compare two nearby
+branches, identify changed diff risks, design one focused probe, or check
+whether a named edge case is covered.
 For bounded review or investigation that is not naturally one command, call:
 
 ```bash
-{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Start from changed branches and visible tests, run an existing package or exact focused test if cheap, create an ad hoc probe only when the repo already shows the exact invocation pattern, use at most four repository tool calls, stop after one concrete issue or after the bounded checks finish, and return compact evidence."
+{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Start from changed branches and visible tests, run an existing package or exact focused test if cheap, create an ad hoc probe only when the repo already shows the exact invocation pattern, use only targeted repository tool calls, stop after one concrete issue or after the bounded checks finish, and return compact evidence."
 ```
+
+For initial localization, prefer a cheap `tool ask` call when the task needs
+repository discovery beyond one or two obvious commands. Ask for likely files,
+symbols, anchors, and a short uncertainty list. For implementation planning,
+ask it to inspect one named area and report the smallest useful facts, not to
+choose the architecture. During iteration, ask it to verify one risk or propose
+one focused probe before GPT spends tokens reading long code paths.
 
 For `tool ask`, ask for bounded snippets rather than whole-file reads on
 non-tiny files: `git diff -- path`, `rg -n --max-count`, `grep -n`, or
@@ -308,8 +321,8 @@ top-level helper names and broad evaluator-like `Test<Feature>` names that can
 collide with hidden or downstream tests; use narrow, specific names or local
 closures instead.
 For `tool ask`, keep the request narrow enough for a small local model: one
-behavior area, targeted files or symbols, and at most a few repository tool
-calls. Prefer another bounded helper call over one broad review prompt.
+behavior area, targeted files or symbols, and targeted repository tool calls
+only. Prefer another bounded helper call over one broad review prompt.
 If a local-helper result reports `worker_status: needs_supervisor`, treat it as
 incomplete evidence rather than a pass; inspect the artifacts yourself or run a
 more concrete bounded command before approving.
@@ -512,6 +525,11 @@ mod tests {
         assert!(prompt.contains("local worker"));
         assert!(prompt.contains("cheap helper"));
         assert!(prompt.contains("zero marginal GPT-token cost"));
+        assert!(prompt.contains("Use it actively for bounded repo work"));
+        assert!(prompt.contains("file/symbol localization"));
+        assert!(prompt.contains("source maps"));
+        assert!(prompt.contains("targeted code reading"));
+        assert!(prompt.contains("probe suggestions"));
         assert!(prompt.contains("prefer commands that can be compactly"));
         assert!(prompt.contains("summarized: narrow paths or globs"));
         assert!(prompt.contains("rg --max-count"));
@@ -521,8 +539,9 @@ mod tests {
         assert!(prompt.contains("first hits per file"));
         assert!(prompt.contains("Compound read-only Bash commands"));
         assert!(prompt.contains("exact command and reports side effects"));
-        assert!(prompt.contains("Prefer `tool run-command`"));
-        assert!(prompt.contains("small review question"));
+        assert!(prompt.contains("Prefer `tool run-command` for concrete shell evidence"));
+        assert!(prompt.contains("Prefer `tool ask` for"));
+        assert!(prompt.contains("bounded non-command work"));
         assert!(prompt.contains("fallible assistance rather than authority"));
         assert!(prompt.contains("final correctness is your decision"));
         assert!(prompt.contains("executes the shell command deterministically through Mixmod"));
@@ -539,6 +558,10 @@ mod tests {
         assert!(prompt.contains("concrete commands or probes"));
         assert!(prompt.contains("open-ended `tool ask`"));
         assert!(prompt.contains("secondary evidence"));
+        assert!(prompt.contains("For initial localization"));
+        assert!(prompt.contains("likely files"));
+        assert!(prompt.contains("symbols, anchors"));
+        assert!(prompt.contains("source-path summaries"));
         assert!(prompt.contains("changed branches"));
         assert!(prompt.contains("parser, compiler, binding"));
         assert!(prompt.contains("multi-target"));
@@ -555,7 +578,7 @@ mod tests {
         assert!(prompt.contains("task contract in"));
         assert!(prompt.contains("success and failure semantics"));
         assert!(prompt.contains("local-worker \"looks complete\""));
-        assert!(prompt.contains("at most four repository tool calls"));
+        assert!(prompt.contains("targeted repository tool calls"));
         assert!(prompt.contains("behavior area"));
         assert!(prompt.contains("worker_status: needs_supervisor"));
         assert!(prompt.contains("incomplete evidence"));
