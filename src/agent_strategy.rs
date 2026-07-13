@@ -249,9 +249,6 @@ it should not run the command, debug setup, edit files, or decide completion.
 After routing a command through Mixmod, wait for the returned command result.
 Do not poll logs, process state, or follow-up status commands just to check
 whether the routed command is still running.
-Temporary routing-audit instruction: before every direct shell/tool call that
-you do not route through `tool run-command` or `tool ask`, state in one short
-sentence why direct execution is better for that call.
 Treat local-worker summaries, reviews, and completion claims as fallible
 assistance rather than authority. They are useful for gathering cheap evidence,
 but final correctness is your decision and must be grounded in primary
@@ -597,8 +594,6 @@ mod tests {
         assert!(prompt.contains("only summarizes the captured stdout/stderr afterward"));
         assert!(prompt.contains("wait for the returned command result"));
         assert!(prompt.contains("Do not poll logs"));
-        assert!(prompt.contains("Temporary routing-audit instruction"));
-        assert!(prompt.contains("why direct execution is better"));
         assert!(prompt.contains("bounded snippets"));
         assert!(prompt.contains("whole-file reads"));
         assert!(prompt.contains("failure-oriented post-diff review"));
