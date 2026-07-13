@@ -34,6 +34,8 @@ const ASK_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/opencode.stdou
 const SEARCH_SUMMARY_MAX_FILES: usize = 80;
 const SEARCH_SUMMARY_HITS_PER_FILE: usize = 3;
 const SEARCH_SUMMARY_HIT_CHARS: usize = 240;
+const WORKER_SUMMARY_MIN_BYTES: u64 = 4_000;
+const WORKER_SEARCH_SUMMARY_MIN_BYTES: u64 = 1_500;
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
@@ -515,7 +517,7 @@ fn run_command_summary_worker(
     command_result: &CommandToolResult,
     before_summary_diff: &str,
 ) -> Result<CommandSummaryResult> {
-    if payload.need_text().is_none() {
+    if !should_run_command_summary_worker(payload, out_dir, command_result) {
         let text = fallback_command_summary(payload, out_dir, command_result);
         let metrics = json!({
             "kind": "mixmod-command-proxy",
@@ -586,6 +588,9 @@ fn deterministic_command_summary(
     let stdout = read_text_lossy(&command_result.stdout_path);
     let stderr = read_text_lossy(&command_result.stderr_path);
     let search_summary = write_search_summary_artifact(payload, out_dir, &stdout)?;
+    if should_prefer_worker_command_summary(payload, command_result, search_summary.as_ref()) {
+        return Ok(None);
+    }
     let Some(summary_kind) = direct_summary_kind(
         payload.command.trim(),
         command_result,
@@ -629,6 +634,36 @@ fn deterministic_command_summary(
         metrics: Some(metrics),
         summary_delta_stats: Some(crate::PatchStats::default()),
     }))
+}
+
+fn should_prefer_worker_command_summary(
+    payload: &SupervisorToolProxyPayload,
+    command_result: &CommandToolResult,
+    search_summary: Option<&Value>,
+) -> bool {
+    if payload.need_text().is_some() && search_summary.is_some() {
+        return true;
+    }
+    if search_summary.is_some() && command_result.stdout_bytes >= WORKER_SEARCH_SUMMARY_MIN_BYTES {
+        return true;
+    }
+    command_result.stdout_bytes + command_result.stderr_bytes >= WORKER_SUMMARY_MIN_BYTES
+}
+
+fn should_run_command_summary_worker(
+    payload: &SupervisorToolProxyPayload,
+    out_dir: &Path,
+    command_result: &CommandToolResult,
+) -> bool {
+    if payload.need_text().is_some() {
+        return true;
+    }
+    if out_dir.join("search-summary.json").exists()
+        && command_result.stdout_bytes >= WORKER_SEARCH_SUMMARY_MIN_BYTES
+    {
+        return true;
+    }
+    command_result.stdout_bytes + command_result.stderr_bytes >= WORKER_SUMMARY_MIN_BYTES
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -917,9 +952,7 @@ fn command_summary_task(
     let readable_artifacts =
         prepare_readable_command_artifacts(root, out_dir, search_summary.is_some())?;
     let artifact_section = command_artifact_section(&readable_artifacts);
-    let need = payload
-        .need_text()
-        .unwrap_or("Return the useful command result compactly.");
+    let need = command_summary_need(payload, search_summary.as_ref(), command_result);
     Ok(json!({
         "title": format!("Summarize command result: {}", payload.command.trim()),
         "instructions": format!(
@@ -947,7 +980,7 @@ fn command_summary_task(
             "Do not return truncated command output.",
             "Optimize the final answer for the supervisor information need."
         ],
-        "context": {
+            "context": {
             "worker_role": "command_output_summarizer",
             "expect_patch": false,
             "delegated_from": "mixmod_cli_tool",
@@ -961,6 +994,26 @@ fn command_summary_task(
             "search_summary_artifact": readable_artifacts.search_summary_path
         }
     }))
+}
+
+fn command_summary_need(
+    payload: &SupervisorToolProxyPayload,
+    search_summary: Option<&Value>,
+    command_result: &CommandToolResult,
+) -> String {
+    if let Some(need) = payload.need_text() {
+        return need.to_string();
+    }
+    if search_summary.is_some() {
+        return "Summarize the search results into the most useful grouped evidence: likely relevant files/symbols, first important line references, and any obvious next file to inspect. Do not paste raw matches.".to_string();
+    }
+    if command_segments(payload.command.trim()).any(is_test_or_build_command) {
+        return "Summarize the check result compactly: pass/fail, failing test or package names, and the first relevant assertion, traceback, compiler error, or setup error. Do not paste raw output.".to_string();
+    }
+    if matches!(command_result.exit_status, Some(status) if status != 0) {
+        return "Summarize the command failure compactly: exit status, likely cause, and first relevant error line. Do not paste raw output.".to_string();
+    }
+    "Return the useful command result compactly. Do not paste raw stdout or stderr.".to_string()
 }
 
 fn read_text_lossy(path: &Path) -> String {
@@ -1432,13 +1485,6 @@ fn shell_command_from_pre_tool_use(event: &Value) -> Option<&str> {
     if get_str_any(event, &["hook_event_name", "hookEventName"]) != Some("PreToolUse") {
         return None;
     }
-    let tool_name = get_str_any(event, &["tool_name", "toolName"])?;
-    if !matches!(
-        tool_name,
-        "Bash" | "exec_command" | "functions.exec_command"
-    ) {
-        return None;
-    }
     event
         .get("tool_input")
         .or_else(|| event.get("toolInput"))
@@ -1561,13 +1607,7 @@ pub(crate) fn should_proxy_bash_command(command: &str) -> bool {
     {
         return false;
     }
-    if views.iter().any(|view| contains_obvious_mutation(view)) {
-        return false;
-    }
-    views.iter().any(|view| {
-        command_segments(view)
-            .any(|segment| is_inspection_command(segment) || is_test_or_build_command(segment))
-    })
+    true
 }
 
 fn command_views(command: &str) -> Vec<String> {
@@ -1673,24 +1713,6 @@ fn is_tool_recursion_command(command: &str) -> bool {
         || command.contains(" codex-hook ")
 }
 
-fn is_inspection_command(command: &str) -> bool {
-    [
-        "git diff",
-        "git status",
-        "git show",
-        "git log",
-        "git grep",
-        "rg ",
-        "grep ",
-        "sed -n ",
-        "cat ",
-        "ls ",
-        "find ",
-    ]
-    .iter()
-    .any(|prefix| command == prefix.trim() || command.starts_with(prefix))
-}
-
 fn is_test_or_build_command(command: &str) -> bool {
     [
         "go test",
@@ -1717,27 +1739,6 @@ fn is_git_diff_check_command(command: &str) -> bool {
 
 fn is_git_diff_stat_command(command: &str) -> bool {
     command == "git diff --stat" || command.starts_with("git diff --stat ")
-}
-
-fn contains_obvious_mutation(command: &str) -> bool {
-    [
-        "rm ",
-        "mv ",
-        "cp ",
-        "touch ",
-        "chmod ",
-        "chown ",
-        "git add",
-        "git commit",
-        "git checkout",
-        "git reset",
-        "git clean",
-        "git apply",
-        "gofmt ",
-        "ruff --fix",
-    ]
-    .iter()
-    .any(|token| command.starts_with(token) || command.contains(&format!(" {token}")))
 }
 
 fn extract_last_text(path: &Path) -> Option<String> {
@@ -2072,11 +2073,8 @@ tests/lib.rs:5:assert!(target_symbol());
 ";
         std::fs::write(logs.join("command.stdout.txt"), stdout).unwrap();
         std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
-        let payload = SupervisorToolProxyPayload::from_command(
-            "rg -n target_symbol .",
-            Some("Return grouped hits."),
-            temp.path(),
-        );
+        let payload =
+            SupervisorToolProxyPayload::from_command("rg -n target_symbol .", None, temp.path());
         let result = CommandToolResult {
             exit_status: Some(0),
             timed_out: false,
@@ -2100,6 +2098,73 @@ tests/lib.rs:5:assert!(target_symbol());
             read_json_file(&out_dir.join(METRICS_JSON)).unwrap()["summary_source"],
             json!("mixmod_deterministic")
         );
+    }
+
+    #[test]
+    fn search_with_need_prefers_worker_summary() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let stdout = "src/lib.rs:10:fn target_symbol() {}\n";
+        std::fs::write(logs.join("command.stdout.txt"), stdout).unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "rg -n target_symbol .",
+            Some("Return the one relevant file."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 10,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        assert!(
+            deterministic_command_summary(&payload, &out_dir, &result)
+                .unwrap()
+                .is_none()
+        );
+        assert!(out_dir.join("search-summary.json").exists());
+    }
+
+    #[test]
+    fn large_search_without_need_prefers_worker_summary() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let stdout = format!(
+            "{}{}",
+            "src/lib.rs:10:fn target_symbol() {}\n",
+            "tests/lib.rs:20:target_symbol();\n".repeat(80)
+        );
+        std::fs::write(logs.join("command.stdout.txt"), stdout.as_bytes()).unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload =
+            SupervisorToolProxyPayload::from_command("rg -n target_symbol .", None, temp.path());
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 10,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        assert!(
+            deterministic_command_summary(&payload, &out_dir, &result)
+                .unwrap()
+                .is_none()
+        );
+        assert!(should_run_command_summary_worker(
+            &payload, &out_dir, &result
+        ));
     }
 
     #[test]
@@ -2142,11 +2207,22 @@ tests/lib.rs:5:assert!(target_symbol());
     }
 
     #[test]
-    fn does_not_proxy_mutating_or_recursive_commands() {
+    fn proxies_shell_commands_by_default() {
         for command in [
             "gofmt -w vm/vm.go",
             "/bin/bash -lc \"gofmt -w vm.go\"",
             "git add .",
+            "git commit -m update",
+            "python - <<'PY'\nprint('ok')\nPY",
+            "printf 'ok\\n'",
+        ] {
+            assert!(should_proxy_bash_command(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn does_not_proxy_recursive_commands() {
+        for command in [
             "git status --short && mixmod tool run-command --command 'rg x'",
             "/bin/bash -lc \"rg x && mixmod tool run-command --command 'rg y'\"",
             "git status --short && codex exec --help",
@@ -2171,6 +2247,22 @@ tests/lib.rs:5:assert!(target_symbol());
         assert_eq!(
             shell_command_from_pre_tool_use(&event),
             Some("git status --short")
+        );
+    }
+
+    #[test]
+    fn pre_tool_use_command_parser_accepts_unknown_shell_command_shape() {
+        let event = json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "shell",
+            "tool_input": {
+                "cmd": "printf 'ok\\n'"
+            }
+        });
+
+        assert_eq!(
+            shell_command_from_pre_tool_use(&event),
+            Some("printf 'ok\\n'")
         );
     }
 

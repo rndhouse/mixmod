@@ -246,19 +246,20 @@ fn agent_strategy_prompt(
         r#"You are the primary Codex agent for this Mixmod run.
 
 Complete the task in the working repository. You may inspect files, edit files,
-run focused checks, and use git commands directly. Do not ask the user for
-approval. Do not commit. Leave the final solution as an uncommitted git diff so
-Mixmod can capture it.
+run focused checks, and use git commands. Do not ask the user for approval. Do
+not commit unless the task explicitly requires a commit. Leave the final
+solution as a git diff so Mixmod can capture it.
 
 Mixmod is a tool/router for a cheap local worker. It is not a separate
 supervisor. The local worker is useful for bounded evidence gathering and weak
 for final judgment. Treat its answers as fallible evidence; final correctness is
 your responsibility.
 
-Economic rule: direct shell output enters GPT context. Mixmod-routed shell
-output is captured to artifacts and returns a compact answer. Route broad
-search/read/diff/status/test/build evidence through Mixmod when the raw output
-would be larger than a short fact.
+Economic rule: shell commands are routed through Mixmod by default. Mixmod runs
+the exact command, captures stdout/stderr/result artifacts, and returns a compact
+answer. It may ask the cheap local worker to summarize large or semantic command
+outputs when that is likely to reduce GPT context. Search output is especially
+good to route this way.
 
 Primary helper command:
 
@@ -266,9 +267,10 @@ Primary helper command:
 {mixmod_tool_command} tool run-command --command "git status --short" --need "Return tracked change status only."
 ```
 
-Use `--need` to request the exact compact fact you need: pass/fail, failing
-test name, grouped search hits, changed files, or notable hunks. After routing a
-command, wait for the returned result rather than polling.
+Use `--need` when you manually call Mixmod to request the exact compact fact you
+need: pass/fail, failing test name, grouped search hits, changed files, or
+notable hunks. After routing a command, wait for the returned result rather than
+polling.
 
 Use `tool ask` sparingly for one bounded non-command question, such as likely
 files/symbols, one source-path summary, one diff risk, or one probe idea:
@@ -336,8 +338,8 @@ Guide artifact: {guide_path}
 Mixmod routes bounded work to the configured local worker. Codex remains the
 primary implementation agent and final correctness authority.
 
-Prefer `tool run-command` for shell evidence that would otherwise print more
-than a short fact into GPT context:
+Shell commands are routed through Mixmod by default. You can also call
+`tool run-command` explicitly when you want to provide an information need:
 
 ```bash
 {mixmod_tool_command} tool run-command --command "rg -n target src tests" --need "Return grouped matching files and first relevant line numbers."
@@ -345,8 +347,9 @@ than a short fact into GPT context:
 
 `tool run-command` executes the exact shell command through Mixmod, captures
 stdout/stderr/result files, and returns a compact answer plus an artifact
-directory. The full stdout/stderr stay on disk. If the compact answer is
-insufficient, inspect the named artifact file.
+directory. The full stdout/stderr stay on disk. Mixmod may ask the cheap local
+worker to summarize large or semantic output, especially searches and failing
+checks. If the compact answer is insufficient, inspect the named artifact file.
 
 Prefer `tool ask` only for one bounded non-command request where a weak local
 model can save context: localize likely files or symbols, summarize one named

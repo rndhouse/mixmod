@@ -716,13 +716,13 @@ fn codex_home_config_with_tool_proxy_hook() -> Result<String> {
 hooks = true
 
 [[hooks.PreToolUse]]
-matcher = "^Bash$"
+matcher = ".*"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
 command = {}
 timeout = 15
-statusMessage = "Routing eligible Bash through Mixmod"
+statusMessage = "Routing shell command through Mixmod"
 "#,
         toml_basic_string(&command)
     ))
@@ -775,7 +775,7 @@ fn codex_home_config_installs_scoped_pre_tool_use_hook() {
     assert!(config.contains("[features]"));
     assert!(config.contains("hooks = true"));
     assert!(config.contains("[[hooks.PreToolUse]]"));
-    assert!(config.contains("matcher = \"^Bash$\""));
+    assert!(config.contains("matcher = \".*\""));
     assert!(config.contains("codex-hook pre-tool-use"));
     assert!(config.contains("statusMessage"));
 }
