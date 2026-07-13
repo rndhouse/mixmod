@@ -132,7 +132,7 @@ pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, RevisionHandoff, SupervisorCodexSession, SupervisorFeedbackTurn,
     aggregate_supervisor_usage, normalize_worker_mode, run_supervisor_brief_turn,
-    run_supervisor_feedback_turn, worker_role_expects_patch,
+    run_supervisor_feedback_turn,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{

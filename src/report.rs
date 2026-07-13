@@ -9,6 +9,8 @@ pub(crate) fn budgeted_report(name: &str, metrics: &Value) -> String {
 - Supervisor output tokens: {output_tokens}
 - Supervisor input tokens: {input_tokens}
 - Total supervisor tokens: {total_tokens}
+- Supervisor token usage scope: {token_scope}
+- Supervisor token usage comparable: {token_comparable}
 - Supervisor model: {supervisor_model}
 - Supervisor reasoning effort: {reasoning_effort}
 - Supervisor turns: {turns}
@@ -29,6 +31,10 @@ Default strategy result is `{status}` for this arm. This arm uses the supervisor
         output_tokens = get_u64(metrics, "supervisor_output_tokens").unwrap_or(0),
         input_tokens = get_u64(metrics, "supervisor_input_tokens").unwrap_or(0),
         total_tokens = get_u64(metrics, "supervisor_total_tokens").unwrap_or(0),
+        token_scope = get_str(metrics, "supervisor_token_usage_scope").unwrap_or("unknown"),
+        token_comparable = get_bool(metrics, "supervisor_token_usage_comparable")
+            .map(yes_no)
+            .unwrap_or("unknown"),
         supervisor_model = get_str(metrics, "supervisor_model").unwrap_or("unknown"),
         reasoning_effort = get_str(metrics, "supervisor_reasoning_effort").unwrap_or("unknown"),
         turns = get_u64(metrics, "supervision_turn_count").unwrap_or(0),
@@ -110,6 +116,8 @@ impl<'a> ExperimentReportRenderer<'a> {
         let default_input_tokens = supervisor_input_tokens(&default_metrics);
         let codex_total_tokens = supervisor_total_tokens(&codex_metrics);
         let default_total_tokens = supervisor_total_tokens(&default_metrics);
+        let codex_token_usage_comparable = supervisor_token_usage_is_comparable(&codex_metrics);
+        let default_token_usage_comparable = supervisor_token_usage_is_comparable(&default_metrics);
         let codex_supervisor_model = get_str(&codex_metrics, "supervisor_model")
             .unwrap_or("unknown")
             .to_string();
@@ -193,28 +201,32 @@ impl<'a> ExperimentReportRenderer<'a> {
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| "unavailable".to_string());
 
-        let token_conclusion = match (
-        get_u64(&codex_metrics, "codex_token_usage"),
-        get_u64(&default_metrics, "codex_token_usage")
-            .or_else(|| supervisor_total_tokens(&default_metrics)),
-        codex_visible,
-        default_visible,
-    ) {
-        (Some(codex), Some(mixmod), _, _) if mixmod < codex => {
-            format!("Mixmod used fewer measured Codex tokens ({mixmod} vs {codex}).")
-        }
-        (Some(codex), Some(mixmod), _, _) if mixmod >= codex => {
-            format!("Mixmod did not reduce measured Codex tokens ({mixmod} vs {codex}).")
-        }
-        (_, _, Some(codex), Some(mixmod)) if mixmod < codex => format!(
-            "Exact token telemetry is unavailable; byte proxy favors Mixmod ({mixmod} vs {codex} Codex-visible input bytes)."
-        ),
-        (_, _, Some(codex), Some(mixmod)) => format!(
-            "Exact token telemetry is unavailable; byte proxy does not favor Mixmod yet ({mixmod} vs {codex} Codex-visible input bytes)."
-        ),
-        _ => "Exact token telemetry and comparable byte proxies are unavailable; conclusion is inconclusive."
-            .to_string(),
-    };
+        let token_conclusion = if !codex_token_usage_comparable || !default_token_usage_comparable {
+            "Exact token telemetry is not comparable because at least one arm is not marked as cumulative run-level usage; token savings are inconclusive."
+                .to_string()
+        } else {
+            match (
+                get_u64(&codex_metrics, "codex_token_usage").or(codex_total_tokens),
+                get_u64(&default_metrics, "codex_token_usage").or(default_total_tokens),
+                codex_visible,
+                default_visible,
+            ) {
+                (Some(codex), Some(mixmod), _, _) if mixmod < codex => {
+                    format!("Mixmod used fewer measured Codex tokens ({mixmod} vs {codex}).")
+                }
+                (Some(codex), Some(mixmod), _, _) if mixmod >= codex => {
+                    format!("Mixmod did not reduce measured Codex tokens ({mixmod} vs {codex}).")
+                }
+                (_, _, Some(codex), Some(mixmod)) if mixmod < codex => format!(
+                    "Exact token telemetry is unavailable; byte proxy favors Mixmod ({mixmod} vs {codex} Codex-visible input bytes)."
+                ),
+                (_, _, Some(codex), Some(mixmod)) => format!(
+                    "Exact token telemetry is unavailable; byte proxy does not favor Mixmod yet ({mixmod} vs {codex} Codex-visible input bytes)."
+                ),
+                _ => "Exact token telemetry and comparable byte proxies are unavailable; conclusion is inconclusive."
+                    .to_string(),
+            }
+        };
 
         let full_session = get_bool(&default_metrics, "did_codex_read_full_mixmod_session")
             .map(yes_no)
@@ -240,6 +252,8 @@ Mixmod default strategy beat Codex-only on output tokens: {default_output_win}.
 - Codex-only final status: {codex_status}
 - Mixmod default final status: {default_status}
 - Mixmod default metrics source: {default_source}
+- Codex-only token telemetry comparable: {codex_token_usage_comparable}
+- Mixmod token telemetry comparable: {default_token_usage_comparable}
 - Mixmod delegations: {mixmod_delegations}
 - Did Codex read the full Mixmod session: {full_session}
 - Context-exposure conclusion: {token_conclusion}
@@ -321,6 +335,8 @@ Exact Codex token telemetry is often unavailable through local CLI workflows. Th
             default_visible = display_optional_u64(default_visible),
             default_status = default_status,
             default_source = default_source,
+            codex_token_usage_comparable = yes_no(codex_token_usage_comparable),
+            default_token_usage_comparable = yes_no(default_token_usage_comparable),
             default_codex_calls = default_codex_calls,
             default_opencode_calls = default_opencode_calls,
             default_worker_backend = default_worker_backend,

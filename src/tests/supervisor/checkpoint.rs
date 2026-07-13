@@ -58,6 +58,7 @@ diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     };
 
     let comparison = write_patch_checkpoint_comparison(&previous, &current, &decision).unwrap();
@@ -208,6 +209,7 @@ fn checkpoint_records_small_patch_slice_delta_observations() {
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     };
 
     let comparison = write_patch_checkpoint_comparison(&previous, &current, &decision).unwrap();

@@ -140,6 +140,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         output_bytes: 0,
         thread_id: String::new(),
         turn_id: String::new(),
+        token_usage_comparable: true,
     }))
 }
 
@@ -292,6 +293,32 @@ pub(crate) fn supervisor_total_tokens(metrics: &Value) -> Option<u64> {
                 .unwrap_or(0);
             Some(input + output + reasoning)
         })
+}
+
+pub(crate) fn supervisor_token_usage_is_comparable(metrics: &Value) -> bool {
+    if get_bool(metrics, "supervisor_token_usage_comparable") == Some(true) {
+        return true;
+    }
+    if get_bool(metrics, "supervisor_token_usage_comparable") == Some(false) {
+        return false;
+    }
+    if get_str(metrics, "supervisor_token_usage_scope") == Some("cumulative") {
+        return true;
+    }
+
+    [
+        get_str(metrics, "supervisor_token_usage_source"),
+        get_str(metrics, "codex_token_usage_source"),
+        get_str(metrics, "token_usage_source"),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|source| {
+        matches!(
+            source,
+            "codex_rollout_total_token_usage" | "codex_app_server_total_token_usage"
+        )
+    })
 }
 
 pub(crate) fn mixmod_provider_model(metrics: &Value) -> String {

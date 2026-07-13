@@ -174,6 +174,9 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
             "supervisor_total_tokens": result.usage.total_tokens,
             "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
+            "supervisor_token_usage_source": result.token_usage_source.clone(),
+            "supervisor_token_usage_scope": result.token_usage_scope.clone(),
+            "supervisor_token_usage_comparable": result.token_usage_comparable,
             "input_bytes": result.input_bytes,
             "output_bytes": result.output_bytes,
             "auth_copied_then_removed": result.auth_copied_then_removed,
@@ -195,6 +198,7 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
                 output_bytes: result.output_bytes,
                 thread_id: result.thread_id,
                 turn_id: result.turn_id,
+                token_usage_comparable: result.token_usage_comparable,
             });
 
         if action == "wait" {

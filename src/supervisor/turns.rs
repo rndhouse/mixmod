@@ -51,6 +51,7 @@ pub(crate) fn run_supervisor_brief_turn(
     let mut output_bytes = result.output_bytes;
     let mut thread_id = result.thread_id.clone();
     let mut turn_id = result.turn_id.clone();
+    let mut token_usage_comparable = result.token_usage_comparable;
     if worker_brief_needs_small_slice_repair(&final_brief, worker_guidance) {
         let repair_prompt = supervisor_worker_brief_repair_prompt(
             work_dir,
@@ -95,6 +96,9 @@ pub(crate) fn run_supervisor_brief_turn(
                 "supervisor_reasoning_tokens": retry.usage.reasoning_tokens,
                 "supervisor_total_tokens": retry.usage.total_tokens,
                 "supervisor_cached_input_tokens": retry.usage.cached_input_tokens,
+                "supervisor_token_usage_source": retry.token_usage_source.clone(),
+                "supervisor_token_usage_scope": retry.token_usage_scope.clone(),
+                "supervisor_token_usage_comparable": retry.token_usage_comparable,
                 "input_bytes": retry.input_bytes,
                 "output_bytes": retry.output_bytes,
                 "codex_app_server_thread_id": retry.thread_id.clone(),
@@ -111,6 +115,7 @@ pub(crate) fn run_supervisor_brief_turn(
             cached_input_tokens += retry.usage.cached_input_tokens;
             input_bytes += retry.input_bytes;
             output_bytes += retry.output_bytes;
+            token_usage_comparable &= retry.token_usage_comparable;
             thread_id = retry.thread_id;
             turn_id = retry.turn_id;
         }
@@ -128,6 +133,9 @@ pub(crate) fn run_supervisor_brief_turn(
             "supervisor_reasoning_tokens": repair.usage.reasoning_tokens,
             "supervisor_total_tokens": repair.usage.total_tokens,
             "supervisor_cached_input_tokens": repair.usage.cached_input_tokens,
+            "supervisor_token_usage_source": repair.token_usage_source.clone(),
+            "supervisor_token_usage_scope": repair.token_usage_scope.clone(),
+            "supervisor_token_usage_comparable": repair.token_usage_comparable,
             "input_bytes": repair.input_bytes,
             "output_bytes": repair.output_bytes,
             "codex_app_server_thread_id": repair.thread_id.clone(),
@@ -143,6 +151,7 @@ pub(crate) fn run_supervisor_brief_turn(
         cached_input_tokens += repair.usage.cached_input_tokens;
         input_bytes += repair.input_bytes;
         output_bytes += repair.output_bytes;
+        token_usage_comparable &= repair.token_usage_comparable;
         if !retry_ran {
             thread_id = repair.thread_id;
             turn_id = repair.turn_id;
@@ -162,6 +171,8 @@ pub(crate) fn run_supervisor_brief_turn(
         "supervisor_reasoning_tokens": reasoning_tokens,
         "supervisor_total_tokens": total_tokens,
         "supervisor_cached_input_tokens": cached_input_tokens,
+        "supervisor_token_usage_scope": if token_usage_comparable { "turn_group_delta" } else { "incomplete" },
+        "supervisor_token_usage_comparable": token_usage_comparable,
         "input_bytes": input_bytes,
         "output_bytes": output_bytes,
         "auth_copied_then_removed": result.auth_copied_then_removed,
@@ -180,6 +191,7 @@ pub(crate) fn run_supervisor_brief_turn(
         output_bytes,
         thread_id,
         turn_id,
+        token_usage_comparable,
     })
 }
 
@@ -345,6 +357,7 @@ pub(crate) fn run_supervisor_feedback_turn(
     let mut output_bytes = result.output_bytes;
     let mut thread_id = result.thread_id.clone();
     let mut turn_id = result.turn_id.clone();
+    let mut token_usage_comparable = result.token_usage_comparable;
     if supervisor_feedback_needs_revision_slice_repair(&parsed_feedback, worker_guidance) {
         let repair_prompt = supervisor_feedback_repair_prompt(
             work_dir,
@@ -402,6 +415,9 @@ pub(crate) fn run_supervisor_feedback_turn(
                 "supervisor_reasoning_tokens": retry.usage.reasoning_tokens,
                 "supervisor_total_tokens": retry.usage.total_tokens,
                 "supervisor_cached_input_tokens": retry.usage.cached_input_tokens,
+                "supervisor_token_usage_source": retry.token_usage_source.clone(),
+                "supervisor_token_usage_scope": retry.token_usage_scope.clone(),
+                "supervisor_token_usage_comparable": retry.token_usage_comparable,
                 "input_bytes": retry.input_bytes,
                 "output_bytes": retry.output_bytes,
                 "codex_app_server_thread_id": retry.thread_id.clone(),
@@ -418,6 +434,7 @@ pub(crate) fn run_supervisor_feedback_turn(
             cached_input_tokens += retry.usage.cached_input_tokens;
             input_bytes += retry.input_bytes;
             output_bytes += retry.output_bytes;
+            token_usage_comparable &= retry.token_usage_comparable;
             thread_id = retry.thread_id;
             turn_id = retry.turn_id;
         }
@@ -435,6 +452,9 @@ pub(crate) fn run_supervisor_feedback_turn(
             "supervisor_reasoning_tokens": repair.usage.reasoning_tokens,
             "supervisor_total_tokens": repair.usage.total_tokens,
             "supervisor_cached_input_tokens": repair.usage.cached_input_tokens,
+            "supervisor_token_usage_source": repair.token_usage_source.clone(),
+            "supervisor_token_usage_scope": repair.token_usage_scope.clone(),
+            "supervisor_token_usage_comparable": repair.token_usage_comparable,
             "input_bytes": repair.input_bytes,
             "output_bytes": repair.output_bytes,
             "codex_app_server_thread_id": repair.thread_id.clone(),
@@ -450,6 +470,7 @@ pub(crate) fn run_supervisor_feedback_turn(
         cached_input_tokens += repair.usage.cached_input_tokens;
         input_bytes += repair.input_bytes;
         output_bytes += repair.output_bytes;
+        token_usage_comparable &= repair.token_usage_comparable;
         if !retry_ran {
             thread_id = repair.thread_id;
             turn_id = repair.turn_id;
@@ -491,6 +512,9 @@ pub(crate) fn run_supervisor_feedback_turn(
             "supervisor_reasoning_tokens": repair.usage.reasoning_tokens,
             "supervisor_total_tokens": repair.usage.total_tokens,
             "supervisor_cached_input_tokens": repair.usage.cached_input_tokens,
+            "supervisor_token_usage_source": repair.token_usage_source.clone(),
+            "supervisor_token_usage_scope": repair.token_usage_scope.clone(),
+            "supervisor_token_usage_comparable": repair.token_usage_comparable,
             "input_bytes": repair.input_bytes,
             "output_bytes": repair.output_bytes,
             "codex_app_server_thread_id": repair.thread_id.clone(),
@@ -513,6 +537,7 @@ pub(crate) fn run_supervisor_feedback_turn(
         cached_input_tokens += repair.usage.cached_input_tokens;
         input_bytes += repair.input_bytes;
         output_bytes += repair.output_bytes;
+        token_usage_comparable &= repair.token_usage_comparable;
         thread_id = repair.thread_id;
         turn_id = repair.turn_id;
         let normalized = normalize_feedback_value(parsed_feedback);
@@ -551,6 +576,8 @@ pub(crate) fn run_supervisor_feedback_turn(
             "supervisor_reasoning_tokens": reasoning_tokens,
             "supervisor_total_tokens": total_tokens,
             "supervisor_cached_input_tokens": cached_input_tokens,
+            "supervisor_token_usage_scope": if token_usage_comparable { "turn_group_delta" } else { "incomplete" },
+            "supervisor_token_usage_comparable": token_usage_comparable,
             "input_bytes": input_bytes,
             "output_bytes": output_bytes,
             "auth_copied_then_removed": result.auth_copied_then_removed,
@@ -566,6 +593,7 @@ pub(crate) fn run_supervisor_feedback_turn(
         output_bytes,
         thread_id,
         turn_id,
+        token_usage_comparable,
     };
     Ok(turn)
 }
