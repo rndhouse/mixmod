@@ -15,7 +15,8 @@ use serde_json::{Value, json};
 
 use crate::harness::{AgentBackend, AgentHarness, AgentOutput, AgentRequest};
 use crate::{
-    MixmodConfig, SupervisorConfig, append_file, atomic_write, get_str, get_u64, state_layout,
+    CONFIG_SNAPSHOT_JSON, MixmodConfig, SupervisorConfig, append_file, atomic_write, get_str,
+    get_u64, state_layout, write_pretty_json,
 };
 
 const CODEX_SHELL_ENV_INHERIT_CONFIG: &str = "shell_environment_policy.inherit=all";
@@ -256,17 +257,21 @@ impl CodexAppServer {
         work_dir: &Path,
         supervisor: &SupervisorConfig,
         sandbox: CodexSandbox,
-        _tool_proxy_config: Option<&MixmodConfig>,
+        tool_proxy_config: Option<&MixmodConfig>,
     ) -> Result<Self> {
         let code_home = codex_home_for_work_dir(work_dir);
         fs::create_dir_all(&code_home)
             .with_context(|| format!("failed to create Codex home {}", code_home.display()))?;
         let copied_auth = copy_codex_auth_if_available(&code_home)?;
+        let tool_proxy_hooks_enabled = tool_proxy_config
+            .map(|config| config.strategy.supervisor_tool_proxy.enabled)
+            .unwrap_or(false);
+        install_codex_home_config(&code_home, tool_proxy_config)?;
         let model = normalized_supervisor_model(&supervisor.model)?;
         let reasoning_effort = normalized_reasoning_effort(&supervisor.reasoning_effort)?;
         let mut command = Command::new("codex");
         command
-            .args(codex_app_server_args())
+            .args(codex_app_server_args(tool_proxy_hooks_enabled))
             .env("CODEX_HOME", &code_home)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -666,28 +671,113 @@ impl CodexAppServer {
     }
 }
 
-fn codex_app_server_args() -> [&'static str; 5] {
-    [
-        "app-server",
-        "--listen",
-        "stdio://",
-        "--config",
-        CODEX_SHELL_ENV_INHERIT_CONFIG,
-    ]
+fn codex_app_server_args(tool_proxy_hooks_enabled: bool) -> Vec<String> {
+    let mut args = Vec::new();
+    if tool_proxy_hooks_enabled {
+        args.push("--dangerously-bypass-hook-trust".to_string());
+    }
+    args.extend([
+        "app-server".to_string(),
+        "--listen".to_string(),
+        "stdio://".to_string(),
+        "--config".to_string(),
+        CODEX_SHELL_ENV_INHERIT_CONFIG.to_string(),
+    ]);
+    args
+}
+
+fn install_codex_home_config(
+    code_home: &Path,
+    tool_proxy_config: Option<&MixmodConfig>,
+) -> Result<()> {
+    let hooks_enabled = tool_proxy_config
+        .map(|config| config.strategy.supervisor_tool_proxy.enabled)
+        .unwrap_or(false);
+    if hooks_enabled && let Some(config) = tool_proxy_config {
+        write_pretty_json(
+            &code_home.join(CONFIG_SNAPSHOT_JSON),
+            config,
+            "supervisor tool proxy config snapshot",
+        )?;
+    }
+    let config_text = if hooks_enabled {
+        codex_home_config_with_tool_proxy_hook()?
+    } else {
+        "[features]\nhooks = false\n".to_string()
+    };
+    atomic_write(&code_home.join("config.toml"), config_text.as_bytes())
+}
+
+fn codex_home_config_with_tool_proxy_hook() -> Result<String> {
+    let exe = env::current_exe().context("failed to locate current mixmod executable")?;
+    let command = format!("{} codex-hook pre-tool-use", shell_quote_path(&exe));
+    Ok(format!(
+        r#"[features]
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = {}
+timeout = 15
+statusMessage = "Routing eligible Bash through Mixmod"
+"#,
+        toml_basic_string(&command)
+    ))
+}
+
+fn shell_quote_path(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn toml_basic_string(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped.push('"');
+    escaped
 }
 
 #[test]
 fn codex_app_server_args_inherit_launcher_shell_environment() {
     assert_eq!(
-        codex_app_server_args(),
-        [
-            "app-server",
-            "--listen",
-            "stdio://",
-            "--config",
-            "shell_environment_policy.inherit=all",
+        codex_app_server_args(false),
+        vec![
+            "app-server".to_string(),
+            "--listen".to_string(),
+            "stdio://".to_string(),
+            "--config".to_string(),
+            "shell_environment_policy.inherit=all".to_string(),
         ]
     );
+    assert_eq!(
+        codex_app_server_args(true)[0],
+        "--dangerously-bypass-hook-trust"
+    );
+}
+
+#[test]
+fn codex_home_config_installs_scoped_pre_tool_use_hook() {
+    let config = codex_home_config_with_tool_proxy_hook().unwrap();
+
+    assert!(config.contains("[features]"));
+    assert!(config.contains("hooks = true"));
+    assert!(config.contains("[[hooks.PreToolUse]]"));
+    assert!(config.contains("matcher = \"^Bash$\""));
+    assert!(config.contains("codex-hook pre-tool-use"));
+    assert!(config.contains("statusMessage"));
 }
 
 impl Drop for CodexAppServer {

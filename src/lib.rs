@@ -140,7 +140,7 @@ pub(crate) use supervisor::{
     supervisor_worker_brief_prompt,
 };
 pub(crate) use supervisor_tool_proxy::{
-    codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_ask_tool,
+    CONFIG_SNAPSHOT_JSON, codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_ask_tool,
     run_worker_command_tool,
 };
 pub(crate) use tool_events::{build_tool_events_jsonl, tool_output_paths_from_events};

@@ -19,16 +19,16 @@ use crate::{
     shell_command, state_layout, write_pretty_json,
 };
 
-const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
+pub(crate) const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
 const ASK_WORKER_TIMEOUT_SECONDS: u64 = 90;
 const ASK_IDLE_TIMEOUT_SECONDS: u64 = 60;
-const COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS: u64 = 45;
-const COMMAND_SUMMARY_IDLE_TIMEOUT_SECONDS: u64 = 30;
-const COMMAND_SUMMARY_BYTES: usize = 2_000;
-const DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES: u64 = 1_200;
-const DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES: u64 = 600;
-const ASK_SUMMARY_BYTES: usize = 3_000;
+const COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS: u64 = 25;
+const COMMAND_SUMMARY_IDLE_TIMEOUT_SECONDS: u64 = 15;
+const COMMAND_SUMMARY_BYTES: usize = 1_000;
+const DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES: u64 = 400;
+const DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES: u64 = 240;
+const ASK_SUMMARY_BYTES: usize = 1_200;
 const COMMAND_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/command.stdout.txt,logs/command.stderr.txt,command-result.json,search-summary.json,logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,worktree.patch} if answer is insufficient";
 const ASK_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,reasoning-trace.jsonl,worktree.patch} if answer is insufficient";
 const SEARCH_SUMMARY_MAX_FILES: usize = 80;
@@ -253,7 +253,12 @@ fn render_command_tool_result(
     let mut output = String::new();
     writeln!(output, "Mixmod command proxy result").expect("write to string");
     writeln!(output, "status: {worker_status}").expect("write to string");
-    writeln!(output, "command: {}", payload.command.trim()).expect("write to string");
+    writeln!(
+        output,
+        "command: {}",
+        compact_text(payload.command.trim(), 500)
+    )
+    .expect("write to string");
     if let Some(need) = payload.need_text() {
         writeln!(output, "need: {}", compact_text(need, 600)).expect("write to string");
     }
@@ -345,7 +350,7 @@ fn render_ask_tool_result(
     writeln!(
         output,
         "request: {}",
-        compact_text(payload.request_text(), 1_000)
+        compact_text(payload.request_text(), 500)
     )
     .expect("write to string");
     writeln!(output, "status: {worker_status}").expect("write to string");
@@ -360,8 +365,17 @@ fn render_ask_tool_result(
     writeln!(output, "artifacts_dir: {}", display_path(root, out_dir)).expect("write to string");
     writeln!(output, "artifacts: {ASK_TOOL_ARTIFACT_HINT}").expect("write to string");
     writeln!(output, "answer:").expect("write to string");
-    writeln!(output, "{}", compact_text(worker_text, ASK_SUMMARY_BYTES)).expect("write to string");
+    writeln!(output, "{}", ask_answer_text(worker_text)).expect("write to string");
     output
+}
+
+fn ask_answer_text(worker_text: &str) -> String {
+    if worker_text.len() <= ASK_SUMMARY_BYTES {
+        return worker_text.trim().to_string();
+    }
+    format!(
+        "answer_too_long: local worker answer exceeded {ASK_SUMMARY_BYTES} bytes; inspect artifacts_dir/logs/opencode.stdout.txt or report.md for exact evidence"
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -501,6 +515,36 @@ fn run_command_summary_worker(
     command_result: &CommandToolResult,
     before_summary_diff: &str,
 ) -> Result<CommandSummaryResult> {
+    if payload.need_text().is_none() {
+        let text = fallback_command_summary(payload, out_dir, command_result);
+        let metrics = json!({
+            "kind": "mixmod-command-proxy",
+            "status": tool_proxy_command_status(command_result),
+            "summary_source": "mixmod_artifact_only",
+            "opencode_call": false,
+            "local_inference_verified": false,
+            "command_exit_status": command_result.exit_status,
+            "command_timed_out": command_result.timed_out,
+            "duration_ms": command_result.duration_ms,
+            "stdout_bytes": command_result.stdout_bytes,
+            "stderr_bytes": command_result.stderr_bytes,
+        });
+        write_pretty_json(
+            &out_dir.join(METRICS_JSON),
+            &metrics,
+            "artifact-only command proxy metrics",
+        )?;
+        atomic_write(
+            &out_dir.join(REPORT_MD),
+            artifact_only_command_report(payload, command_result, &text).as_bytes(),
+        )?;
+        return Ok(CommandSummaryResult {
+            text,
+            metrics: Some(metrics),
+            summary_delta_stats: Some(crate::PatchStats::default()),
+        });
+    }
+
     let summary_task_path = out_dir.join("command-summary-task.json");
     let summary_task = command_summary_task(payload, root, out_dir, command_result)?;
     write_pretty_json(&summary_task_path, &summary_task, "command summary task")?;
@@ -679,10 +723,23 @@ fn deterministic_command_summary_text(
         }
         DirectCommandSummaryKind::GitStatus
         | DirectCommandSummaryKind::DiffCheck
-        | DirectCommandSummaryKind::DiffStat
-        | DirectCommandSummaryKind::SmallExactOutput => {
-            append_exact_output(&mut summary, "stdout", stdout, command_result.stdout_bytes);
-            append_exact_output(&mut summary, "stderr", stderr, command_result.stderr_bytes);
+        | DirectCommandSummaryKind::DiffStat => {
+            append_output_summary(&mut summary, "stdout", stdout, command_result.stdout_bytes);
+            append_output_summary(&mut summary, "stderr", stderr, command_result.stderr_bytes);
+        }
+        DirectCommandSummaryKind::SmallExactOutput => {
+            append_small_exact_or_summary(
+                &mut summary,
+                "stdout",
+                stdout,
+                command_result.stdout_bytes,
+            );
+            append_small_exact_or_summary(
+                &mut summary,
+                "stderr",
+                stderr,
+                command_result.stderr_bytes,
+            );
         }
     }
     writeln!(summary, "stdout_bytes: {}", command_result.stdout_bytes).expect("write to string");
@@ -709,7 +766,7 @@ fn append_search_summary_text(output: &mut String, summary: &Value) {
         }
     }
     if let Some(files) = summary.get("files").and_then(Value::as_array) {
-        for file in files.iter().take(8) {
+        for file in files.iter().take(5) {
             let path = file
                 .get("path")
                 .and_then(Value::as_str)
@@ -730,13 +787,13 @@ fn append_search_summary_text(output: &mut String, summary: &Value) {
         }
     }
     if let Some(paths) = summary.get("paths").and_then(Value::as_array) {
-        for path in paths.iter().take(12).filter_map(Value::as_str) {
+        for path in paths.iter().take(8).filter_map(Value::as_str) {
             writeln!(output, "- {path}").expect("write to string");
         }
     }
 }
 
-fn append_exact_output(output: &mut String, label: &str, text: &str, bytes: u64) {
+fn append_small_exact_or_summary(output: &mut String, label: &str, text: &str, bytes: u64) {
     let text = text.trim_end();
     if text.is_empty() {
         writeln!(output, "{label}: <empty>").expect("write to string");
@@ -748,12 +805,38 @@ fn append_exact_output(output: &mut String, label: &str, text: &str, bytes: u64)
         DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES
     };
     if bytes <= limit {
-        writeln!(output, "{label}:").expect("write to string");
+        writeln!(output, "{label}_exact:").expect("write to string");
         writeln!(output, "```text").expect("write to string");
         writeln!(output, "{text}").expect("write to string");
         writeln!(output, "```").expect("write to string");
     } else {
-        writeln!(output, "{label}: <see {label}_artifact; {bytes} bytes>")
+        append_output_summary(output, label, text, bytes);
+    }
+}
+
+fn append_output_summary(output: &mut String, label: &str, text: &str, bytes: u64) {
+    let nonempty: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    if nonempty.is_empty() {
+        writeln!(output, "{label}_summary: <empty>").expect("write to string");
+        return;
+    }
+    writeln!(
+        output,
+        "{label}_summary: lines={} bytes={bytes}",
+        nonempty.len()
+    )
+    .expect("write to string");
+    if let Some(first) = nonempty.first() {
+        writeln!(output, "{label}_first_line: {}", compact_chars(first, 180))
+            .expect("write to string");
+    }
+    if nonempty.len() > 1
+        && let Some(last) = nonempty.last()
+    {
+        writeln!(output, "{label}_last_line: {}", compact_chars(last, 180))
             .expect("write to string");
     }
 }
@@ -795,6 +878,34 @@ fn deterministic_command_report(
     )
 }
 
+fn artifact_only_command_report(
+    payload: &SupervisorToolProxyPayload,
+    command_result: &CommandToolResult,
+    text: &str,
+) -> String {
+    format!(
+        "# Mixmod Command Proxy Report\n\n\
+         - Status: {}\n\
+         - Summary source: mixmod_artifact_only\n\
+         - Command: `{}`\n\
+         - Exit status: {}\n\
+         - Timed out: {}\n\
+         - Stdout bytes: {}\n\
+         - Stderr bytes: {}\n\n\
+         ## Answer\n\n{}\n",
+        tool_proxy_command_status(command_result),
+        payload.command.trim().replace('`', "\\`"),
+        command_result
+            .exit_status
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        command_result.timed_out,
+        command_result.stdout_bytes,
+        command_result.stderr_bytes,
+        text
+    )
+}
+
 fn command_summary_task(
     payload: &SupervisorToolProxyPayload,
     root: &Path,
@@ -812,7 +923,7 @@ fn command_summary_task(
     Ok(json!({
         "title": format!("Summarize command result: {}", payload.command.trim()),
         "instructions": format!(
-            "A GPT supervisor requested a deterministic shell command. Mixmod already ran the command; do not run shell commands, do not inspect the repository, do not edit files, and do not commit. Read only the listed command artifact files when needed, then summarize the captured command result for the supervisor information need.\n\nSupervisor information need:\n{need}\n\nCommand:\n```bash\n{command}\n```\n\nExit status: {exit_status}\nTimed out: {timed_out}\nDuration ms: {duration_ms}\nStdout bytes: {stdout_bytes}\nStderr bytes: {stderr_bytes}\n\n{artifact_section}\n\nReturn compact semantic evidence: exit status, pass/fail when applicable, failing test names, first relevant traceback/assertion lines, matched files/symbols, or notable diff hunks. Do not copy raw stdout/stderr into the answer and do not return truncated output. If the output is too large or cannot be summarized confidently, say that and name the artifact path the supervisor should inspect.",
+                    "A GPT supervisor requested a deterministic shell command. Mixmod already ran the command. Do not run shell commands, inspect the repository, edit files, or commit. Read only the listed command artifacts when needed, then summarize the captured command result for the supervisor information need.\n\nSupervisor information need:\n{need}\n\nCommand:\n```bash\n{command}\n```\n\nExit status: {exit_status}\nTimed out: {timed_out}\nDuration ms: {duration_ms}\nStdout bytes: {stdout_bytes}\nStderr bytes: {stderr_bytes}\n\n{artifact_section}\n\nReturn compact semantic evidence only. Include exit status, pass/fail, failing test names, first relevant traceback/assertion line, matched files/symbols, or notable diff hunks when applicable. Do not copy raw stdout/stderr and do not return truncated output. If the output is too large or uncertain, name the artifact path the supervisor should inspect.",
             command = payload.command.trim(),
             exit_status = command_result
                 .exit_status
@@ -1388,7 +1499,7 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             json!({
                 "title": "Supervisor tool proxy: local worker ask",
                 "instructions": format!(
-                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nUse repository tools as needed to answer this specific request. Do not edit repository files and do not commit. Good ask tasks include file/symbol localization, source maps, targeted code reading, comparing nearby branches, diff-risk review, focused probe design, and checking whether one named edge case is covered. Keep the investigation bounded to the requested area and use targeted repository tool calls only. Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets only. Avoid whole-file reads on non-tiny files; prefer `git diff -- path`, `rg -n --max-count`, `grep -n`, or `sed -n` around named anchors. For behavioral review, do not treat passing existing tests as sufficient by itself: inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip. For parser, binding, destructuring, or assignment changes, include one alternate-shape check when relevant, such as single target versus multi-target or scalar versus aggregate/multi-value RHS. Prefer existing package tests or exact focused tests from the changed area. Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern; otherwise state the unverified edge case instead of building a new harness. Stop as soon as you have compact evidence for the requested question, one concrete issue, or the bounded checks finish. If evidence remains incomplete, say exactly what is still unverified. Return compact evidence the supervisor can use: a first-line verdict of pass, risk, fail, or findings; commands run; exit status when applicable; pass/fail facts; and the smallest relevant excerpts or file/line references."
+                    "A GPT supervisor requested bounded local-worker help:\n\n{prompt}\n\nAnswer only this request. Do not edit repository files or commit. Use targeted repository tool calls only. Prefer grep/rg, git diff for named paths, and small sed ranges around named anchors. Avoid whole-file reads on non-tiny files and avoid full-diff reads. Stop after compact evidence answers the request, one concrete issue is found, or the bounded checks finish. If evidence remains incomplete, say exactly what remains unverified. Return a first line of `verdict: pass`, `verdict: risk`, `verdict: fail`, or `findings:` followed by commands run, exit statuses when applicable, and the smallest useful file/line references."
                 ),
                 "expect_patch": false,
                 "tests": [],
@@ -1399,18 +1510,11 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "Keep stdout compact.",
                     "Use targeted repository tool calls only.",
                     "Stay bounded to the supervisor's requested question.",
-                    "Good ask tasks include localization, source maps, targeted code reading, diff-risk review, probe design, and edge-case coverage checks.",
-                    "Do not read or print the full diff; use git diff --stat, targeted hunks, grep, or focused file snippets.",
-                    "Avoid whole-file reads on non-tiny files; prefer bounded shell snippets around named anchors.",
-                    "Use focused commands instead of broad repository reads when possible.",
-                    "For behavioral review, inspect changed branches, alternate syntax/input shapes, and multi-value paths that visible tests may skip.",
-                    "For parser, binding, destructuring, or assignment changes, include one relevant alternate-shape check.",
-                    "Prefer existing package tests or exact focused tests from the changed area.",
-                    "Create temporary ad hoc probes only when nearby tests or documented project APIs give the exact invocation pattern.",
-                    "State unverified edge cases instead of building a new harness.",
+                    "Use targeted repository tool calls only.",
+                    "Avoid whole-file reads on non-tiny files.",
+                    "Avoid full-diff reads.",
                     "Stop after compact evidence answers the request, one concrete issue is found, or the bounded checks finish.",
                     "Start the final answer with `verdict: pass`, `verdict: risk`, `verdict: fail`, or `findings:`.",
-                    "Temporary files outside the repository are acceptable when needed for a focused probe.",
                     "If evidence is inconclusive, say exactly what remains unverified."
                 ],
                 "context": {
@@ -1678,7 +1782,7 @@ tests/lib.rs:5:assert!(target_symbol());
         let task = command_summary_task(&payload, temp.path(), &out_dir, &result).unwrap();
 
         let instructions = task["instructions"].as_str().unwrap();
-        assert!(instructions.contains("Read only the listed command artifact files"));
+        assert!(instructions.contains("Read only the listed command artifacts"));
         assert!(instructions.contains("Stdout artifact"));
         assert!(instructions.contains("Stderr artifact"));
         assert!(instructions.contains("Command result artifact"));
@@ -1981,35 +2085,13 @@ tests/lib.rs:5:assert!(target_symbol());
         let instructions = task["instructions"].as_str().unwrap();
         let constraints = task["constraints"].as_array().unwrap();
 
-        assert!(instructions.contains("file/symbol localization"));
-        assert!(instructions.contains("source maps"));
-        assert!(instructions.contains("targeted code reading"));
-        assert!(instructions.contains("focused probe design"));
-        assert!(instructions.contains("checking whether one named edge case is covered"));
-        assert!(instructions.contains("Do not read or print the full diff"));
+        assert!(instructions.contains("Answer only this request"));
+        assert!(instructions.contains("Use targeted repository tool calls only"));
         assert!(instructions.contains("Avoid whole-file reads"));
-        assert!(instructions.contains("sed -n"));
-        assert!(instructions.contains("inspect changed branches"));
-        assert!(instructions.contains("visible tests may skip"));
-        assert!(instructions.contains("alternate-shape check"));
-        assert!(instructions.contains("multi-target"));
-        assert!(instructions.contains("existing package tests"));
-        assert!(instructions.contains("exact invocation pattern"));
-        assert!(instructions.contains("unverified edge case"));
-        assert!(instructions.contains("targeted repository tool calls"));
-        assert!(instructions.contains("first-line verdict"));
+        assert!(instructions.contains("avoid full-diff reads"));
+        assert!(instructions.contains("small sed ranges"));
+        assert!(instructions.contains("verdict: pass"));
         assert!(instructions.contains("findings"));
-        assert!(
-            constraints
-                .iter()
-                .any(|value| { value.as_str().unwrap_or("").contains("changed branches") })
-        );
-        assert!(constraints.iter().any(|value| {
-            value
-                .as_str()
-                .unwrap_or("")
-                .contains("alternate-shape check")
-        }));
         assert!(
             constraints
                 .iter()
@@ -2018,34 +2100,12 @@ tests/lib.rs:5:assert!(target_symbol());
         assert!(
             constraints
                 .iter()
-                .any(|value| value.as_str().unwrap_or("").contains("exact focused tests"))
-        );
-        assert!(constraints.iter().any(|value| {
-            value
-                .as_str()
-                .unwrap_or("")
-                .contains("exact invocation pattern")
-        }));
-        assert!(constraints.iter().any(|value| {
-            value
-                .as_str()
-                .unwrap_or("")
-                .contains("unverified edge cases")
-        }));
-        assert!(
-            constraints
-                .iter()
                 .any(|value| { value.as_str().unwrap_or("").contains("targeted repository") })
         );
         assert!(
             constraints
                 .iter()
-                .any(|value| { value.as_str().unwrap_or("").contains("source maps") })
-        );
-        assert!(
-            constraints
-                .iter()
-                .any(|value| value.as_str().unwrap_or("").contains("full diff"))
+                .any(|value| value.as_str().unwrap_or("").contains("full-diff"))
         );
         assert!(
             constraints

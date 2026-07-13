@@ -10,7 +10,7 @@ use crate::task::{read_task_json, write_agent_visible_task_file};
 use crate::{
     FINAL_PATCH, METRICS_JSON, MixmodConfig, ModelOverrides, REPORT_MD, SupervisorCodexSession,
     TASK_JSON, TOOL_OUTPUT_DIR, WORKTREE_PATCH, WorkerSupervisorGuidance, absolutize, atomic_write,
-    budgeted_report, display_path, git_diff_with_untracked, load_config, patch_stats,
+    budgeted_report, display_path, get_str, git_diff_with_untracked, load_config, patch_stats,
     read_json_file, state_layout, write_pretty_json,
 };
 
@@ -73,11 +73,21 @@ impl AgentStrategyRun<'_> {
         write_agent_visible_task_file(&absolutize(root, task_arg), &task_file)?;
         let (task_json, _task) = read_task_json(&task_file)?;
 
-        let prompt = agent_strategy_prompt(root, &task_file, &task_json, &config);
+        let worker_tool_guide_path = out_dir.join("worker-tool-guide.md");
+        let worker_tool_guide = render_worker_tool_guide(root, &worker_tool_guide_path, &config);
+        atomic_write(&worker_tool_guide_path, worker_tool_guide.as_bytes())?;
+        let prompt = agent_strategy_prompt(
+            root,
+            &task_file,
+            &worker_tool_guide_path,
+            &task_json,
+            &config,
+        );
         atomic_write(&out_dir.join("agent-prompt.md"), prompt.as_bytes())?;
 
         let supervisor = config.supervisor.clone();
-        let mut supervisor_session = SupervisorCodexSession::start(root, &supervisor, None)?;
+        let mut supervisor_session =
+            SupervisorCodexSession::start(root, &supervisor, Some(&config))?;
         let result = supervisor_session.run_turn(&out_dir, "agent", &prompt)?;
 
         let patch = git_diff_with_untracked(root).unwrap_or_else(|error| {
@@ -98,6 +108,9 @@ impl AgentStrategyRun<'_> {
             result.token_usage_scope.as_str()
         };
         let worker_tool_metrics = worker_tool_proxy_metrics(root, run_start_time);
+        let codex_command_metrics = codex_command_metrics(&out_dir.join("logs/codex-agent.jsonl"));
+        let agent_prompt_bytes = file_len_or_zero(&out_dir.join("agent-prompt.md"));
+        let worker_tool_guide_bytes = file_len_or_zero(&worker_tool_guide_path);
         let metrics = json!({
             "kind": "mixmod-agent-strategy",
             "recorded_at": Utc::now().to_rfc3339(),
@@ -114,6 +127,8 @@ impl AgentStrategyRun<'_> {
             "supervisor_input_bytes_fallback": result.input_bytes,
             "supervisor_output_bytes_fallback": result.output_bytes,
             "codex_visible_bytes": result.input_bytes,
+            "agent_prompt_bytes": agent_prompt_bytes,
+            "worker_tool_guide_bytes": worker_tool_guide_bytes,
             "supervision_turn_count": 1,
             "codex_calls": 1,
             "codex_backend": "app-server-persistent",
@@ -132,6 +147,14 @@ impl AgentStrategyRun<'_> {
             "mixmod_delegations": worker_tool_metrics.call_count,
             "opencode_calls": worker_tool_metrics.opencode_call_count,
             "deterministic_command_summaries": worker_tool_metrics.deterministic_command_count,
+            "artifact_only_command_summaries": worker_tool_metrics.artifact_only_command_count,
+            "supervisor_tool_proxy_enabled": config.strategy.supervisor_tool_proxy.enabled,
+            "codex_command_count": codex_command_metrics.command_count,
+            "codex_direct_command_count": codex_command_metrics.direct_command_count,
+            "codex_routed_command_count": codex_command_metrics.routed_command_count,
+            "codex_command_output_bytes": codex_command_metrics.output_bytes,
+            "codex_direct_command_output_bytes": codex_command_metrics.direct_output_bytes,
+            "codex_routed_command_output_bytes": codex_command_metrics.routed_output_bytes,
             "worker_backend": config.worker.backend.as_str(),
             "opencode_provider": config.opencode.provider,
             "opencode_model": config.opencode.model,
@@ -203,13 +226,14 @@ fn agent_final_status(success: bool, codex_error_info: Option<&str>) -> &'static
 fn agent_strategy_prompt(
     root: &Path,
     task_file: &Path,
+    worker_tool_guide_path: &Path,
     task_json: &serde_json::Value,
     config: &MixmodConfig,
 ) -> String {
-    let worker_guidance = render_worker_tool_guidance(&config.worker_supervisor_guidance());
     let mixmod_tool_command = env::current_exe()
         .map(|path| shell_quote_path(&path))
         .unwrap_or_else(|_| "mixmod".to_string());
+    let worker_summary = worker_tool_prompt_summary(&config.worker_supervisor_guidance());
     let title = task_json
         .get("title")
         .and_then(|value| value.as_str())
@@ -226,133 +250,41 @@ run focused checks, and use git commands directly. Do not ask the user for
 approval. Do not commit. Leave the final solution as an uncommitted git diff so
 Mixmod can capture it.
 
-Mixmod is a tool/router, not a separate supervisor. The configured local worker
-is available as a cheap helper through Mixmod's CLI. It is effectively zero
-marginal GPT-token cost. Use it actively for bounded repo work that can save
-GPT tokens: file/symbol localization, source maps, targeted code reading,
-command evidence, diff review, risk checks, and probe suggestions. When a
-bounded command can save GPT tokens, call:
-
-```bash
-{mixmod_tool_command} tool run-command --command "git status --short" --need "Tell me whether the worktree has tracked changes. Mention untracked task files only if relevant."
-```
-
-Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
-`git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
-tools directly for editing, final judgment, or small facts where routing would
-cost more than it saves.
-`tool run-command` executes the shell command deterministically through Mixmod;
-Mixmod returns deterministic summaries for simple command output, searches,
-status, diff-stat/diff-check, and passing checks. For larger or ambiguous
-outputs, the local worker only summarizes the captured stdout/stderr afterward;
-it should not run the command, debug setup, edit files, or decide completion.
-After routing a command through Mixmod, wait for the returned command result.
-Do not poll logs, process state, or follow-up status commands just to check
-whether the routed command is still running.
-Treat local-worker summaries, reviews, and completion claims as fallible
-assistance rather than authority. They are useful for gathering cheap evidence,
-but final correctness is your decision and must be grounded in primary
-artifacts or concrete probes.
-When routing commands through Mixmod, prefer commands that can be compactly
-summarized: narrow paths or globs, `rg --max-count`, targeted `sed -n` ranges,
-package-level checks, or broad read-only searches where Mixmod can capture the
-full output and return grouped matches.
-Use `--need` to tell the command-output summarizer exactly what to surface back:
-pass/fail only, the failing assertion and first relevant traceback line, the
-files/symbols that match, or the changed files and notable hunks. A good
-`--need` should make the returned answer smaller than the raw command output.
-Mixmod command results do not embed truncated stdout or stderr. If the compact
-answer is insufficient, inspect the named artifact files before rerunning the
-same command directly.
-For routed `rg`, `grep`, `git grep`, or `find` commands, include `--need` with
-the grouping you want, such as files only, first hits per file, relevant line
-numbers, or whether a symbol appears anywhere. Broad read-only searches are good
-Mixmod candidates when reading the raw output yourself would waste GPT tokens.
-Compound read-only Bash commands with pipes or shell control are also good
-Mixmod candidates when they gather shell evidence; Mixmod still executes the
-exact command and reports side effects.
-Batch related evidence into one `tool run-command` call when the commands answer
-one information need, for example `git status && rg ... && sed -n ...` or a
-setup probe plus the focused check. Prefer one bundled command with a precise
-`--need` over several tiny routed calls that Codex must process separately.
-Prefer `tool run-command` for concrete shell evidence. Prefer `tool ask` for
-bounded non-command work where the local worker can inspect a small area and
-return compact findings instead of making GPT read the same files directly:
-localize likely files/symbols, summarize one source path, compare two nearby
-branches, identify changed diff risks, design one focused probe, or check
-whether a named edge case is covered.
-For bounded review or investigation that is not naturally one command, call:
-
-```bash
-{mixmod_tool_command} tool ask --prompt "Inspect the final diff for missing edge cases in the requested behavior. Do not read the full diff; use targeted hunks or grep. Start from changed branches and visible tests, run an existing package or exact focused test if cheap, create an ad hoc probe only when the repo already shows the exact invocation pattern, use only targeted repository tool calls, stop after one concrete issue or after the bounded checks finish, and return compact evidence."
-```
-
-For initial localization, prefer a cheap `tool ask` call when the task needs
-repository discovery beyond one or two obvious commands. Ask for likely files,
-symbols, anchors, and a short uncertainty list. For implementation planning,
-ask it to inspect one named area and report the smallest useful facts, not to
-choose the architecture. During iteration, ask it to verify one risk or propose
-one focused probe before GPT spends tokens reading long code paths.
-
-For `tool ask`, ask for bounded snippets rather than whole-file reads on
-non-tiny files: `git diff -- path`, `rg -n --max-count`, `grep -n`, or
-`sed -n 'start,endp' path` around named anchors.
-For a substantial semantic diff, do not finish solely from visible happy-path
-checks. Before final completion, use at least one cheap local-worker call for
-failure-oriented post-diff review unless you already performed an equivalent
-check yourself. For final verification, prefer concrete commands or probes that
-you design and route through `tool run-command`; use open-ended `tool ask`
-reviews only as secondary evidence. Good final probes exercise changed branches,
-alternate input shapes, and visible tests. Ask for targeted hunks or grep rather
-than a full diff. Prefer the changed package's full test suite or the exact
-tests you added/changed; avoid narrow regexes that can skip new tests unless
-there is a clear cost reason. Ask for ad hoc probes only when a nearby test or
-documented API gives the exact invocation pattern; otherwise the worker should
-report the unverified edge case instead of constructing a new harness.
-Before final approval of behavior-changing work, write down the task contract in
-your own terms and verify both important success and failure semantics. Use
-primary evidence: command exit statuses with relevant output snippets, focused
-probes you designed, diff hunks, or source paths you inspected directly. Do not
-substitute a local-worker "looks complete" judgment for this audit.
-For parser, compiler, binding, destructuring, or assignment behavior changes,
-include at least one final probe or direct inspection for alternate shapes:
-single target vs multi-target, scalar vs multi-value/aggregate RHS, valid path
-vs invalid path, and nested/scope-specific writes when relevant.
-For those changes, treat ordinary package tests as insufficient if they do not
-exercise at least one relevant alternate shape. Before final completion, either
-run/add such a focused probe or state the direct code evidence that proves the
-alternate shape follows the same path.
-When a task may be evaluated by additional tests in the same package, prefer
-temporary command probes or uniquely named regression tests. Avoid generic
-top-level helper names and broad evaluator-like `Test<Feature>` names that can
-collide with hidden or downstream tests; use narrow, specific names or local
-closures instead.
-For `tool ask`, keep the request narrow enough for a small local model: one
-behavior area, targeted files or symbols, and targeted repository tool calls
-only. Prefer another bounded helper call over one broad review prompt.
-If a local-helper result reports `worker_status: needs_supervisor`, treat it as
-incomplete evidence rather than a pass; inspect the artifacts yourself or run a
-more concrete bounded command before approving.
-If your helper request named specific risk categories and the result is
-`needs_supervisor`, those named risks are still unverified. Before approving,
-either run concrete commands/probes for those risks or inspect the relevant code
-paths yourself; do not substitute a broad test that only exercises existing or
-newly visible tests for the named risk.
-For final approval of behavior-changing work, do not rely on a narrow test
-regex or a local-helper `needs_supervisor` summary as the only verification.
-Use a changed-package check when cheap, for example `go test ./pkg`,
-`cargo test -p crate`, or the repository's closest package-level equivalent,
-plus any focused command needed for the risky behavior. Treat regex/subset test
-commands as iteration evidence unless they are the only cheap check and you have
-manually inspected the skipped behavior surface.
-Treat the worker's output as evidence to use or reject; final task completion is
+Mixmod is a tool/router for a cheap local worker. It is not a separate
+supervisor. The local worker is useful for bounded evidence gathering and weak
+for final judgment. Treat its answers as fallible evidence; final correctness is
 your responsibility.
 
-Each local-worker call returns a compact answer and one artifact directory.
-Inspect that directory only when the answer is insufficient.
+Economic rule: direct shell output enters GPT context. Mixmod-routed shell
+output is captured to artifacts and returns a compact answer. Route broad
+search/read/diff/status/test/build evidence through Mixmod when the raw output
+would be larger than a short fact.
 
-Worker guidance:
-{worker_guidance}
+Primary helper command:
+
+```bash
+{mixmod_tool_command} tool run-command --command "git status --short" --need "Return tracked change status only."
+```
+
+Use `--need` to request the exact compact fact you need: pass/fail, failing
+test name, grouped search hits, changed files, or notable hunks. After routing a
+command, wait for the returned result rather than polling.
+
+Use `tool ask` sparingly for one bounded non-command question, such as likely
+files/symbols, one source-path summary, one diff risk, or one probe idea:
+
+```bash
+{mixmod_tool_command} tool ask --prompt "Inspect one named file or hunk for one named risk. Return compact evidence only."
+```
+
+Local worker profile: {worker_summary}
+
+Detailed helper guidance is available at: {worker_tool_guide_path}
+Read that file only if the compact rules above are insufficient.
+
+Before final approval, verify the requested behavior using primary evidence:
+changed source, diff hunks, command exit statuses, focused probes, or package
+checks. Do not treat local-worker approval as completion.
 
 Before finishing, check the resulting diff against the original task. If checks
 cannot run, record the blocker in your final response. Your final response should
@@ -368,6 +300,7 @@ Task instructions:
 "#,
         root = root.display(),
         task_file = task_file.display(),
+        worker_tool_guide_path = worker_tool_guide_path.display(),
     )
 }
 
@@ -385,17 +318,126 @@ fn render_worker_tool_guidance(guidance: &WorkerSupervisorGuidance) -> String {
     lines.join("\n")
 }
 
+fn render_worker_tool_guide(root: &Path, guide_path: &Path, config: &MixmodConfig) -> String {
+    let mixmod_tool_command = env::current_exe()
+        .map(|path| shell_quote_path(&path))
+        .unwrap_or_else(|_| "mixmod".to_string());
+    let worker_guidance = render_worker_tool_guidance(&config.worker_supervisor_guidance());
+    format!(
+        r#"# Mixmod Local Helper Guide
+
+This artifact is optional reference material for the Codex primary agent.
+
+Working repo: {root}
+Guide artifact: {guide_path}
+
+## Core Contract
+
+Mixmod routes bounded work to the configured local worker. Codex remains the
+primary implementation agent and final correctness authority.
+
+Prefer `tool run-command` for shell evidence that would otherwise print more
+than a short fact into GPT context:
+
+```bash
+{mixmod_tool_command} tool run-command --command "rg -n target src tests" --need "Return grouped matching files and first relevant line numbers."
+```
+
+`tool run-command` executes the exact shell command through Mixmod, captures
+stdout/stderr/result files, and returns a compact answer plus an artifact
+directory. The full stdout/stderr stay on disk. If the compact answer is
+insufficient, inspect the named artifact file.
+
+Prefer `tool ask` only for one bounded non-command request where a weak local
+model can save context: localize likely files or symbols, summarize one named
+source path, inspect one hunk for one risk, or propose one focused probe.
+
+Avoid broad `tool ask` reviews. Use concrete routed commands for final evidence
+when possible.
+
+## Worker Profile
+
+{worker_guidance}
+"#,
+        root = root.display(),
+        guide_path = guide_path.display(),
+    )
+}
+
+fn worker_tool_prompt_summary(guidance: &WorkerSupervisorGuidance) -> String {
+    if guidance.model.trim().is_empty() {
+        return "no model-specific profile configured; use only bounded helper calls".to_string();
+    }
+    format!(
+        "{}; cheap local helper; use for bounded evidence, not final judgment",
+        guidance.model
+    )
+}
+
 #[derive(Default)]
 struct WorkerToolProxyMetrics {
     call_count: u64,
     opencode_call_count: u64,
     deterministic_command_count: u64,
+    artifact_only_command_count: u64,
     stdout_bytes: u64,
     stderr_bytes: u64,
     reasoning_trace_bytes: u64,
     tool_events_bytes: u64,
     tool_output_artifact_count: u64,
     tool_output_artifact_bytes: u64,
+}
+
+#[derive(Default)]
+struct CodexCommandMetrics {
+    command_count: u64,
+    direct_command_count: u64,
+    routed_command_count: u64,
+    output_bytes: u64,
+    direct_output_bytes: u64,
+    routed_output_bytes: u64,
+}
+
+fn codex_command_metrics(path: &Path) -> CodexCommandMetrics {
+    let mut metrics = CodexCommandMetrics::default();
+    let Ok(text) = fs::read_to_string(path) else {
+        return metrics;
+    };
+    for line in text.lines() {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(item) = event.get("params").and_then(|params| params.get("item")) else {
+            continue;
+        };
+        if get_str(&event, "method") != Some("item/completed")
+            || get_str(item, "type") != Some("commandExecution")
+        {
+            continue;
+        }
+        let command = get_str(item, "command").unwrap_or("");
+        let output_bytes = item
+            .get("aggregatedOutput")
+            .and_then(|value| value.as_str())
+            .map(|value| value.len() as u64)
+            .unwrap_or(0);
+        metrics.command_count += 1;
+        metrics.output_bytes += output_bytes;
+        if is_mixmod_routed_command(command) {
+            metrics.routed_command_count += 1;
+            metrics.routed_output_bytes += output_bytes;
+        } else {
+            metrics.direct_command_count += 1;
+            metrics.direct_output_bytes += output_bytes;
+        }
+    }
+    metrics
+}
+
+fn is_mixmod_routed_command(command: &str) -> bool {
+    command.contains(" tool run-command ")
+        || command.contains(" tool ask ")
+        || command.contains(" codex-hook run-tool-proxy ")
 }
 
 fn worker_tool_proxy_metrics(root: &Path, since: SystemTime) -> WorkerToolProxyMetrics {
@@ -424,6 +466,8 @@ fn worker_tool_proxy_metrics(root: &Path, since: SystemTime) -> WorkerToolProxyM
                         file_len_or_zero(&run.join("reasoning-trace.jsonl"));
                 } else if tool_proxy_metrics_is_deterministic_command(run_metrics.as_ref()) {
                     metrics.deterministic_command_count += 1;
+                } else if tool_proxy_metrics_is_artifact_only_command(run_metrics.as_ref()) {
+                    metrics.artifact_only_command_count += 1;
                 }
                 metrics.tool_events_bytes += file_len_or_zero(&run.join("tool-events.jsonl"));
                 let tool_output = tool_output_artifact_metrics(&run.join(TOOL_OUTPUT_DIR));
@@ -457,6 +501,13 @@ fn tool_proxy_metrics_is_deterministic_command(metrics: Option<&serde_json::Valu
         .and_then(|metrics| metrics.get("summary_source"))
         .and_then(|value| value.as_str())
         == Some("mixmod_deterministic")
+}
+
+fn tool_proxy_metrics_is_artifact_only_command(metrics: Option<&serde_json::Value>) -> bool {
+    metrics
+        .and_then(|metrics| metrics.get("summary_source"))
+        .and_then(|value| value.as_str())
+        == Some("mixmod_artifact_only")
 }
 
 #[derive(Default)]
@@ -552,6 +603,7 @@ mod tests {
         let prompt = agent_strategy_prompt(
             Path::new("/repo"),
             Path::new("/state/task.json"),
+            Path::new("/state/worker-tool-guide.md"),
             &json!({
                 "title": "Test task",
                 "instructions": "Change the code."
@@ -561,85 +613,31 @@ mod tests {
 
         assert!(prompt.contains("You are the primary Codex agent"));
         assert!(prompt.contains("Mixmod is a tool/router"));
-        assert!(prompt.contains("local worker"));
-        assert!(prompt.contains("cheap helper"));
-        assert!(prompt.contains("zero marginal GPT-token cost"));
-        assert!(prompt.contains("Use it actively for bounded repo work"));
-        assert!(prompt.contains("file/symbol localization"));
-        assert!(prompt.contains("source maps"));
-        assert!(prompt.contains("targeted code reading"));
-        assert!(prompt.contains("probe suggestions"));
-        assert!(prompt.contains("prefer commands that can be compactly"));
-        assert!(prompt.contains("summarized: narrow paths or globs"));
-        assert!(prompt.contains("rg --max-count"));
-        assert!(prompt.contains("broad read-only searches"));
-        assert!(prompt.contains("full output and return grouped matches"));
-        assert!(prompt.contains("do not embed truncated stdout or stderr"));
-        assert!(prompt.contains("inspect the named artifact files"));
-        assert!(prompt.contains("For routed `rg`, `grep`, `git grep`, or `find` commands"));
-        assert!(prompt.contains("first hits per file"));
-        assert!(prompt.contains("Compound read-only Bash commands"));
-        assert!(prompt.contains("exact command and reports side effects"));
-        assert!(prompt.contains("Batch related evidence into one"));
-        assert!(prompt.contains("one bundled command with a precise"));
-        assert!(prompt.contains("Prefer `tool run-command` for concrete shell evidence"));
-        assert!(prompt.contains("Prefer `tool ask` for"));
-        assert!(prompt.contains("bounded non-command work"));
-        assert!(prompt.contains("fallible assistance rather than authority"));
-        assert!(prompt.contains("final correctness is your decision"));
-        assert!(prompt.contains("executes the shell command deterministically through Mixmod"));
-        assert!(prompt.contains("Mixmod returns deterministic summaries"));
-        assert!(prompt.contains("simple command output"));
-        assert!(prompt.contains("passing checks"));
-        assert!(prompt.contains("only summarizes the captured stdout/stderr afterward"));
-        assert!(prompt.contains("wait for the returned command result"));
-        assert!(prompt.contains("Do not poll logs"));
-        assert!(prompt.contains("bounded snippets"));
-        assert!(prompt.contains("whole-file reads"));
-        assert!(prompt.contains("failure-oriented post-diff review"));
-        assert!(prompt.contains("Start from changed branches"));
-        assert!(prompt.contains("visible tests"));
-        assert!(prompt.contains("concrete commands or probes"));
-        assert!(prompt.contains("open-ended `tool ask`"));
-        assert!(prompt.contains("secondary evidence"));
-        assert!(prompt.contains("For initial localization"));
-        assert!(prompt.contains("likely files"));
-        assert!(prompt.contains("symbols, anchors"));
-        assert!(prompt.contains("source-path summaries"));
-        assert!(prompt.contains("changed branches"));
-        assert!(prompt.contains("parser, compiler, binding"));
-        assert!(prompt.contains("multi-target"));
-        assert!(prompt.contains("multi-value/aggregate RHS"));
-        assert!(prompt.contains("ordinary package tests as insufficient"));
-        assert!(prompt.contains("direct code evidence"));
-        assert!(prompt.contains("uniquely named regression tests"));
-        assert!(prompt.contains("generic top-level helper names"));
-        assert!(prompt.contains("targeted hunks or grep"));
-        assert!(prompt.contains("changed package's full test"));
-        assert!(prompt.contains("tests you added/changed"));
-        assert!(prompt.contains("exact invocation pattern"));
-        assert!(prompt.contains("unverified edge case"));
-        assert!(prompt.contains("task contract in"));
-        assert!(prompt.contains("success and failure semantics"));
-        assert!(prompt.contains("local-worker \"looks complete\""));
-        assert!(prompt.contains("targeted repository tool calls"));
-        assert!(prompt.contains("behavior area"));
-        assert!(prompt.contains("worker_status: needs_supervisor"));
-        assert!(prompt.contains("incomplete evidence"));
-        assert!(prompt.contains("specific risk categories"));
-        assert!(prompt.contains("still unverified"));
-        assert!(prompt.contains("concrete commands/probes"));
-        assert!(prompt.contains("inspect the relevant code"));
-        assert!(prompt.contains("final approval"));
-        assert!(prompt.contains("narrow test"));
-        assert!(prompt.contains("changed-package check"));
-        assert!(prompt.contains("iteration evidence"));
-        assert!(prompt.contains("completion is"));
-        assert!(prompt.contains("your responsibility"));
+        assert!(prompt.contains("Economic rule"));
+        assert!(prompt.contains("tool run-command"));
+        assert!(prompt.contains("--need"));
+        assert!(prompt.contains("tool ask"));
+        assert!(prompt.contains("/state/worker-tool-guide.md"));
+        assert!(prompt.contains("Local worker profile:"));
+        assert!(prompt.contains("final correctness"));
+        assert!(prompt.len() < 5_000);
+        assert!(!prompt.contains("Worker guidance:"));
+        assert!(!prompt.contains("small_patch_slice"));
+        assert!(!prompt.contains("alias/key generated-code repairs"));
         assert!(prompt.contains("tool run-command"));
         assert!(prompt.contains("tool ask"));
         assert!(!prompt.contains("Return only JSON"));
         assert!(!prompt.contains("\"action\":\"approve|revise|stop\""));
+
+        let guide = render_worker_tool_guide(
+            Path::new("/repo"),
+            Path::new("/state/worker-tool-guide.md"),
+            &config,
+        );
+        assert!(guide.contains("Mixmod Local Helper Guide"));
+        assert!(guide.contains("Worker Profile"));
+        assert!(guide.contains("small_patch_slice"));
+        assert!(guide.contains("qwen-3.6-27b"));
     }
 
     #[test]
