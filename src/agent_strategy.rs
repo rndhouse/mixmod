@@ -241,6 +241,9 @@ tools directly when you need exact control, editing, or final judgment.
 `tool run-command` executes the shell command deterministically through Mixmod;
 the local worker only summarizes the captured stdout/stderr afterward. It
 should not run the command, debug setup, edit files, or decide completion.
+After routing a command through Mixmod, wait for the returned command result.
+Do not poll logs, process state, or follow-up status commands just to check
+whether the routed command is still running.
 Temporary routing-audit instruction: before every direct shell/tool call that
 you do not route through `tool run-command` or `tool ask`, state in one short
 sentence why direct execution is better for that call.
@@ -520,6 +523,8 @@ mod tests {
         assert!(prompt.contains("final correctness is your decision"));
         assert!(prompt.contains("executes the shell command deterministically through Mixmod"));
         assert!(prompt.contains("only summarizes the captured stdout/stderr"));
+        assert!(prompt.contains("wait for the returned command result"));
+        assert!(prompt.contains("Do not poll logs"));
         assert!(prompt.contains("Temporary routing-audit instruction"));
         assert!(prompt.contains("why direct execution is better"));
         assert!(prompt.contains("bounded snippets"));
