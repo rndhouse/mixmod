@@ -238,6 +238,9 @@ save GPT tokens, call:
 Use it for low-risk inspection/check evidence such as `rg`, `sed -n`,
 `git diff`, `git status`, `go test`, `cargo test`, and similar. Use your own
 tools directly when you need exact control, editing, or final judgment.
+`tool run-command` executes the shell command deterministically through Mixmod;
+the local worker only summarizes the captured stdout/stderr afterward. It
+should not run the command, debug setup, edit files, or decide completion.
 Temporary routing-audit instruction: before every direct shell/tool call that
 you do not route through `tool run-command` or `tool ask`, state in one short
 sentence why direct execution is better for that call.
@@ -245,14 +248,14 @@ Treat local-worker summaries, reviews, and completion claims as fallible
 assistance rather than authority. They are useful for gathering cheap evidence,
 but final correctness is your decision and must be grounded in primary
 artifacts or concrete probes.
-When routing commands through the local worker, prefer bounded commands that
+When routing commands through Mixmod, prefer bounded commands that
 return compact evidence: narrow paths or globs, `rg --max-count`, targeted
 `sed -n` ranges, and package-level checks. Avoid broad repository-wide searches
 with many alternations when a smaller probe would answer the question.
-Use `--need` to tell the worker exactly what to surface back: pass/fail only,
-the failing assertion and first relevant traceback line, the files/symbols that
-match, or the changed files and notable hunks. A good `--need` should make the
-returned answer smaller than the raw command output.
+Use `--need` to tell the command-output summarizer exactly what to surface back:
+pass/fail only, the failing assertion and first relevant traceback line, the
+files/symbols that match, or the changed files and notable hunks. A good
+`--need` should make the returned answer smaller than the raw command output.
 For routed `rg` or `grep` commands, include path limits and match limits such as
 `--max-count`, `--glob`, or explicit directories unless the repository is tiny.
 For non-tiny repositories, the path argument must be narrower than `.`; a
@@ -515,6 +518,8 @@ mod tests {
         assert!(prompt.contains("small review question"));
         assert!(prompt.contains("fallible assistance rather than authority"));
         assert!(prompt.contains("final correctness is your decision"));
+        assert!(prompt.contains("executes the shell command deterministically through Mixmod"));
+        assert!(prompt.contains("only summarizes the captured stdout/stderr"));
         assert!(prompt.contains("Temporary routing-audit instruction"));
         assert!(prompt.contains("why direct execution is better"));
         assert!(prompt.contains("bounded snippets"));

@@ -1,7 +1,9 @@
 use std::env;
 use std::fmt::Write as _;
+use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
@@ -11,17 +13,21 @@ use serde_json::{Value, json};
 use crate::TOOL_EVENTS_JSONL;
 use crate::{
     DelegationMode, METRICS_JSON, MixmodConfig, ShellOpenCodeRunner, WORKTREE_PATCH,
-    WorkerRunOptions, absolutize, display_path, get_str, load_config, read_json_file,
-    run_mixmod_task_with_worker_options, state_layout, write_pretty_json,
+    WorkerRunOptions, absolutize, append_jsonl, atomic_write, diff_without_unchanged_blocks,
+    display_path, get_str, git_diff_with_untracked, load_config, patch_stats, read_json_file,
+    run_mixmod_task_with_worker_options, shell_command, state_layout, write_pretty_json,
 };
 
 const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
 const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
 const ASK_WORKER_TIMEOUT_SECONDS: u64 = 90;
 const ASK_IDLE_TIMEOUT_SECONDS: u64 = 60;
+const COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS: u64 = 45;
+const COMMAND_SUMMARY_IDLE_TIMEOUT_SECONDS: u64 = 30;
 const COMMAND_SUMMARY_BYTES: usize = 2_000;
 const ASK_SUMMARY_BYTES: usize = 3_000;
-const TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,reasoning-trace.jsonl,worktree.patch} if answer is insufficient";
+const COMMAND_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/command.stdout.txt,logs/command.stderr.txt,command-result.json,logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,worktree.patch} if answer is insufficient";
+const ASK_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,reasoning-trace.jsonl,worktree.patch} if answer is insufficient";
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
@@ -125,6 +131,10 @@ fn run_supervisor_tool_proxy_payload(
     let task = tool_proxy_task(&payload);
     write_pretty_json(&task_path, &task, "supervisor tool proxy task")?;
 
+    if payload.kind == SupervisorToolProxyKind::Command {
+        return run_supervisor_command_tool_proxy(payload, &root, &out_dir, config);
+    }
+
     let receipt = run_mixmod_task_with_worker_options(
         &root,
         DelegationMode::Explore,
@@ -141,31 +151,54 @@ fn run_supervisor_tool_proxy_payload(
     let worker_text = extract_last_text(&out_dir.join("logs/opencode.stdout.txt"))
         .unwrap_or_else(|| "No compact worker text was captured.".to_string());
     let metrics = read_json_file(&out_dir.join(METRICS_JSON)).unwrap_or_else(|_| json!({}));
-    let command_result = (payload.kind == SupervisorToolProxyKind::Command)
-        .then(|| command_tool_result(&out_dir, payload.command.trim()))
-        .flatten();
-    let worker_status = tool_proxy_worker_status(&receipt.status, command_result.as_ref());
-    match payload.kind {
-        SupervisorToolProxyKind::Command => print_command_tool_result(
-            payload,
-            &root,
-            &out_dir,
-            &metrics,
-            &receipt,
-            command_result.as_ref(),
-            &worker_status,
-            &worker_text,
-        ),
-        SupervisorToolProxyKind::Ask => print_ask_tool_result(
-            payload,
-            &root,
-            &out_dir,
-            &metrics,
-            &receipt,
-            &worker_status,
-            &worker_text,
-        ),
-    }
+    print_ask_tool_result(
+        payload,
+        &root,
+        &out_dir,
+        &metrics,
+        &receipt,
+        &receipt.status,
+        &worker_text,
+    );
+    Ok(())
+}
+
+fn run_supervisor_command_tool_proxy(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    config: MixmodConfig,
+) -> Result<()> {
+    let before_diff = git_diff_with_untracked(root).unwrap_or_default();
+    let command_result = run_command_directly(root, out_dir, payload.command.trim(), &config)?;
+    let after_command_diff = git_diff_with_untracked(root).unwrap_or_default();
+    atomic_write(&out_dir.join(WORKTREE_PATCH), after_command_diff.as_bytes())?;
+
+    let command_delta = diff_without_unchanged_blocks(&after_command_diff, &before_diff);
+    let command_delta_stats = patch_stats(&command_delta);
+    let summary = run_command_summary_worker(
+        payload,
+        root,
+        out_dir,
+        &config,
+        &command_result,
+        &after_command_diff,
+    )?;
+    let final_patch = git_diff_with_untracked(root).unwrap_or(after_command_diff);
+    atomic_write(&out_dir.join(WORKTREE_PATCH), final_patch.as_bytes())?;
+
+    let worker_status = tool_proxy_command_status(&command_result);
+    print_command_tool_result(
+        payload,
+        root,
+        out_dir,
+        summary.metrics.as_ref().unwrap_or(&json!({})),
+        &command_result,
+        &command_delta_stats,
+        summary.summary_delta_stats.as_ref(),
+        &worker_status,
+        &summary.text,
+    );
     Ok(())
 }
 
@@ -174,8 +207,9 @@ fn print_command_tool_result(
     root: &Path,
     out_dir: &Path,
     metrics: &Value,
-    receipt: &crate::Receipt,
-    command_result: Option<&CommandToolResult>,
+    command_result: &CommandToolResult,
+    command_delta_stats: &crate::PatchStats,
+    summary_delta_stats: Option<&crate::PatchStats>,
     worker_status: &str,
     worker_text: &str,
 ) {
@@ -186,8 +220,9 @@ fn print_command_tool_result(
             root,
             out_dir,
             metrics,
-            receipt,
             command_result,
+            command_delta_stats,
+            summary_delta_stats,
             worker_status,
             worker_text,
         )
@@ -199,8 +234,9 @@ fn render_command_tool_result(
     root: &Path,
     out_dir: &Path,
     metrics: &Value,
-    receipt: &crate::Receipt,
-    command_result: Option<&CommandToolResult>,
+    command_result: &CommandToolResult,
+    command_delta_stats: &crate::PatchStats,
+    summary_delta_stats: Option<&crate::PatchStats>,
     worker_status: &str,
     worker_text: &str,
 ) -> String {
@@ -211,21 +247,40 @@ fn render_command_tool_result(
     if let Some(need) = payload.need_text() {
         writeln!(output, "need: {}", compact_text(need, 600)).expect("write to string");
     }
-    if let Some(result) = command_result
-        && let Some(exit_status) = result.exit_status
-    {
+    if let Some(exit_status) = command_result.exit_status {
         writeln!(output, "command_exit_status: {exit_status}").expect("write to string");
     }
+    writeln!(output, "command_timed_out: {}", command_result.timed_out).expect("write to string");
+    writeln!(output, "command_stdout: logs/command.stdout.txt").expect("write to string");
+    writeln!(output, "command_stderr: logs/command.stderr.txt").expect("write to string");
+    writeln!(output, "command_result: command-result.json").expect("write to string");
     if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
-        writeln!(output, "worker_exit_status: {exit_status}").expect("write to string");
+        writeln!(output, "summary_worker_exit_status: {exit_status}").expect("write to string");
     }
-    if let Some(notice) = tool_proxy_side_effect_notice(receipt, metrics) {
-        writeln!(output, "{notice}").expect("write to string");
-        writeln!(output, "side_effect_patch_artifact: {}", WORKTREE_PATCH)
-            .expect("write to string");
+    if command_delta_stats.changed_line_count > 0 || !command_delta_stats.files.is_empty() {
+        writeln!(
+            output,
+            "command_side_effects: changed_files={} changed_lines={} files={}",
+            command_delta_stats.files.len(),
+            command_delta_stats.changed_line_count,
+            compact_text(&command_delta_stats.files.join(", "), 800)
+        )
+        .expect("write to string");
+    }
+    if let Some(stats) = summary_delta_stats
+        && (stats.changed_line_count > 0 || !stats.files.is_empty())
+    {
+        writeln!(
+            output,
+            "summary_worker_side_effects: changed_files={} changed_lines={} files={}",
+            stats.files.len(),
+            stats.changed_line_count,
+            compact_text(&stats.files.join(", "), 800)
+        )
+        .expect("write to string");
     }
     writeln!(output, "artifacts_dir: {}", display_path(root, out_dir)).expect("write to string");
-    writeln!(output, "artifacts: {TOOL_ARTIFACT_HINT}").expect("write to string");
+    writeln!(output, "artifacts: {COMMAND_TOOL_ARTIFACT_HINT}").expect("write to string");
     writeln!(output, "answer:").expect("write to string");
     writeln!(
         output,
@@ -286,17 +341,280 @@ fn render_ask_tool_result(
             .expect("write to string");
     }
     writeln!(output, "artifacts_dir: {}", display_path(root, out_dir)).expect("write to string");
-    writeln!(output, "artifacts: {TOOL_ARTIFACT_HINT}").expect("write to string");
+    writeln!(output, "artifacts: {ASK_TOOL_ARTIFACT_HINT}").expect("write to string");
     writeln!(output, "answer:").expect("write to string");
     writeln!(output, "{}", compact_text(worker_text, ASK_SUMMARY_BYTES)).expect("write to string");
     output
 }
 
+#[derive(Clone, Debug)]
+struct CommandSummaryResult {
+    text: String,
+    metrics: Option<Value>,
+    summary_delta_stats: Option<crate::PatchStats>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CommandToolResult {
     exit_status: Option<i64>,
+    timed_out: bool,
+    duration_ms: u128,
+    stdout_bytes: u64,
+    stderr_bytes: u64,
+    stdout_path: PathBuf,
+    stderr_path: PathBuf,
 }
 
+fn run_command_directly(
+    root: &Path,
+    out_dir: &Path,
+    command: &str,
+    config: &MixmodConfig,
+) -> Result<CommandToolResult> {
+    let logs_dir = out_dir.join("logs");
+    fs::create_dir_all(&logs_dir)
+        .with_context(|| format!("failed to create {}", logs_dir.display()))?;
+    let stdout_path = logs_dir.join("command.stdout.txt");
+    let stderr_path = logs_dir.join("command.stderr.txt");
+    let timeout_seconds = command_timeout_seconds(config);
+    let started_at = Utc::now();
+    let start = Instant::now();
+    let output = deterministic_shell_command(command, timeout_seconds)
+        .current_dir(root)
+        .output()
+        .with_context(|| format!("failed to run command through Mixmod: {command}"))?;
+    let duration_ms = start.elapsed().as_millis();
+    atomic_write(&stdout_path, &output.stdout)?;
+    atomic_write(&stderr_path, &output.stderr)?;
+
+    let exit_status = output.status.code().map(i64::from);
+    let timed_out = timeout_seconds > 0 && exit_status == Some(124);
+    let result = CommandToolResult {
+        exit_status,
+        timed_out,
+        duration_ms,
+        stdout_bytes: output.stdout.len() as u64,
+        stderr_bytes: output.stderr.len() as u64,
+        stdout_path: stdout_path.clone(),
+        stderr_path: stderr_path.clone(),
+    };
+    let result_json = json!({
+        "kind": "mixmod-command-result",
+        "command": command,
+        "started_at": started_at.to_rfc3339(),
+        "finished_at": Utc::now().to_rfc3339(),
+        "duration_ms": duration_ms,
+        "exit_status": exit_status,
+        "timed_out": timed_out,
+        "timeout_seconds": timeout_seconds,
+        "stdout_bytes": result.stdout_bytes,
+        "stderr_bytes": result.stderr_bytes,
+        "stdout_path": "logs/command.stdout.txt",
+        "stderr_path": "logs/command.stderr.txt",
+    });
+    write_pretty_json(
+        &out_dir.join("command-result.json"),
+        &result_json,
+        "command result",
+    )?;
+    append_jsonl(
+        &out_dir.join(TOOL_EVENTS_JSONL),
+        &json!({
+            "type": "tool_use",
+            "timestamp": Utc::now().to_rfc3339(),
+            "part": {
+                "tool": "bash",
+                "state": {
+                    "status": "completed",
+                    "input": {"command": command},
+                    "metadata": {
+                        "exit": exit_status,
+                        "timed_out": timed_out,
+                        "duration_ms": duration_ms,
+                        "stdout_path": "logs/command.stdout.txt",
+                        "stderr_path": "logs/command.stderr.txt",
+                        "stdout_bytes": result.stdout_bytes,
+                        "stderr_bytes": result.stderr_bytes
+                    }
+                }
+            }
+        }),
+    )?;
+    Ok(result)
+}
+
+fn deterministic_shell_command(command: &str, timeout_seconds: u64) -> std::process::Command {
+    #[cfg(unix)]
+    {
+        if timeout_seconds > 0 {
+            let mut cmd = std::process::Command::new("timeout");
+            cmd.arg(format!("{timeout_seconds}s"))
+                .arg("sh")
+                .arg("-c")
+                .arg(command);
+            return cmd;
+        }
+    }
+    shell_command(command)
+}
+
+fn command_timeout_seconds(config: &MixmodConfig) -> u64 {
+    env::var("MIXMOD_TOOL_COMMAND_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(config.opencode.worker_timeout_seconds)
+}
+
+fn run_command_summary_worker(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    config: &MixmodConfig,
+    command_result: &CommandToolResult,
+    before_summary_diff: &str,
+) -> Result<CommandSummaryResult> {
+    let summary_task_path = out_dir.join("command-summary-task.json");
+    let summary_task = command_summary_task(payload, out_dir, command_result)?;
+    write_pretty_json(&summary_task_path, &summary_task, "command summary task")?;
+
+    let mut summary_config = config.clone();
+    apply_command_summary_limits(&mut summary_config);
+    let runner = ShellOpenCodeRunner::new(summary_config.clone());
+    let _receipt = run_mixmod_task_with_worker_options(
+        root,
+        DelegationMode::Explore,
+        &summary_task_path,
+        out_dir,
+        &runner,
+        summary_config.opencode.require_local,
+        WorkerRunOptions {
+            allow_auto_followups: false,
+            ..WorkerRunOptions::default()
+        },
+    );
+    let after_summary_diff = git_diff_with_untracked(root).unwrap_or_default();
+    let summary_delta = diff_without_unchanged_blocks(&after_summary_diff, before_summary_diff);
+    let summary_delta_stats = patch_stats(&summary_delta);
+    let metrics = read_json_file(&out_dir.join(METRICS_JSON)).ok();
+    let fallback = fallback_command_summary(payload, command_result);
+    let text = extract_last_text(&out_dir.join("logs/opencode.stdout.txt")).unwrap_or(fallback);
+
+    Ok(CommandSummaryResult {
+        text,
+        metrics,
+        summary_delta_stats: Some(summary_delta_stats),
+    })
+}
+
+fn command_summary_task(
+    payload: &SupervisorToolProxyPayload,
+    out_dir: &Path,
+    command_result: &CommandToolResult,
+) -> Result<Value> {
+    let stdout = fs::read_to_string(&command_result.stdout_path).unwrap_or_else(|_| {
+        String::from_utf8_lossy(&fs::read(&command_result.stdout_path).unwrap_or_default())
+            .to_string()
+    });
+    let stderr = fs::read_to_string(&command_result.stderr_path).unwrap_or_else(|_| {
+        String::from_utf8_lossy(&fs::read(&command_result.stderr_path).unwrap_or_default())
+            .to_string()
+    });
+    let stdout_excerpt = output_excerpt(&stdout, 12_000);
+    let stderr_excerpt = output_excerpt(&stderr, 8_000);
+    let need = payload
+        .need_text()
+        .unwrap_or("Return the useful command result compactly.");
+    Ok(json!({
+        "title": format!("Summarize command result: {}", payload.command.trim()),
+        "instructions": format!(
+            "A GPT supervisor requested a deterministic shell command. Mixmod already ran the command; do not run shell commands, do not inspect the repository, do not edit files, and do not commit. Summarize only the captured command result below for the supervisor information need.\n\nSupervisor information need:\n{need}\n\nCommand:\n```bash\n{command}\n```\n\nExit status: {exit_status}\nTimed out: {timed_out}\nDuration ms: {duration_ms}\nStdout artifact: {stdout_path}\nStderr artifact: {stderr_path}\nStdout bytes: {stdout_bytes}\nStderr bytes: {stderr_bytes}\n\nStdout excerpt:\n```text\n{stdout_excerpt}\n```\n\nStderr excerpt:\n```text\n{stderr_excerpt}\n```\n\nReturn only compact evidence: exit status, pass/fail when applicable, and the smallest relevant stdout/stderr excerpt or summary. If the output excerpt is truncated and the answer may depend on omitted output, say that and point to the artifact path.",
+            command = payload.command.trim(),
+            exit_status = command_result
+                .exit_status
+                .map(|status| status.to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+            timed_out = command_result.timed_out,
+            duration_ms = command_result.duration_ms,
+            stdout_path = out_dir.join("logs/command.stdout.txt").display(),
+            stderr_path = out_dir.join("logs/command.stderr.txt").display(),
+            stdout_bytes = command_result.stdout_bytes,
+            stderr_bytes = command_result.stderr_bytes,
+            stdout_excerpt = stdout_excerpt,
+            stderr_excerpt = stderr_excerpt,
+        ),
+        "expect_patch": false,
+        "tests": [],
+        "constraints": [
+            "Do not run shell commands.",
+            "Do not inspect repository files.",
+            "Do not edit files.",
+            "Do not commit changes.",
+            "Summarize only the captured command stdout/stderr in the task.",
+            "Keep stdout compact.",
+            "Optimize the final answer for the supervisor information need."
+        ],
+        "context": {
+            "worker_role": "command_output_summarizer",
+            "expect_patch": false,
+            "delegated_from": "mixmod_cli_tool",
+            "original_command": payload.command.trim(),
+            "supervisor_need": need,
+            "command_exit_status": command_result.exit_status,
+            "command_timed_out": command_result.timed_out,
+            "stdout_artifact": out_dir.join("logs/command.stdout.txt"),
+            "stderr_artifact": out_dir.join("logs/command.stderr.txt")
+        }
+    }))
+}
+
+fn fallback_command_summary(
+    payload: &SupervisorToolProxyPayload,
+    command_result: &CommandToolResult,
+) -> String {
+    let stdout = fs::read_to_string(&command_result.stdout_path).unwrap_or_default();
+    let stderr = fs::read_to_string(&command_result.stderr_path).unwrap_or_default();
+    let mut summary = String::new();
+    writeln!(
+        summary,
+        "exit_status: {}",
+        command_result
+            .exit_status
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    )
+    .expect("write to string");
+    writeln!(summary, "timed_out: {}", command_result.timed_out).expect("write to string");
+    if let Some(need) = payload.need_text() {
+        writeln!(summary, "need: {}", compact_text(need, 400)).expect("write to string");
+    }
+    if !stdout.trim().is_empty() {
+        writeln!(summary, "stdout:\n{}", output_excerpt(&stdout, 1_200)).expect("write to string");
+    }
+    if !stderr.trim().is_empty() {
+        writeln!(summary, "stderr:\n{}", output_excerpt(&stderr, 1_200)).expect("write to string");
+    }
+    summary
+}
+
+fn output_excerpt(text: &str, max_chars: usize) -> String {
+    let text = text.trim();
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let half = max_chars / 2;
+    let head: String = text.chars().take(half).collect();
+    let tail: String = text
+        .chars()
+        .rev()
+        .take(max_chars.saturating_sub(half))
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    format!("{head}\n<truncated>\n{tail}")
+}
+
+#[cfg(test)]
 fn command_tool_result(out_dir: &Path, command: &str) -> Option<CommandToolResult> {
     let events = std::fs::read_to_string(out_dir.join(TOOL_EVENTS_JSONL)).ok()?;
     let mut result = None;
@@ -326,21 +644,27 @@ fn command_tool_result(out_dir: &Path, command: &str) -> Option<CommandToolResul
             .get("metadata")
             .and_then(|metadata| metadata.get("exit"))
             .and_then(Value::as_i64);
-        result = Some(CommandToolResult { exit_status });
+        result = Some(CommandToolResult {
+            exit_status,
+            timed_out: false,
+            duration_ms: 0,
+            stdout_bytes: 0,
+            stderr_bytes: 0,
+            stdout_path: out_dir.join("logs/command.stdout.txt"),
+            stderr_path: out_dir.join("logs/command.stderr.txt"),
+        });
     }
     result
 }
 
-fn tool_proxy_worker_status(
-    receipt_status: &str,
-    command_result: Option<&CommandToolResult>,
-) -> String {
-    if let Some(result) = command_result
-        && matches!(result.exit_status, Some(status) if status != 0)
-    {
+fn tool_proxy_command_status(command_result: &CommandToolResult) -> String {
+    if command_result.timed_out {
+        return "command_timed_out".to_string();
+    }
+    if matches!(command_result.exit_status, Some(status) if status != 0) {
         return "command_failed".to_string();
     }
-    receipt_status.to_string()
+    "success".to_string()
 }
 
 fn tool_proxy_side_effect_notice(receipt: &crate::Receipt, metrics: &Value) -> Option<String> {
@@ -377,6 +701,17 @@ fn apply_tool_proxy_limits(kind: SupervisorToolProxyKind, config: &mut MixmodCon
     config.opencode.idle_timeout_seconds = bounded_timeout(
         config.opencode.idle_timeout_seconds,
         ASK_IDLE_TIMEOUT_SECONDS,
+    );
+}
+
+fn apply_command_summary_limits(config: &mut MixmodConfig) {
+    config.opencode.worker_timeout_seconds = bounded_timeout(
+        config.opencode.worker_timeout_seconds,
+        COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS,
+    );
+    config.opencode.idle_timeout_seconds = bounded_timeout(
+        config.opencode.idle_timeout_seconds,
+        COMMAND_SUMMARY_IDLE_TIMEOUT_SECONDS,
     );
 }
 
@@ -523,30 +858,30 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
             let need_instruction = need
                 .map(|need| {
                     format!(
-                        "\n\nSupervisor information need:\n{need}\n\nUse your best judgment to return only the evidence needed to satisfy this request. If the command output does not answer it, say that directly and include the smallest relevant evidence."
+                        "\n\nSupervisor information need:\n{need}\n\nThe local worker may summarize the captured output for this need, but Mixmod executes the shell command itself."
                     )
                 })
                 .unwrap_or_default();
             json!({
                 "title": format!("Supervisor tool proxy: {command}"),
                 "instructions": format!(
-                    "A GPT supervisor requested this Bash command:\n\n```bash\n{command}\n```{need_instruction}\n\nRun exactly that command from the current repository context. Do not edit files, do not commit, and do not run unrelated exploratory commands unless the command cannot run as written and a tiny bounded probe is necessary to explain why. Return only the useful minimal result for the supervisor: command, exit status, pass/fail when applicable, and the smallest relevant excerpt or summary. For git diff/status, summarize changed files and notable hunks instead of pasting a long diff. For search commands with many matches, summarize the matching files, symbols, and most relevant lines instead of replaying the full output."
+                    "A GPT supervisor requested this Bash command:\n\n```bash\n{command}\n```{need_instruction}\n\nMixmod executes the command deterministically from the current repository context and captures stdout, stderr, exit status, duration, and artifacts. The local worker is used only afterward to summarize captured output. It must not run the command, debug setup, edit files, or decide task completion."
                 ),
                 "expect_patch": false,
                 "tests": [command],
                 "constraints": [
+                    "Mixmod, not the worker, executes the command.",
+                    "The worker summarizes captured stdout/stderr only.",
                     "Do not edit files.",
                     "Do not commit changes.",
-                    "Do not inspect /solution or verifier internals.",
                     "Keep stdout compact.",
-                    "Optimize the final answer for the supervisor information need when one is provided.",
-                    "If the command produces long output, summarize and include only the most relevant failing lines or diff facts.",
-                    "For search output, report matching files, symbols, and representative lines instead of full output."
+                    "Optimize the final answer for the supervisor information need when one is provided."
                 ],
                 "context": {
                     "worker_role": role,
                     "expect_patch": false,
                     "delegated_from": "mixmod_cli_tool",
+                    "command_execution": "mixmod_deterministic_shell",
                     "original_command": command,
                     "supervisor_need": need
                 }
@@ -759,12 +1094,14 @@ mod tests {
 
         assert!(instructions.contains("Supervisor information need"));
         assert!(instructions.contains("most relevant line numbers"));
-        assert!(instructions.contains("For search commands with many matches"));
-        assert!(
-            constraints
-                .iter()
-                .any(|value| { value.as_str().unwrap_or("").contains("For search output") })
-        );
+        assert!(instructions.contains("Mixmod executes the command deterministically"));
+        assert!(instructions.contains("used only afterward to summarize captured output"));
+        assert!(constraints.iter().any(|value| {
+            value
+                .as_str()
+                .unwrap_or("")
+                .contains("Mixmod, not the worker")
+        }));
         assert!(constraints.iter().any(|value| {
             value
                 .as_str()
@@ -772,6 +1109,10 @@ mod tests {
                 .contains("supervisor information need")
         }));
         assert_eq!(task["context"]["worker_role"], json!("inspect"));
+        assert_eq!(
+            task["context"]["command_execution"],
+            json!("mixmod_deterministic_shell")
+        );
         assert_eq!(
             task["context"]["supervisor_need"],
             json!("Return matching files and the most relevant line numbers only.")
@@ -939,6 +1280,22 @@ mod tests {
     }
 
     #[test]
+    fn command_summary_caps_worker_timeouts() {
+        let mut config = MixmodConfig::default();
+
+        apply_command_summary_limits(&mut config);
+
+        assert_eq!(
+            config.opencode.worker_timeout_seconds,
+            COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS
+        );
+        assert_eq!(
+            config.opencode.idle_timeout_seconds,
+            COMMAND_SUMMARY_IDLE_TIMEOUT_SECONDS
+        );
+    }
+
+    #[test]
     fn command_tool_status_uses_inner_command_exit() {
         let temp = tempfile::tempdir().unwrap();
         let events = r#"
@@ -949,17 +1306,31 @@ mod tests {
 
         let failed = command_tool_result(temp.path(), "go test ./...").unwrap();
         assert_eq!(failed.exit_status, Some(1));
-        assert_eq!(
-            tool_proxy_worker_status("success", Some(&failed)),
-            "command_failed"
-        );
+        assert_eq!(tool_proxy_command_status(&failed), "command_failed");
 
         let passed = command_tool_result(temp.path(), "git status --short").unwrap();
         assert_eq!(passed.exit_status, Some(0));
+        assert_eq!(tool_proxy_command_status(&passed), "success");
+    }
+
+    #[test]
+    fn command_tool_runs_shell_directly_and_writes_artifacts() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let config = MixmodConfig::default();
+
+        let result =
+            run_command_directly(temp.path(), &out_dir, "printf 'hello\\n'", &config).unwrap();
+
+        assert_eq!(result.exit_status, Some(0));
+        assert_eq!(result.stdout_bytes, 6);
         assert_eq!(
-            tool_proxy_worker_status("success", Some(&passed)),
-            "success"
+            std::fs::read_to_string(out_dir.join("logs/command.stdout.txt")).unwrap(),
+            "hello\n"
         );
+        assert!(out_dir.join("logs/command.stderr.txt").exists());
+        assert!(out_dir.join("command-result.json").exists());
+        assert!(out_dir.join(TOOL_EVENTS_JSONL).exists());
     }
 
     #[test]
@@ -971,18 +1342,25 @@ mod tests {
             Some("Report only pass/fail and whitespace errors."),
             temp.path(),
         );
-        let receipt = receipt_with_changed_files(Vec::new());
         let result = CommandToolResult {
             exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 5,
+            stdout_bytes: 21,
+            stderr_bytes: 0,
+            stdout_path: out_dir.join("logs/command.stdout.txt"),
+            stderr_path: out_dir.join("logs/command.stderr.txt"),
         };
+        let empty_stats = crate::PatchStats::default();
 
         let output = render_command_tool_result(
             &payload,
             temp.path(),
             &out_dir,
             &json!({"opencode_exit_status": 0}),
-            &receipt,
-            Some(&result),
+            &result,
+            &empty_stats,
+            Some(&empty_stats),
             "success",
             "No whitespace errors.",
         );
@@ -990,9 +1368,12 @@ mod tests {
         assert!(output.contains("Mixmod command proxy result"));
         assert!(output.contains("status: success"));
         assert!(output.contains("command_exit_status: 0"));
+        assert!(output.contains("command_timed_out: false"));
+        assert!(output.contains("command_stdout: logs/command.stdout.txt"));
         assert!(output.contains("need: Report only pass/fail"));
         assert!(output.contains("artifacts_dir:"));
-        assert!(output.contains("artifacts: inspect artifacts_dir/{logs/opencode.stdout.txt"));
+        assert!(output.contains("artifacts: inspect artifacts_dir/{logs/command.stdout.txt"));
+        assert!(output.contains("command-result.json"));
         assert!(output.contains("tool-events.jsonl"));
         assert!(output.contains("worktree.patch} if answer is insufficient"));
         assert!(output.contains("answer:\nNo whitespace errors."));
