@@ -5,7 +5,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -20,7 +20,6 @@ use crate::{
 };
 
 pub(crate) const CONFIG_SNAPSHOT_JSON: &str = "supervisor-tool-proxy-config.json";
-const PAYLOAD_DIR: &str = "supervisor-tool-proxy-payloads";
 const ASK_WORKER_TIMEOUT_SECONDS: u64 = 90;
 const ASK_IDLE_TIMEOUT_SECONDS: u64 = 60;
 const COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS: u64 = 25;
@@ -57,7 +56,8 @@ pub(crate) fn run_worker_command_tool(
     if command.is_empty() {
         anyhow::bail!("worker command must not be empty");
     }
-    let payload = SupervisorToolProxyPayload::from_command(command, need, root);
+    let need = required_command_need(need)?;
+    let payload = SupervisorToolProxyPayload::from_command(command, Some(&need), root);
     run_supervisor_tool_proxy_payload(&payload, root)
 }
 
@@ -75,23 +75,10 @@ pub(crate) fn codex_hook_pre_tool_use() -> Result<()> {
         return Ok(());
     }
 
-    let code_home = env::var_os("CODEX_HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| anyhow!("CODEX_HOME was not set for supervisor tool proxy hook"))?;
-    let config_path = env::var_os("MIXMOD_SUPERVISOR_TOOL_PROXY_CONFIG")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| code_home.join(CONFIG_SNAPSHOT_JSON));
-    let payload = SupervisorToolProxyPayload::from_event(command, &event, config_path);
-    let payload_path = payload_path(&code_home, &payload)?;
-    write_pretty_json(&payload_path, &payload, "supervisor tool proxy payload")?;
-
     let exe = env::current_exe().context("failed to locate current mixmod executable")?;
-    let replacement = format!(
-        "{} codex-hook run-tool-proxy --payload {}",
-        shell_quote_path(&exe),
-        shell_quote_path(&payload_path)
-    );
+    let replacement = direct_bash_rejection_command(command, &exe);
     let output = json!({
+        "systemMessage": "Direct Bash was blocked for this Mixmod supervisor. Retry with `mixmod tool run-command --command ... --need ...`.",
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
@@ -103,6 +90,13 @@ pub(crate) fn codex_hook_pre_tool_use() -> Result<()> {
     });
     println!("{}", serde_json::to_string(&output)?);
     Ok(())
+}
+
+fn required_command_need(need: Option<&str>) -> Result<String> {
+    let Some(need) = need.map(str::trim).filter(|value| !value.is_empty()) else {
+        anyhow::bail!("tool run-command requires --need with the exact information needed");
+    };
+    Ok(need.to_string())
 }
 
 /// Execute a worker-backed proxy payload and print a compact result for Codex.
@@ -1450,22 +1444,6 @@ impl SupervisorToolProxyPayload {
         }
     }
 
-    fn from_event(command: &str, event: &Value, config_path: PathBuf) -> Self {
-        Self {
-            kind: SupervisorToolProxyKind::Command,
-            command: command.to_string(),
-            need: None,
-            prompt: None,
-            cwd: get_str(event, "cwd").map(ToOwned::to_owned),
-            session_id: get_str(event, "session_id").map(ToOwned::to_owned),
-            turn_id: get_str(event, "turn_id").map(ToOwned::to_owned),
-            tool_use_id: get_str(event, "tool_use_id").map(ToOwned::to_owned),
-            model: get_str(event, "model").map(ToOwned::to_owned),
-            config_path,
-            created_at: Utc::now().to_rfc3339(),
-        }
-    }
-
     fn request_text(&self) -> &str {
         match self.kind {
             SupervisorToolProxyKind::Command => self.command.trim(),
@@ -1495,12 +1473,25 @@ fn get_str_any<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
     keys.iter().find_map(|key| get_str(value, key))
 }
 
-fn payload_path(code_home: &Path, payload: &SupervisorToolProxyPayload) -> Result<PathBuf> {
-    let turn = sanitize_id(payload.turn_id.as_deref().unwrap_or("turn"));
-    let tool = sanitize_id(payload.tool_use_id.as_deref().unwrap_or("tool"));
-    let dir = code_home.join(PAYLOAD_DIR);
-    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
-    Ok(dir.join(format!("{turn}-{tool}.json")))
+fn direct_bash_rejection_command(command: &str, exe: &Path) -> String {
+    let retry_command = if command.len() <= 1_000 {
+        format!(
+            "{} tool run-command --command {} --need {}",
+            shell_quote_path(exe),
+            shell_quote_value(command),
+            shell_quote_value("state the exact evidence needed")
+        )
+    } else {
+        format!(
+            "{} tool run-command --command '<original command>' --need {}",
+            shell_quote_path(exe),
+            shell_quote_value("state the exact evidence needed")
+        )
+    };
+    let message = format!(
+        "Mixmod blocked direct Bash. Retry with an explicit information need:\n{retry_command}"
+    );
+    format!("printf '%s\\n' {} >&2; exit 2", shell_quote_value(&message))
 }
 
 fn load_tool_proxy_config(path: &Path, root: &Path) -> Result<MixmodConfig> {
@@ -1702,14 +1693,12 @@ fn command_segments(command: &str) -> impl Iterator<Item = &str> {
 }
 
 fn is_tool_recursion_command(command: &str) -> bool {
-    command == "mixmod"
-        || command.starts_with("mixmod ")
-        || command == "codex"
-        || command.starts_with("codex ")
-        || command == "opencode"
-        || command.starts_with("opencode ")
-        || command == "codex-hook"
-        || command.starts_with("codex-hook ")
+    let first_word = shell_first_argument(command.trim());
+    let command_name = Path::new(&first_word)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(first_word.as_str());
+    matches!(command_name, "mixmod" | "codex" | "opencode" | "codex-hook")
         || command.contains(" codex-hook ")
 }
 
@@ -1788,6 +1777,10 @@ fn sanitize_id(value: &str) -> String {
 
 fn shell_quote_path(path: &Path) -> String {
     let value = path.to_string_lossy();
+    shell_quote_value(&value)
+}
+
+fn shell_quote_value(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
@@ -2221,6 +2214,18 @@ tests/lib.rs:5:assert!(target_symbol());
     }
 
     #[test]
+    fn does_not_proxy_explicit_mixmod_tool_commands() {
+        for command in [
+            "mixmod tool run-command --command 'rg x' --need 'hits'",
+            "/home/user/dev/mixmod/target/debug/mixmod tool run-command --command 'rg x' --need 'hits'",
+            "'/home/user/dev/mixmod/target/debug/mixmod' tool run-command --command 'rg x' --need 'hits'",
+            "/bin/bash -lc \"'/home/user/dev/mixmod/target/debug/mixmod' tool run-command --command 'rg x' --need 'hits'\"",
+        ] {
+            assert!(!should_proxy_bash_command(command), "{command}");
+        }
+    }
+
+    #[test]
     fn does_not_proxy_recursive_commands() {
         for command in [
             "git status --short && mixmod tool run-command --command 'rg x'",
@@ -2232,6 +2237,31 @@ tests/lib.rs:5:assert!(target_symbol());
         ] {
             assert!(!should_proxy_bash_command(command), "{command}");
         }
+    }
+
+    #[test]
+    fn command_tool_requires_information_need() {
+        assert_eq!(
+            required_command_need(Some("Return changed files.")).unwrap(),
+            "Return changed files."
+        );
+        assert!(required_command_need(None).is_err());
+        assert!(required_command_need(Some("   ")).is_err());
+    }
+
+    #[test]
+    fn direct_bash_rejection_points_to_needful_mixmod_retry() {
+        let command = direct_bash_rejection_command(
+            "git status --short",
+            Path::new("/home/user/dev/mixmod/target/debug/mixmod"),
+        );
+
+        assert!(command.contains("Mixmod blocked direct Bash"));
+        assert!(command.contains("tool run-command"));
+        assert!(command.contains("--command"));
+        assert!(command.contains("git status --short"));
+        assert!(command.contains("--need"));
+        assert!(command.contains("exit 2"));
     }
 
     #[test]

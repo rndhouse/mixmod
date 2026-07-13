@@ -310,6 +310,8 @@ fn exec_command_is_public_cli_surface() {
         "mixmod",
         "tool",
         "run-command",
+        "--need",
+        "tracked changes only",
         "--",
         "git",
         "status",
@@ -326,11 +328,21 @@ fn exec_command_is_public_cli_surface() {
                 },
         } => {
             assert!(command.is_none());
-            assert!(need.is_none());
+            assert_eq!(need.as_deref(), Some("tracked changes only"));
             assert_eq!(args, vec!["git", "status", "--short"]);
         }
         _ => panic!("expected tool run-command"),
     }
+    Cli::try_parse_from([
+        "mixmod",
+        "tool",
+        "run-command",
+        "--",
+        "git",
+        "status",
+        "--short",
+    ])
+    .expect_err("tool run-command should require --need");
     let cli = Cli::try_parse_from([
         "mixmod",
         "exec",
