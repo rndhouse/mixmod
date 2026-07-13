@@ -263,6 +263,9 @@ For routed `rg`, `grep`, `git grep`, or `find` commands, include `--need` with
 the grouping you want, such as files only, first hits per file, relevant line
 numbers, or whether a symbol appears anywhere. Broad read-only searches are good
 Mixmod candidates when reading the raw output yourself would waste GPT tokens.
+Compound read-only Bash commands with pipes or shell control are also good
+Mixmod candidates when they gather shell evidence; Mixmod still executes the
+exact command and reports side effects.
 Prefer `tool run-command` for concrete shell evidence. Use `tool ask` only when
 the useful local work is a small review question rather than a command result.
 For bounded review or investigation that is not naturally one command, call:
@@ -516,6 +519,8 @@ mod tests {
         assert!(prompt.contains("full output and return grouped matches"));
         assert!(prompt.contains("For routed `rg`, `grep`, `git grep`, or `find` commands"));
         assert!(prompt.contains("first hits per file"));
+        assert!(prompt.contains("Compound read-only Bash commands"));
+        assert!(prompt.contains("exact command and reports side effects"));
         assert!(prompt.contains("Prefer `tool run-command`"));
         assert!(prompt.contains("small review question"));
         assert!(prompt.contains("fallible assistance rather than authority"));

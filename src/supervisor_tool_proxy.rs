@@ -257,6 +257,9 @@ fn render_command_tool_result(
     writeln!(output, "command_stdout: logs/command.stdout.txt").expect("write to string");
     writeln!(output, "command_stderr: logs/command.stderr.txt").expect("write to string");
     writeln!(output, "command_result: command-result.json").expect("write to string");
+    if out_dir.join("search-summary.json").exists() {
+        writeln!(output, "search_summary: search-summary.json").expect("write to string");
+    }
     if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
         writeln!(output, "summary_worker_exit_status: {exit_status}").expect("write to string");
     }
@@ -613,18 +616,19 @@ enum SearchCommandKind {
 }
 
 fn search_command_kind(command: &str) -> Option<SearchCommandKind> {
-    let command = command.trim();
-    if command == "find" || command.starts_with("find ") {
-        return Some(SearchCommandKind::PathList);
-    }
-    if command == "rg"
-        || command.starts_with("rg ")
-        || command == "grep"
-        || command.starts_with("grep ")
-        || command == "git grep"
-        || command.starts_with("git grep ")
-    {
-        return Some(SearchCommandKind::LineSearch);
+    for segment in command_segments(command) {
+        if segment == "find" || segment.starts_with("find ") {
+            return Some(SearchCommandKind::PathList);
+        }
+        if segment == "rg"
+            || segment.starts_with("rg ")
+            || segment == "grep"
+            || segment.starts_with("grep ")
+            || segment == "git grep"
+            || segment.starts_with("git grep ")
+        {
+            return Some(SearchCommandKind::LineSearch);
+        }
     }
     None
 }
@@ -1114,19 +1118,36 @@ fn worker_role_for_command(command: &str) -> &'static str {
 
 pub(crate) fn should_proxy_bash_command(command: &str) -> bool {
     let command = command.trim();
-    if command.is_empty()
-        || command.contains('\n')
-        || command.contains(" codex-hook ")
+    if command.is_empty() {
+        return false;
+    }
+    if command_segments(command).any(is_tool_recursion_command) {
+        return false;
+    }
+    if contains_obvious_mutation(command) {
+        return false;
+    }
+    command_segments(command)
+        .any(|segment| is_inspection_command(segment) || is_test_or_build_command(segment))
+}
+
+fn command_segments(command: &str) -> impl Iterator<Item = &str> {
+    command
+        .split(|ch| matches!(ch, '\n' | ';' | '|' | '&'))
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+}
+
+fn is_tool_recursion_command(command: &str) -> bool {
+    command == "mixmod"
         || command.starts_with("mixmod ")
+        || command == "codex"
         || command.starts_with("codex ")
+        || command == "opencode"
         || command.starts_with("opencode ")
-    {
-        return false;
-    }
-    if contains_shell_control(command) || contains_obvious_mutation(command) {
-        return false;
-    }
-    is_inspection_command(command) || is_test_or_build_command(command)
+        || command == "codex-hook"
+        || command.starts_with("codex-hook ")
+        || command.contains(" codex-hook ")
 }
 
 fn is_inspection_command(command: &str) -> bool {
@@ -1161,12 +1182,6 @@ fn is_test_or_build_command(command: &str) -> bool {
     ]
     .iter()
     .any(|prefix| command == *prefix || command.starts_with(&format!("{prefix} ")))
-}
-
-fn contains_shell_control(command: &str) -> bool {
-    ["&&", "||", ";", "|", ">", "<", "`", "$("]
-        .iter()
-        .any(|token| command.contains(token))
 }
 
 fn contains_obvious_mutation(command: &str) -> bool {
@@ -1251,6 +1266,8 @@ mod tests {
             "git status --short",
             "git grep TypeBinding",
             "rg TypeBinding",
+            "git status --short && rg -n TypeBinding vm parser",
+            "python -m pytest tests/test_bindings.py -q 2>&1 | tail -80",
             "go test ./vm -run TestVar",
             "cargo test run_writes_full_artifact_bundle",
         ] {
@@ -1346,6 +1363,48 @@ tests/lib.rs:5:assert!(target_symbol());
     }
 
     #[test]
+    fn compound_search_command_summary_writes_structured_artifact() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let stdout = "\
+ M src/lib.rs
+src/lib.rs:10:fn target_symbol() {}
+src/other.rs:4:target_symbol();
+";
+        std::fs::write(logs.join("command.stdout.txt"), stdout).unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "git status --short && rg -n 'target_symbol' src",
+            Some("Return changed files and relevant hits."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 20,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        let task = command_summary_task(&payload, &out_dir, &result).unwrap();
+
+        assert_eq!(
+            task["context"]["search_summary_artifact"],
+            json!(out_dir.join("search-summary.json"))
+        );
+        let summary = read_json_file(&out_dir.join("search-summary.json")).unwrap();
+        assert_eq!(summary["kind"], json!("line_search"));
+        assert_eq!(summary["total_output_lines"], json!(3));
+        assert_eq!(summary["returned_files"], json!(3));
+        assert_eq!(summary["files"][0]["path"], json!("<stdout>"));
+        assert_eq!(summary["files"][1]["path"], json!("src/lib.rs"));
+    }
+
+    #[test]
     fn find_command_summary_groups_paths() {
         let summary = search_output_summary("find . -name '*.rs'", "./src/lib.rs\n./tests/a.rs\n")
             .expect("find output should be summarized");
@@ -1363,11 +1422,13 @@ tests/lib.rs:5:assert!(target_symbol());
     }
 
     #[test]
-    fn does_not_proxy_mutating_or_complex_commands() {
+    fn does_not_proxy_mutating_or_recursive_commands() {
         for command in [
             "gofmt -w vm/vm.go",
             "git add .",
-            "go test ./... && git diff",
+            "git status --short && mixmod tool run-command --command 'rg x'",
+            "git status --short && codex exec --help",
+            "git status --short && opencode run hi",
             "mixmod codex-hook run-tool-proxy --payload x",
             "opencode run hi",
         ] {
@@ -1617,6 +1678,43 @@ tests/lib.rs:5:assert!(target_symbol());
         assert!(!output.contains("report_artifact:"));
         assert!(!output.contains("tool_events_artifact:"));
         assert!(!output.contains("worker_summary:"));
+    }
+
+    #[test]
+    fn command_tool_result_names_search_summary_when_present() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        std::fs::create_dir_all(&out_dir).unwrap();
+        std::fs::write(out_dir.join("search-summary.json"), "{}").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "git status --short && rg -n target src",
+            Some("Return changed files and first hits."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 5,
+            stdout_bytes: 21,
+            stderr_bytes: 0,
+            stdout_path: out_dir.join("logs/command.stdout.txt"),
+            stderr_path: out_dir.join("logs/command.stderr.txt"),
+        };
+        let empty_stats = crate::PatchStats::default();
+
+        let output = render_command_tool_result(
+            &payload,
+            temp.path(),
+            &out_dir,
+            &json!({"opencode_exit_status": 0}),
+            &result,
+            &empty_stats,
+            Some(&empty_stats),
+            "success",
+            "See structured search summary.",
+        );
+
+        assert!(output.contains("search_summary: search-summary.json"));
     }
 
     #[test]
