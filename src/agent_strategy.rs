@@ -261,6 +261,9 @@ Use `--need` to tell the command-output summarizer exactly what to surface back:
 pass/fail only, the failing assertion and first relevant traceback line, the
 files/symbols that match, or the changed files and notable hunks. A good
 `--need` should make the returned answer smaller than the raw command output.
+Mixmod command results do not embed truncated stdout or stderr. If the compact
+answer is insufficient, inspect the named artifact files before rerunning the
+same command directly.
 For routed `rg`, `grep`, `git grep`, or `find` commands, include `--need` with
 the grouping you want, such as files only, first hits per file, relevant line
 numbers, or whether a symbol appears anywhere. Broad read-only searches are good
@@ -535,6 +538,8 @@ mod tests {
         assert!(prompt.contains("rg --max-count"));
         assert!(prompt.contains("broad read-only searches"));
         assert!(prompt.contains("full output and return grouped matches"));
+        assert!(prompt.contains("do not embed truncated stdout or stderr"));
+        assert!(prompt.contains("inspect the named artifact files"));
         assert!(prompt.contains("For routed `rg`, `grep`, `git grep`, or `find` commands"));
         assert!(prompt.contains("first hits per file"));
         assert!(prompt.contains("Compound read-only Bash commands"));

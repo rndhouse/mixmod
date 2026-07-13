@@ -288,13 +288,17 @@ fn render_command_tool_result(
     writeln!(output, "artifacts_dir: {}", display_path(root, out_dir)).expect("write to string");
     writeln!(output, "artifacts: {COMMAND_TOOL_ARTIFACT_HINT}").expect("write to string");
     writeln!(output, "answer:").expect("write to string");
-    writeln!(
-        output,
-        "{}",
-        compact_text(worker_text, COMMAND_SUMMARY_BYTES)
-    )
-    .expect("write to string");
+    writeln!(output, "{}", command_answer_text(worker_text)).expect("write to string");
     output
+}
+
+fn command_answer_text(worker_text: &str) -> String {
+    if worker_text.len() <= COMMAND_SUMMARY_BYTES {
+        return worker_text.trim().to_string();
+    }
+    format!(
+        "summary_too_long: local worker answer exceeded {COMMAND_SUMMARY_BYTES} bytes; inspect artifacts_dir/logs/opencode.stdout.txt or command artifacts for exact evidence"
+    )
 }
 
 fn print_ask_tool_result(
@@ -369,6 +373,14 @@ struct CommandToolResult {
     stderr_bytes: u64,
     stdout_path: PathBuf,
     stderr_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReadableCommandArtifacts {
+    stdout_path: PathBuf,
+    stderr_path: PathBuf,
+    result_path: PathBuf,
+    search_summary_path: Option<PathBuf>,
 }
 
 fn run_command_directly(
@@ -480,7 +492,7 @@ fn run_command_summary_worker(
     before_summary_diff: &str,
 ) -> Result<CommandSummaryResult> {
     let summary_task_path = out_dir.join("command-summary-task.json");
-    let summary_task = command_summary_task(payload, out_dir, command_result)?;
+    let summary_task = command_summary_task(payload, root, out_dir, command_result)?;
     write_pretty_json(&summary_task_path, &summary_task, "command summary task")?;
 
     let mut summary_config = config.clone();
@@ -502,7 +514,7 @@ fn run_command_summary_worker(
     let summary_delta = diff_without_unchanged_blocks(&after_summary_diff, before_summary_diff);
     let summary_delta_stats = patch_stats(&summary_delta);
     let metrics = read_json_file(&out_dir.join(METRICS_JSON)).ok();
-    let fallback = fallback_command_summary(payload, command_result);
+    let fallback = fallback_command_summary(payload, out_dir, command_result);
     let text = extract_last_text(&out_dir.join("logs/opencode.stdout.txt")).unwrap_or(fallback);
 
     Ok(CommandSummaryResult {
@@ -514,15 +526,12 @@ fn run_command_summary_worker(
 
 fn command_summary_task(
     payload: &SupervisorToolProxyPayload,
+    root: &Path,
     out_dir: &Path,
     command_result: &CommandToolResult,
 ) -> Result<Value> {
     let stdout = fs::read_to_string(&command_result.stdout_path).unwrap_or_else(|_| {
         String::from_utf8_lossy(&fs::read(&command_result.stdout_path).unwrap_or_default())
-            .to_string()
-    });
-    let stderr = fs::read_to_string(&command_result.stderr_path).unwrap_or_else(|_| {
-        String::from_utf8_lossy(&fs::read(&command_result.stderr_path).unwrap_or_default())
             .to_string()
     });
     let search_summary = search_output_summary(payload.command.trim(), &stdout);
@@ -533,15 +542,16 @@ fn command_summary_task(
             "command search summary",
         )?;
     }
-    let stdout_section = command_stdout_summary_section(out_dir, &stdout, search_summary.as_ref());
-    let stderr_excerpt = output_excerpt(&stderr, 8_000);
+    let readable_artifacts =
+        prepare_readable_command_artifacts(root, out_dir, search_summary.is_some())?;
+    let artifact_section = command_artifact_section(&readable_artifacts);
     let need = payload
         .need_text()
         .unwrap_or("Return the useful command result compactly.");
     Ok(json!({
         "title": format!("Summarize command result: {}", payload.command.trim()),
         "instructions": format!(
-            "A GPT supervisor requested a deterministic shell command. Mixmod already ran the command; do not run shell commands, do not inspect the repository, do not edit files, and do not commit. Summarize only the captured command result below for the supervisor information need.\n\nSupervisor information need:\n{need}\n\nCommand:\n```bash\n{command}\n```\n\nExit status: {exit_status}\nTimed out: {timed_out}\nDuration ms: {duration_ms}\nStdout artifact: {stdout_path}\nStderr artifact: {stderr_path}\nStdout bytes: {stdout_bytes}\nStderr bytes: {stderr_bytes}\n\n{stdout_section}\n\nStderr excerpt:\n```text\n{stderr_excerpt}\n```\n\nReturn only compact evidence: exit status, pass/fail when applicable, and the smallest relevant stdout/stderr excerpt or summary. For search commands, prefer the structured search summary over raw stdout and mention the full stdout artifact path if the omitted output may matter.",
+            "A GPT supervisor requested a deterministic shell command. Mixmod already ran the command; do not run shell commands, do not inspect the repository, do not edit files, and do not commit. Read only the listed command artifact files when needed, then summarize the captured command result for the supervisor information need.\n\nSupervisor information need:\n{need}\n\nCommand:\n```bash\n{command}\n```\n\nExit status: {exit_status}\nTimed out: {timed_out}\nDuration ms: {duration_ms}\nStdout bytes: {stdout_bytes}\nStderr bytes: {stderr_bytes}\n\n{artifact_section}\n\nReturn compact semantic evidence: exit status, pass/fail when applicable, failing test names, first relevant traceback/assertion lines, matched files/symbols, or notable diff hunks. Do not copy raw stdout/stderr into the answer and do not return truncated output. If the output is too large or cannot be summarized confidently, say that and name the artifact path the supervisor should inspect.",
             command = payload.command.trim(),
             exit_status = command_result
                 .exit_status
@@ -549,12 +559,9 @@ fn command_summary_task(
                 .unwrap_or_else(|| "unknown".to_string()),
             timed_out = command_result.timed_out,
             duration_ms = command_result.duration_ms,
-            stdout_path = out_dir.join("logs/command.stdout.txt").display(),
-            stderr_path = out_dir.join("logs/command.stderr.txt").display(),
             stdout_bytes = command_result.stdout_bytes,
             stderr_bytes = command_result.stderr_bytes,
-            stdout_section = stdout_section,
-            stderr_excerpt = stderr_excerpt,
+            artifact_section = artifact_section,
         ),
         "expect_patch": false,
         "tests": [],
@@ -563,8 +570,9 @@ fn command_summary_task(
             "Do not inspect repository files.",
             "Do not edit files.",
             "Do not commit changes.",
-            "Summarize only the captured command stdout/stderr in the task.",
-            "Keep stdout compact.",
+            "Read only the listed command artifact files when needed.",
+            "Do not copy raw stdout or stderr into the answer.",
+            "Do not return truncated command output.",
             "Optimize the final answer for the supervisor information need."
         ],
         "context": {
@@ -575,30 +583,81 @@ fn command_summary_task(
             "supervisor_need": need,
             "command_exit_status": command_result.exit_status,
             "command_timed_out": command_result.timed_out,
-            "stdout_artifact": out_dir.join("logs/command.stdout.txt"),
-            "stderr_artifact": out_dir.join("logs/command.stderr.txt"),
-            "search_summary_artifact": search_summary.as_ref().map(|_| out_dir.join("search-summary.json"))
+            "stdout_artifact": readable_artifacts.stdout_path,
+            "stderr_artifact": readable_artifacts.stderr_path,
+            "command_result_artifact": readable_artifacts.result_path,
+            "search_summary_artifact": readable_artifacts.search_summary_path
         }
     }))
 }
 
-fn command_stdout_summary_section(
+fn prepare_readable_command_artifacts(
+    root: &Path,
     out_dir: &Path,
-    stdout: &str,
-    search_summary: Option<&Value>,
-) -> String {
-    if let Some(summary) = search_summary {
-        let pretty = serde_json::to_string_pretty(summary).unwrap_or_else(|_| "{}".to_string());
-        return format!(
-            "Structured stdout summary:\n```json\n{}\n```\n\nSearch summary artifact: {}",
-            output_excerpt(&pretty, 16_000),
-            out_dir.join("search-summary.json").display()
-        );
-    }
-    format!(
-        "Stdout excerpt:\n```text\n{}\n```",
-        output_excerpt(stdout, 12_000)
+    has_search_summary: bool,
+) -> Result<ReadableCommandArtifacts> {
+    let readable_dir = state_layout(root)
+        .project_dir()
+        .join("xdg-data")
+        .join("opencode")
+        .join("tool-output");
+    fs::create_dir_all(&readable_dir)
+        .with_context(|| format!("failed to create {}", readable_dir.display()))?;
+    let prefix = sanitize_id(
+        out_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("command"),
+    );
+    let stdout_path = readable_dir.join(format!("{prefix}-command.stdout.txt"));
+    let stderr_path = readable_dir.join(format!("{prefix}-command.stderr.txt"));
+    let result_path = readable_dir.join(format!("{prefix}-command-result.json"));
+    fs::copy(out_dir.join("logs/command.stdout.txt"), &stdout_path)
+        .with_context(|| format!("failed to mirror {}", stdout_path.display()))?;
+    fs::copy(out_dir.join("logs/command.stderr.txt"), &stderr_path)
+        .with_context(|| format!("failed to mirror {}", stderr_path.display()))?;
+    fs::copy(out_dir.join("command-result.json"), &result_path)
+        .with_context(|| format!("failed to mirror {}", result_path.display()))?;
+    let search_summary_path = if has_search_summary {
+        let path = readable_dir.join(format!("{prefix}-search-summary.json"));
+        fs::copy(out_dir.join("search-summary.json"), &path)
+            .with_context(|| format!("failed to mirror {}", path.display()))?;
+        Some(path)
+    } else {
+        None
+    };
+    Ok(ReadableCommandArtifacts {
+        stdout_path,
+        stderr_path,
+        result_path,
+        search_summary_path,
+    })
+}
+
+fn command_artifact_section(artifacts: &ReadableCommandArtifacts) -> String {
+    let mut section = String::new();
+    writeln!(
+        section,
+        "Stdout artifact: {}",
+        artifacts.stdout_path.display()
     )
+    .expect("write to string");
+    writeln!(
+        section,
+        "Stderr artifact: {}",
+        artifacts.stderr_path.display()
+    )
+    .expect("write to string");
+    writeln!(
+        section,
+        "Command result artifact: {}",
+        artifacts.result_path.display()
+    )
+    .expect("write to string");
+    if let Some(path) = &artifacts.search_summary_path {
+        writeln!(section, "Search summary artifact: {}", path.display()).expect("write to string");
+    }
+    section
 }
 
 fn search_output_summary(command: &str, stdout: &str) -> Option<Value> {
@@ -735,10 +794,9 @@ fn compact_chars(text: &str, max_chars: usize) -> String {
 
 fn fallback_command_summary(
     payload: &SupervisorToolProxyPayload,
+    out_dir: &Path,
     command_result: &CommandToolResult,
 ) -> String {
-    let stdout = fs::read_to_string(&command_result.stdout_path).unwrap_or_default();
-    let stderr = fs::read_to_string(&command_result.stderr_path).unwrap_or_default();
     let mut summary = String::new();
     writeln!(
         summary,
@@ -753,43 +811,20 @@ fn fallback_command_summary(
     if let Some(need) = payload.need_text() {
         writeln!(summary, "need: {}", compact_text(need, 400)).expect("write to string");
     }
-    if !stdout.trim().is_empty() {
-        if let Some(search_summary) = search_output_summary(payload.command.trim(), &stdout) {
-            let pretty =
-                serde_json::to_string_pretty(&search_summary).unwrap_or_else(|_| "{}".to_string());
-            writeln!(
-                summary,
-                "search_summary:\n{}",
-                output_excerpt(&pretty, 1_600)
-            )
-            .expect("write to string");
-        } else {
-            writeln!(summary, "stdout:\n{}", output_excerpt(&stdout, 1_200))
-                .expect("write to string");
-        }
-    }
-    if !stderr.trim().is_empty() {
-        writeln!(summary, "stderr:\n{}", output_excerpt(&stderr, 1_200)).expect("write to string");
+    writeln!(
+        summary,
+        "summary_unavailable: local worker did not return a command summary"
+    )
+    .expect("write to string");
+    writeln!(summary, "stdout_artifact: logs/command.stdout.txt").expect("write to string");
+    writeln!(summary, "stderr_artifact: logs/command.stderr.txt").expect("write to string");
+    writeln!(summary, "command_result: command-result.json").expect("write to string");
+    writeln!(summary, "stdout_bytes: {}", command_result.stdout_bytes).expect("write to string");
+    writeln!(summary, "stderr_bytes: {}", command_result.stderr_bytes).expect("write to string");
+    if out_dir.join("search-summary.json").exists() {
+        writeln!(summary, "search_summary: search-summary.json").expect("write to string");
     }
     summary
-}
-
-fn output_excerpt(text: &str, max_chars: usize) -> String {
-    let text = text.trim();
-    if text.chars().count() <= max_chars {
-        return text.to_string();
-    }
-    let half = max_chars / 2;
-    let head: String = text.chars().take(half).collect();
-    let tail: String = text
-        .chars()
-        .rev()
-        .take(max_chars.saturating_sub(half))
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-    format!("{head}\n<truncated>\n{tail}")
 }
 
 #[cfg(test)]
@@ -1326,9 +1361,10 @@ mod tests {
 src/lib.rs:10:fn target_symbol() {}
 src/lib.rs:20:target_symbol();
 tests/lib.rs:5:assert!(target_symbol());
-";
+        ";
         std::fs::write(logs.join("command.stdout.txt"), stdout).unwrap();
         std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        std::fs::write(out_dir.join("command-result.json"), "{}").unwrap();
         let payload = SupervisorToolProxyPayload::from_command(
             "rg -n 'target_symbol' .",
             Some("Return files and first hits per file."),
@@ -1344,16 +1380,30 @@ tests/lib.rs:5:assert!(target_symbol());
             stderr_path: logs.join("command.stderr.txt"),
         };
 
-        let task = command_summary_task(&payload, &out_dir, &result).unwrap();
+        let task = command_summary_task(&payload, temp.path(), &out_dir, &result).unwrap();
 
         let instructions = task["instructions"].as_str().unwrap();
-        assert!(instructions.contains("Structured stdout summary"));
+        assert!(instructions.contains("Read only the listed command artifact files"));
+        assert!(instructions.contains("Stdout artifact"));
+        assert!(instructions.contains("Stderr artifact"));
+        assert!(instructions.contains("Command result artifact"));
         assert!(instructions.contains("Search summary artifact"));
+        assert!(instructions.contains("Do not copy raw stdout/stderr"));
+        assert!(instructions.contains("do not return truncated output"));
         assert!(instructions.contains("search-summary.json"));
-        assert_eq!(
-            task["context"]["search_summary_artifact"],
-            json!(out_dir.join("search-summary.json"))
-        );
+        assert!(!instructions.contains("Structured stdout summary"));
+        assert!(!instructions.contains("Stdout excerpt"));
+        assert!(!instructions.contains("Stderr excerpt"));
+        assert!(!instructions.contains("src/lib.rs:10:fn target_symbol"));
+        let readable_stdout = task["context"]["stdout_artifact"].as_str().unwrap();
+        let readable_result = task["context"]["command_result_artifact"].as_str().unwrap();
+        let readable_search = task["context"]["search_summary_artifact"].as_str().unwrap();
+        assert!(readable_stdout.contains("xdg-data/opencode/tool-output"));
+        assert!(readable_result.contains("xdg-data/opencode/tool-output"));
+        assert!(readable_search.contains("xdg-data/opencode/tool-output"));
+        assert!(Path::new(readable_stdout).exists());
+        assert!(Path::new(readable_result).exists());
+        assert!(Path::new(readable_search).exists());
         let summary = read_json_file(&out_dir.join("search-summary.json")).unwrap();
         assert_eq!(summary["kind"], json!("line_search"));
         assert_eq!(summary["total_output_lines"], json!(3));
@@ -1376,6 +1426,7 @@ src/other.rs:4:target_symbol();
 ";
         std::fs::write(logs.join("command.stdout.txt"), stdout).unwrap();
         std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        std::fs::write(out_dir.join("command-result.json"), "{}").unwrap();
         let payload = SupervisorToolProxyPayload::from_command(
             "git status --short && rg -n 'target_symbol' src",
             Some("Return changed files and relevant hits."),
@@ -1391,12 +1442,11 @@ src/other.rs:4:target_symbol();
             stderr_path: logs.join("command.stderr.txt"),
         };
 
-        let task = command_summary_task(&payload, &out_dir, &result).unwrap();
+        let task = command_summary_task(&payload, temp.path(), &out_dir, &result).unwrap();
 
-        assert_eq!(
-            task["context"]["search_summary_artifact"],
-            json!(out_dir.join("search-summary.json"))
-        );
+        let readable_search = task["context"]["search_summary_artifact"].as_str().unwrap();
+        assert!(readable_search.contains("xdg-data/opencode/tool-output"));
+        assert!(Path::new(readable_search).exists());
         let summary = read_json_file(&out_dir.join("search-summary.json")).unwrap();
         assert_eq!(summary["kind"], json!("line_search"));
         assert_eq!(summary["total_output_lines"], json!(3));
@@ -1413,6 +1463,43 @@ src/other.rs:4:target_symbol();
         assert_eq!(summary["kind"], json!("path_search"));
         assert_eq!(summary["total_output_lines"], json!(2));
         assert_eq!(summary["paths"][0], json!("./src/lib.rs"));
+    }
+
+    #[test]
+    fn fallback_command_summary_points_to_artifacts_without_excerpts() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let stdout = "secret stdout line that should not be embedded\n";
+        let stderr = "secret stderr line that should not be embedded\n";
+        std::fs::write(logs.join("command.stdout.txt"), stdout).unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), stderr).unwrap();
+        std::fs::write(out_dir.join("search-summary.json"), "{}").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "rg -n secret .",
+            Some("Return whether secret appears."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 12,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: stderr.len() as u64,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        let summary = fallback_command_summary(&payload, &out_dir, &result);
+
+        assert!(summary.contains("summary_unavailable"));
+        assert!(summary.contains("stdout_artifact: logs/command.stdout.txt"));
+        assert!(summary.contains("stderr_artifact: logs/command.stderr.txt"));
+        assert!(summary.contains("command_result: command-result.json"));
+        assert!(summary.contains("search_summary: search-summary.json"));
+        assert!(!summary.contains("secret stdout"));
+        assert!(!summary.contains("secret stderr"));
     }
 
     #[test]
@@ -1683,6 +1770,48 @@ src/other.rs:4:target_symbol();
         assert!(!output.contains("report_artifact:"));
         assert!(!output.contains("tool_events_artifact:"));
         assert!(!output.contains("worker_summary:"));
+    }
+
+    #[test]
+    fn command_tool_result_replaces_overlong_worker_answer() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let payload = SupervisorToolProxyPayload::from_command(
+            "python -m pytest tests -q",
+            Some("Report pass/fail."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 5,
+            stdout_bytes: 21,
+            stderr_bytes: 0,
+            stdout_path: out_dir.join("logs/command.stdout.txt"),
+            stderr_path: out_dir.join("logs/command.stderr.txt"),
+        };
+        let empty_stats = crate::PatchStats::default();
+        let long_answer = format!(
+            "{}TAIL_SHOULD_NOT_APPEAR",
+            "summary line\n".repeat(COMMAND_SUMMARY_BYTES)
+        );
+
+        let output = render_command_tool_result(
+            &payload,
+            temp.path(),
+            &out_dir,
+            &json!({"opencode_exit_status": 0}),
+            &result,
+            &empty_stats,
+            Some(&empty_stats),
+            "success",
+            &long_answer,
+        );
+
+        assert!(output.contains("summary_too_long"));
+        assert!(output.contains("logs/opencode.stdout.txt"));
+        assert!(!output.contains("TAIL_SHOULD_NOT_APPEAR"));
+        assert!(!output.contains("<truncated>"));
     }
 
     #[test]
