@@ -29,11 +29,14 @@ fn init_manages_only_central_state_files() {
 }
 
 #[test]
-fn codex_app_server_uses_mixmod_scoped_codex_home() {
-    assert_eq!(
-        codex_home_for_work_dir(Path::new("/tmp/work")),
-        state_layout(Path::new("/tmp/work")).codex_home()
-    );
+fn codex_app_server_uses_non_temp_scoped_codex_home() {
+    let layout = state_layout(Path::new("/tmp/work"));
+    let codex_home = codex_home_for_work_dir(Path::new("/tmp/work"));
+
+    assert!(codex_home.ends_with(layout.project_dir().file_name().unwrap()));
+    if layout.codex_home().starts_with(std::env::temp_dir()) {
+        assert!(!codex_home.starts_with(std::env::temp_dir()));
+    }
 }
 
 #[test]

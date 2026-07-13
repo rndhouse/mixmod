@@ -780,6 +780,36 @@ fn codex_home_config_installs_scoped_pre_tool_use_hook() {
     assert!(config.contains("statusMessage"));
 }
 
+#[test]
+fn runtime_codex_home_moves_temp_state_to_home_state() {
+    let selected = runtime_codex_home_from_paths(
+        Path::new("/tmp/mixmod-state/projects/app-123/codex-home"),
+        Path::new("/tmp/mixmod-state/projects/app-123"),
+        Path::new("/tmp"),
+        Some(Path::new("/home/tester")),
+    );
+
+    assert_eq!(
+        selected,
+        Path::new("/home/tester/.local/state/mixmod/codex-homes/app-123")
+    );
+}
+
+#[test]
+fn runtime_codex_home_keeps_non_temp_state_home() {
+    let selected = runtime_codex_home_from_paths(
+        Path::new("/home/tester/.local/state/mixmod/projects/app-123/codex-home"),
+        Path::new("/home/tester/.local/state/mixmod/projects/app-123"),
+        Path::new("/tmp"),
+        Some(Path::new("/home/tester")),
+    );
+
+    assert_eq!(
+        selected,
+        Path::new("/home/tester/.local/state/mixmod/projects/app-123/codex-home")
+    );
+}
+
 impl Drop for CodexAppServer {
     fn drop(&mut self) {
         #[cfg(unix)]
@@ -980,7 +1010,67 @@ fn normalized_reasoning_effort(value: &str) -> Result<String> {
 }
 
 pub(crate) fn codex_home_for_work_dir(work_dir: &Path) -> PathBuf {
-    state_layout(work_dir).codex_home()
+    let layout = state_layout(work_dir);
+    runtime_codex_home_for_layout(&layout)
+}
+
+fn runtime_codex_home_for_layout(layout: &crate::state::StateLayout) -> PathBuf {
+    let codex_home = layout.codex_home();
+    runtime_codex_home_from_paths(
+        &codex_home,
+        layout.project_dir(),
+        &env::temp_dir(),
+        env::var_os("HOME").map(PathBuf::from).as_deref(),
+    )
+}
+
+fn runtime_codex_home_from_paths(
+    codex_home: &Path,
+    project_dir: &Path,
+    temp_dir: &Path,
+    home: Option<&Path>,
+) -> PathBuf {
+    if path_is_under(codex_home, temp_dir)
+        && let Some(home_codex_home) = home_state_codex_home(project_dir, temp_dir, home)
+    {
+        return home_codex_home;
+    }
+    codex_home.to_path_buf()
+}
+
+fn home_state_codex_home(
+    project_dir: &Path,
+    temp_dir: &Path,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    let home = home.filter(|value| !value.as_os_str().is_empty())?;
+    if path_is_under(home, temp_dir) {
+        return None;
+    }
+    let home = home.to_path_buf();
+    let project = project_dir.file_name()?.to_str()?;
+    Some(
+        home.join(".local")
+            .join("state")
+            .join("mixmod")
+            .join("codex-homes")
+            .join(project),
+    )
+}
+
+fn path_is_under(path: &Path, root: &Path) -> bool {
+    let path = absolute_path_for_compare(path);
+    let root = absolute_path_for_compare(root);
+    path == root || path.starts_with(root)
+}
+
+fn absolute_path_for_compare(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(path)
 }
 
 pub(crate) fn copy_codex_auth_if_available(code_home: &Path) -> Result<bool> {
