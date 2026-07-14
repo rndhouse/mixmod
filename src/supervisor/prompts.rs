@@ -693,7 +693,7 @@ fn render_worker_guidance(worker_guidance: &WorkerSupervisorGuidance) -> String 
         return String::new();
     }
     let mut rendered = format!(
-        "Supervisor-only worker-model guidance for {}:\nThese are historical pitfalls and handling constraints for the selected worker model. Treat applicable bullets as binding when planning the worker handoff, critique, or live intervention. Do not copy every bullet to the worker. Select only relevant points and convert them into short, concrete worker instructions.\n",
+        "Supervisor-only worker-model guidance for {}:\nThese are historical pitfalls and handling constraints for the selected worker model. Treat applicable bullets as binding when planning the worker handoff, critique, or live intervention. Do not copy every bullet to the worker. Select only relevant points and convert them into short, concrete worker instructions. When guidance defines a worker-owned patch boundary, apply it to worker-facing files, focus_files, exact_edits, edit_plan, message_to_worker, and live-control messages.\n",
         worker_guidance.model
     );
     if worker_guidance.target_patch_lines.is_some() || worker_guidance.max_patch_lines.is_some() {
