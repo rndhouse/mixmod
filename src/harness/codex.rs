@@ -472,7 +472,7 @@ impl CodexAppServer {
         let stderr = self.stderr_snapshot();
         atomic_write(&logs_dir.join(format!("codex-{label}.jsonl")), &event_log)?;
         atomic_write(&logs_dir.join(format!("codex-{label}.stderr.txt")), &stderr)?;
-        append_file(&logs_dir.join("codex.stdout.txt"), &event_log)?;
+        append_file(&logs_dir.join("codex.stdout.jsonl"), &event_log)?;
         append_file(&logs_dir.join("codex.stderr.txt"), &stderr)?;
         atomic_write(
             &artifact_dir.join(format!("{label}-last-message.json")),

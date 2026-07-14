@@ -558,7 +558,7 @@ except OSError:
 summary = {{
     "snapshot_status": "final" if metrics else "in_progress_or_interrupted",
     "worker_backend": metrics.get("worker_backend") or latest_completed_worker.get("worker_backend"),
-    "supervisor_stdout_bytes": file_len(agent_dir / "logs" / "codex.stdout.txt"),
+    "supervisor_stdout_bytes": file_len(agent_dir / "logs" / "codex.stdout.jsonl"),
     "supervisor_stderr_bytes": file_len(agent_dir / "logs" / "codex.stderr.txt"),
     "supervisor_input_tokens": metrics.get("supervisor_input_tokens") or sum_field(feedback, "supervisor_input_tokens"),
     "supervisor_cached_input_tokens": metrics.get("supervisor_cached_input_tokens") or sum_field(feedback, "supervisor_cached_input_tokens"),
