@@ -77,6 +77,7 @@ impl RevisionNoopContext {
                 .trim()
                 .to_string(),
             revision_handoff: RevisionHandoff {
+                expect_patch: get_bool(revision, "expect_patch"),
                 worker_turn_shape: get_str(revision, "worker_turn_shape").map(ToOwned::to_owned),
                 turn_goal: get_str(revision, "turn_goal").map(ToOwned::to_owned),
                 exact_edits: get_string_array(revision, "exact_edits"),

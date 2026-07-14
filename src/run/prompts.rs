@@ -411,6 +411,7 @@ mod tests {
             delta_expected: true,
             message_to_worker: "Make one builder edit.".to_string(),
             revision_handoff: RevisionHandoff {
+                expect_patch: Some(true),
                 worker_turn_shape: Some("small_patch_slice".to_string()),
                 turn_goal: Some("first builder edit".to_string()),
                 exact_edits: vec![

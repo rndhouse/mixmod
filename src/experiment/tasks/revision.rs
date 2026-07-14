@@ -42,6 +42,8 @@ pub(crate) fn write_revision_task(
             repo_focus_files.clone()
         }
     );
+    let expect_patch = decision.revision_handoff.expect_patch.unwrap_or(true);
+    let planning_probe = decision.revision_handoff.is_planning_probe();
     let small_patch_slice = decision.revision_handoff.is_small_patch_slice();
     let bounded_feature_slice = decision.revision_handoff.is_bounded_feature_slice();
     let defer_checks_until_patch_exists = decision
@@ -54,7 +56,9 @@ pub(crate) fn write_revision_task(
         .as_deref()
         .map(str::trim)
         .filter(|gate| !gate.is_empty());
-    let acceptance = if small_patch_slice {
+    let acceptance = if !expect_patch {
+        Vec::new()
+    } else if small_patch_slice {
         explicit_completion_gate
             .map(|gate| vec![gate.to_string()])
             .unwrap_or_default()
@@ -70,6 +74,13 @@ pub(crate) fn write_revision_task(
     if small_patch_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
+    } else if planning_probe {
+        constraints
+            .push("Do not edit files; return a compact plan for the supervisor.".to_string());
+        constraints.push(
+            "Inspect only the focused files or narrowly anchored references needed for the proposal."
+                .to_string(),
+        );
     } else if bounded_feature_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and continue.".to_string());
@@ -92,7 +103,15 @@ pub(crate) fn write_revision_task(
     } else {
         ""
     };
-    let instructions = if small_patch_slice {
+    let instructions = if planning_probe {
+        planning_probe_revision_instructions(
+            &task_value,
+            decision,
+            &focus_files,
+            &focus_note,
+            patch_decision_note,
+        )
+    } else if small_patch_slice {
         small_patch_slice_revision_instructions(SmallPatchSliceRevisionInput {
             work_dir,
             original: &task_value,
@@ -128,10 +147,10 @@ pub(crate) fn write_revision_task(
             get_str(&task_value, "title").unwrap_or(experiment_name)
         ),
         instructions,
-        expect_patch: true,
+        expect_patch,
         worker_mode: &decision.worker_mode,
         files: focus_files,
-        tests: if small_patch_slice && defer_checks_until_patch_exists {
+        tests: if !expect_patch || (small_patch_slice && defer_checks_until_patch_exists) {
             Vec::new()
         } else {
             get_string_array(&task_value, "tests")
@@ -139,11 +158,12 @@ pub(crate) fn write_revision_task(
         constraints,
         acceptance,
         context: RevisionTaskContext {
-            expect_patch: true,
+            expect_patch,
             codex_focus_files: &decision.focus_files,
             repo_focus_files: &repo_focus_files,
             patch_decision: &decision.patch_decision,
             revision: RevisionTaskDetails {
+                expect_patch,
                 delta_expected: revision_delta_expected(decision),
                 message_to_worker: &decision.hint,
                 worker_mode: &decision.worker_mode,
@@ -179,6 +199,81 @@ pub(crate) fn write_revision_task(
         )?;
     }
     Ok(path)
+}
+
+fn planning_probe_revision_instructions(
+    original: &Value,
+    decision: &SupervisorFeedbackTurn,
+    focus_files: &[String],
+    focus_note: &str,
+    patch_decision_note: &str,
+) -> String {
+    let original_instructions = get_str(original, "instructions")
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let fallback_goal = if decision.hint.trim().is_empty() {
+        "Inspect the focused source context and propose the next worker patch slice."
+    } else {
+        decision.hint.trim()
+    };
+    let turn_goal = decision
+        .revision_handoff
+        .turn_goal
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_goal)
+        .trim();
+    let questions = non_empty_or(
+        non_empty_or(
+            decision.revision_handoff.edit_plan.clone(),
+            decision.revision_handoff.exact_edits.clone(),
+        ),
+        vec![
+            "Identify the next one or two authored-source patch slices from the current worktree state.".to_string(),
+            "Name files, symbols, anchors, expected changed-line range, and the main risk for each slice.".to_string(),
+        ],
+    );
+    let file_list = if focus_files.is_empty() {
+        "- none specified".to_string()
+    } else {
+        focus_files
+            .iter()
+            .map(|file| format!("- {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        r#"Noninteractive planning probe. This is a no-patch revision turn for the supervisor. No user will answer questions.
+
+Original task context, for alignment only:
+{original_instructions}
+
+Current accumulated patch may be useful but is not accepted as the full solution.{patch_decision_note}
+
+Planning goal:
+{turn_goal}
+
+Inspect only the focused repo files and narrowly anchored references needed to propose the next slice. Prefer targeted searches, headers, nearby anchors, or short snippets over full-file reads. Do not read whole generated or very large files unless the planning question cannot be answered otherwise. Do not edit files. Do not run tests. Do not regenerate generated artifacts. Do not inspect Mixmod state or artifact directories. Do not ask the user for more requirements; use the original task, current worktree state, and supervisor clues to propose the best next slice.
+
+Planning questions:
+{questions}
+
+Relevant files:
+{file_list}
+
+{focus_note}
+
+Final response format:
+Recommended next slice: <one sentence>
+Files: <comma-separated repo paths>
+Anchors: <short symbol or literal anchors>
+Expected patch size: <rough changed-line range>
+Risks: <one short risk or none>
+"#,
+        questions = numbered_list(&questions),
+    )
 }
 
 struct SmallPatchSliceRevisionInput<'a> {
@@ -406,6 +501,9 @@ Tests/checks: <commands and result, or not run with reason>
 }
 
 fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {
+    if decision.revision_handoff.expect_patch == Some(false) {
+        return false;
+    }
     decision.verdict == "revise"
         || decision.patch_decision == "revise_current"
         || decision.patch_decision == "revise_previous"

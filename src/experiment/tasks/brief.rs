@@ -35,6 +35,7 @@ pub(crate) fn write_worker_brief_task(
     );
     let expect_patch = typed_brief.expect_patch.unwrap_or(handoff != "blocked");
     let worker_turn_shape = get_str(brief, "worker_turn_shape").unwrap_or("");
+    let planning_probe = !expect_patch && worker_turn_shape.trim() == "planning_probe";
     let small_patch_slice = expect_patch && worker_turn_shape.trim() == "small_patch_slice";
     let bounded_feature_slice = expect_patch && worker_turn_shape.trim() == "bounded_feature_slice";
     let defer_checks_until_patch_exists =
@@ -43,7 +44,8 @@ pub(crate) fn write_worker_brief_task(
         merged_string_arrays(brief, &["tests", "required_tests"]),
         get_string_array(&original, "tests"),
     );
-    let required_tests = if small_patch_slice && defer_checks_until_patch_exists {
+    let required_tests = if !expect_patch || (small_patch_slice && defer_checks_until_patch_exists)
+    {
         Vec::new()
     } else {
         original_required_tests.clone()
@@ -79,6 +81,13 @@ pub(crate) fn write_worker_brief_task(
             "Run focused checks after the repository patch exists when checks are available."
                 .to_string(),
         );
+    } else if planning_probe {
+        constraints
+            .push("Do not edit files; return a compact plan for the supervisor.".to_string());
+        constraints.push(
+            "Inspect only the focused files or narrowly anchored references needed for the proposal."
+                .to_string(),
+        );
     } else {
         constraints.push(
             "Treat the original task JSON as primary; the supervisor handoff is supplemental."
@@ -103,14 +112,18 @@ pub(crate) fn write_worker_brief_task(
     let explicit_completion_gate = get_str(brief, "completion_gate")
         .map(str::trim)
         .filter(|gate| !gate.is_empty());
-    let acceptance = if small_patch_slice {
+    let acceptance = if planning_probe {
+        Vec::new()
+    } else if small_patch_slice {
         explicit_completion_gate
             .map(|gate| vec![gate.to_string()])
             .unwrap_or_default()
     } else {
         non_empty_or(checks.clone(), get_string_array(&original, "acceptance"))
     };
-    let instructions = if small_patch_slice {
+    let instructions = if planning_probe {
+        planning_probe_instructions(&original, brief, &target_files, &codex_message)
+    } else if small_patch_slice {
         small_patch_slice_instructions(
             work_dir,
             &original,
@@ -150,6 +163,72 @@ pub(crate) fn write_worker_brief_task(
     let path = default_dir.join(WORKER_TASK_JSON);
     write_pretty_json(&path, &worker_task, "worker task")?;
     Ok(path)
+}
+
+fn planning_probe_instructions(
+    original: &Value,
+    brief: &Value,
+    target_files: &[String],
+    fallback_message: &str,
+) -> String {
+    let original_instructions = get_str(original, "instructions").unwrap_or("").trim();
+    let turn_goal = get_str(brief, "turn_goal")
+        .or_else(|| get_str(brief, "objective"))
+        .or_else(|| get_str(brief, "message_to_worker"))
+        .or_else(|| get_str(brief, "message"))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_message)
+        .trim();
+    let plan_questions = non_empty_or(
+        first_non_empty_string_array(brief, &["planning_questions", "exact_edits", "edit_plan"]),
+        vec![
+            "Identify the next one or two authored-source patch slices.".to_string(),
+            "Name the files, symbols, anchors, expected changed-line range, and likely risk for each slice.".to_string(),
+        ],
+    );
+    let evidence = merged_string_arrays(brief, &["evidence", "edit_packet", "source_snippets"]);
+    let evidence_note = if evidence.is_empty() {
+        String::new()
+    } else {
+        format!("\nSupervisor-provided clues:\n{}\n", bullet_list(&evidence))
+    };
+    let file_list = if target_files.is_empty() {
+        "- none specified".to_string()
+    } else {
+        target_files
+            .iter()
+            .map(|file| format!("- {file}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        r#"Noninteractive planning probe. This is a no-patch turn for the supervisor. No user will answer questions.
+
+Original task instructions:
+{original_instructions}
+
+Planning goal:
+{turn_goal}
+{evidence_note}
+
+Inspect only the focused files and narrowly anchored references needed to answer the planning questions. Prefer targeted searches, headers, nearby anchors, or short snippets over full-file reads. Do not read whole generated or very large files unless the planning question cannot be answered otherwise. Do not edit files. Do not run tests. Do not regenerate generated artifacts. Do not inspect Mixmod state or artifact directories. Do not ask the user for more requirements; use the original task and supervisor clues to propose the best next slice.
+
+Planning questions:
+{plan_questions}
+
+Focused files:
+{file_list}
+
+Final response format:
+Recommended next slice: <one sentence>
+Files: <comma-separated repo paths>
+Anchors: <short symbol or literal anchors>
+Expected patch size: <rough changed-line range>
+Risks: <one short risk or none>
+"#,
+        plan_questions = numbered_list(&plan_questions),
+    )
 }
 
 fn small_patch_slice_instructions(

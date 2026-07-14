@@ -44,6 +44,7 @@ pub(super) struct RevisionTaskContext<'a> {
 
 #[derive(Serialize)]
 pub(super) struct RevisionTaskDetails<'a> {
+    pub(super) expect_patch: bool,
     pub(super) delta_expected: bool,
     pub(super) message_to_worker: &'a str,
     pub(super) worker_mode: &'a str,

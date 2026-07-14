@@ -22,6 +22,9 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("Do not author task-solving source edits"));
     assert!(prompt.contains("Do not ask the user for approval."));
     assert!(prompt.contains("Treat supervisor input tokens as scarce"));
+    assert!(prompt.contains("worker_turn_shape=\"planning_probe\""));
+    assert!(prompt.contains("After a planning_probe result"));
+    assert!(prompt.contains("fresh worker session"));
     assert!(prompt.contains("For ordinary worker-turn review"));
     assert!(prompt.contains("start with task context, compact metadata, and changes.patch"));
     assert!(prompt.contains("Prefer latest-turn evidence first"));
@@ -220,6 +223,11 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("large effective context"));
     assert!(brief_prompt.contains("split broad tasks into small concrete source slices"));
     assert!(brief_prompt.contains("Worker patch-size guidance"));
+    assert!(brief_prompt.contains("worker_turn_shape=planning_probe"));
+    assert!(brief_prompt.contains("candidate next slices"));
+    assert!(brief_prompt.contains("approve, trim, or reject"));
+    assert!(brief_prompt.contains("one to three focused repo files"));
+    assert!(brief_prompt.contains("Avoid asking it to read whole generated"));
     assert!(brief_prompt.contains("expected around 100 changed lines"));
     assert!(brief_prompt.contains("soft maximum around 250 changed lines"));
     assert!(brief_prompt.contains("planning guidance only"));

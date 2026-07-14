@@ -120,6 +120,80 @@ fn context_focus_revision_task_uses_focused_prompt() {
 }
 
 #[test]
+fn planning_probe_revision_task_is_no_patch_and_no_delta_expected() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": ["checkout.py", "types.py"],
+  "tests": ["python -m unittest -q"],
+  "constraints": [],
+  "acceptance": ["typed totals are enforced"]
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "accept_current".to_string(),
+        hint: "Inspect the current checkout/type flow and propose the next source slice."
+            .to_string(),
+        revision_handoff: RevisionHandoff {
+            expect_patch: Some(false),
+            worker_turn_shape: Some("planning_probe".to_string()),
+            turn_goal: Some("propose next typed checkout source slice".to_string()),
+            edit_plan: vec![
+                "Identify the next authored-source edit from the current worktree.".to_string(),
+                "Return files, anchors, expected patch size, and risk.".to_string(),
+            ],
+            ..RevisionHandoff::default()
+        },
+        focus_files: vec!["checkout.py".to_string()],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+        token_usage_comparable: true,
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 2).unwrap();
+    let revision = read_json_file(&path).unwrap();
+
+    assert_eq!(get_bool(&revision, "expect_patch"), Some(false));
+    assert_eq!(get_bool(&revision["context"], "expect_patch"), Some(false));
+    assert_eq!(
+        get_bool(&revision["context"]["revision"], "delta_expected"),
+        Some(false)
+    );
+    assert_eq!(get_string_array(&revision, "tests"), Vec::<String>::new());
+    assert_eq!(
+        get_string_array(&revision, "acceptance"),
+        Vec::<String>::new()
+    );
+    let instructions = get_str(&revision, "instructions").unwrap();
+    assert!(instructions.contains("Noninteractive planning probe"));
+    assert!(instructions.contains("This is a no-patch revision turn"));
+    assert!(instructions.contains("Do not edit files."));
+    assert!(instructions.contains("Do not run tests."));
+    assert!(instructions.contains("Prefer targeted searches"));
+    assert!(instructions.contains("Do not ask the user for more requirements"));
+    assert!(instructions.contains("Recommended next slice:"));
+    assert!(instructions.contains("Return files, anchors, expected patch size, and risk."));
+}
+
+#[test]
 fn revision_task_mentions_revise_previous_checkpoint_decision() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -197,6 +271,7 @@ fn small_patch_slice_revision_task_preserves_explicit_supervisor_gate() {
         patch_decision: "revise_current".to_string(),
         hint: "Add the nested item discount branch and one focused assertion.".to_string(),
         revision_handoff: RevisionHandoff {
+            expect_patch: Some(true),
             worker_turn_shape: Some("small_patch_slice".to_string()),
             turn_goal: Some("nested item discount branch".to_string()),
             exact_edits: vec![

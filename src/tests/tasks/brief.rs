@@ -86,6 +86,7 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("one command-style message_to_worker"));
     assert!(prompt.contains("usually <=2"));
     assert!(prompt.contains("worker_turn_shape"));
+    assert!(prompt.contains("planning_probe"));
     assert!(prompt.contains("small_patch_slice"));
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("completion_gate"));
@@ -97,6 +98,8 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("omit investigation_summary"));
     assert!(prompt.contains(r#""expect_patch": true"#));
     assert!(prompt.contains("Set false for investigation/no-change handoffs"));
+    assert!(prompt.contains("ask for a compact next-slice proposal"));
+    assert!(prompt.contains("one to three focused repo files"));
     assert!(prompt.contains("setup rabbit holes"));
     assert!(prompt.contains("already names the relevant files, desired behavior, and checks"));
     assert!(prompt.contains(r#"{"handoff":"as_given"}"#));
@@ -296,6 +299,68 @@ fn small_patch_slice_worker_task_includes_anchor_source_packet() {
     );
     assert!(instructions.contains("def field_options(alias=None):"));
     assert!(instructions.contains("Do not read an entire large file before the first edit"));
+}
+
+#[test]
+fn planning_probe_worker_task_is_no_patch_and_proposal_only() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Plan checkout fix",
+  "instructions": "Fix typed checkout totals.",
+  "files": ["checkout.py", "types.py"],
+  "tests": ["python -m unittest -q"],
+  "constraints": [],
+  "acceptance": ["typed totals are enforced"]
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": false,
+        "worker_turn_shape": "planning_probe",
+        "turn_goal": "Propose the next authored-source patch slice.",
+        "files": ["checkout.py"],
+        "planning_questions": [
+            "Which one or two source edits should happen next?",
+            "What anchors and expected patch size should GPT approve?"
+        ],
+        "evidence": ["Totals flow through checkout.total."]
+    });
+
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+
+    assert_eq!(get_bool(&worker_task, "expect_patch"), Some(false));
+    assert_eq!(get_string_array(&worker_task, "files"), vec!["checkout.py"]);
+    assert_eq!(
+        get_string_array(&worker_task, "tests"),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        get_string_array(&worker_task, "acceptance"),
+        Vec::<String>::new()
+    );
+    let constraints = get_string_array(&worker_task, "constraints");
+    assert!(
+        constraints
+            .contains(&"Do not edit files; return a compact plan for the supervisor.".to_string())
+    );
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+    assert!(instructions.contains("Noninteractive planning probe"));
+    assert!(instructions.contains("This is a no-patch turn"));
+    assert!(instructions.contains("Do not edit files."));
+    assert!(instructions.contains("Do not run tests."));
+    assert!(instructions.contains("Prefer targeted searches"));
+    assert!(instructions.contains("Do not ask the user for more requirements"));
+    assert!(instructions.contains("Recommended next slice:"));
+    assert!(instructions.contains("Which one or two source edits should happen next?"));
+    assert!(instructions.contains("Totals flow through checkout.total."));
 }
 
 #[test]

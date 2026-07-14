@@ -21,6 +21,9 @@ pub(super) fn worker_brief_needs_small_slice_repair(
         return false;
     }
     let expect_patch = typed.expect_patch.unwrap_or(handoff != "as_given");
+    if !expect_patch && typed.worker_turn_shape.as_deref() == Some("planning_probe") {
+        return false;
+    }
     let small_patch_slice = typed
         .worker_turn_shape
         .as_deref()
@@ -54,6 +57,11 @@ pub(super) fn supervisor_feedback_needs_revision_slice_repair(
         return false;
     }
     let typed = SupervisorFeedback::from_value(feedback);
+    if typed.expect_patch == Some(false)
+        && typed.worker_turn_shape.as_deref() == Some("planning_probe")
+    {
+        return false;
+    }
     let handoff = RevisionHandoff::from_feedback(&typed);
     if !handoff.is_small_patch_slice() {
         return true;

@@ -52,6 +52,8 @@ pub struct SupervisorFeedback {
     #[serde(default)]
     pub verdict: Option<String>,
     #[serde(default)]
+    pub expect_patch: Option<bool>,
+    #[serde(default)]
     pub worker_mode: Option<String>,
     #[serde(default)]
     pub patch_decision: Option<String>,

@@ -157,6 +157,7 @@ fn revision_handoff_from_supervisor_control(
         exact_edits.push(hint.trim().to_string());
     }
     RevisionHandoff {
+        expect_patch: get_bool(control, "expect_patch"),
         worker_turn_shape,
         turn_goal: get_str(control, "turn_goal")
             .map(ToOwned::to_owned)
