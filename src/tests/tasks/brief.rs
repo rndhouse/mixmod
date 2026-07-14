@@ -131,11 +131,12 @@ fn investigative_worker_brief_prompt_allows_repo_investigation_pass() {
     )
     .unwrap();
 
-    assert!(prompt.contains("Do one repo investigation pass"));
+    assert!(prompt.contains("Use the task JSON and candidate repo paths first"));
+    assert!(prompt.contains("Inspect repo context only when that is needed"));
     assert!(prompt.contains("Workspace access is for supervision, not implementation"));
     assert!(prompt.contains("rg"));
     assert!(prompt.contains("git status"));
-    assert!(prompt.contains("Stop investigating once you can choose a reliable worker handoff"));
+    assert!(prompt.contains("Stop inspecting once you can choose a reliable worker handoff"));
     assert!(prompt.contains("Target <=500 supervisor output tokens"));
     assert!(prompt.contains("investigation_summary"));
     assert!(prompt.contains("edit_plan"));

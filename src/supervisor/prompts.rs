@@ -213,7 +213,7 @@ fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str
             r#"Use the task JSON and candidate repo paths first. Do not run tests, install dependencies, implement the patch, or ask the user for approval. Inspect the repo only if that prevents a likely bad handoff. Target <=160 supervisor output tokens for normal tasks."#
         }
         SupervisorInitMode::Investigate => {
-            r#"Do one repo investigation pass before writing the handoff. You may inspect source/test files and run discovery commands such as `rg`, `find`, `ls`, `sed`, `git status`, `git diff`, or `git grep`. Do not run tests, install dependencies, inspect Mixmod state/artifact directories, or ask the user for approval. Stop investigating once you can choose a reliable worker handoff. Target <=500 supervisor output tokens."#
+            r#"Use the task JSON and candidate repo paths first. Inspect repo context only when that is needed to create a reliable low-output worker handoff. If needed, you may inspect source/test files and run discovery commands such as `rg`, `find`, `ls`, `sed`, `git status`, `git diff`, or `git grep`. Do not run tests, install dependencies, inspect Mixmod state/artifact directories, or ask the user for approval. Stop inspecting once you can choose a reliable worker handoff. Target <=500 supervisor output tokens."#
         }
     }
 }
