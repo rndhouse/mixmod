@@ -26,6 +26,8 @@ use super::*;
 fn small_slice_guidance() -> WorkerSupervisorGuidance {
     WorkerSupervisorGuidance {
         model: "qwen".to_string(),
+        target_patch_lines: Some(100),
+        max_patch_lines: Some(250),
         guidance: vec![
             "For broad expected-patch tasks, prefer worker_turn_shape=small_patch_slice."
                 .to_string(),
@@ -537,7 +539,7 @@ fn broad_worker_brief_repair_gets_structural_rejection_reason() {
     let reason = worker_brief_repair_rejection_reason(Some(&brief), &small_slice_guidance());
 
     assert!(reason.contains("small_patch_slice shape"));
-    assert!(reason.contains("one concrete source edit"));
+    assert!(reason.contains("compact concrete source edit strings"));
 }
 
 #[test]

@@ -31,7 +31,7 @@ pub(super) fn worker_brief_needs_small_slice_repair(
     if !small_patch_slice {
         return true;
     }
-    if typed.exact_edits.len() > 2 {
+    if typed.exact_edits.len() > 3 {
         return true;
     }
     !typed.exact_edits.iter().any(|edit| !edit.trim().is_empty())
@@ -118,7 +118,7 @@ pub(super) fn worker_brief_repair_rejection_reason(
     match repaired_brief {
         None => "The repaired handoff was not parseable JSON.".to_string(),
         Some(brief) if worker_brief_needs_small_slice_repair(brief, worker_guidance) => {
-            "The repaired handoff still does not satisfy the expected small_patch_slice shape: use one concrete source edit as a string exact_edits item.".to_string()
+            "The repaired handoff still does not satisfy the expected small_patch_slice shape: use compact concrete source edit strings in exact_edits.".to_string()
         }
         Some(_) => "The repaired handoff was rejected by structural repair checks.".to_string(),
     }
@@ -145,7 +145,7 @@ pub(super) fn supervisor_feedback_repair_rejection_reason(
         Some(feedback)
             if supervisor_feedback_needs_revision_slice_repair(feedback, worker_guidance) =>
         {
-            "The repaired revision still does not satisfy the expected small_patch_slice shape: use one concrete source edit as a string exact_edits item.".to_string()
+            "The repaired revision still does not satisfy the expected small_patch_slice shape: use compact concrete source edit strings in exact_edits.".to_string()
         }
         Some(feedback) if !revision_repair_preserves_focus(previous_feedback, feedback) => {
             "The repaired revision changed away from the previous single focus file; preserve that target unless the artifacts prove it is wrong.".to_string()

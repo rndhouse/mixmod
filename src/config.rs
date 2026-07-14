@@ -74,6 +74,8 @@ impl MixmodConfig {
                 .find(|profile| profile.matches_opencode_worker(&self.opencode))
                 .map(|profile| WorkerSupervisorGuidance {
                     model: profile.model.clone(),
+                    target_patch_lines: profile.target_patch_lines,
+                    max_patch_lines: profile.max_patch_lines,
                     guidance: profile.supervisor_guidance.clone(),
                 })
                 .unwrap_or_default(),

@@ -229,6 +229,8 @@ fn exec_command_is_public_cli_surface() {
             supervisor_init,
             stop_after_first_worker,
             stop_after_first_review,
+            worker_target_patch_lines,
+            worker_max_patch_lines,
             no_require_local,
             prompt,
         } => {
@@ -240,6 +242,8 @@ fn exec_command_is_public_cli_surface() {
             assert!(supervisor_init.is_none());
             assert!(!stop_after_first_worker);
             assert!(!stop_after_first_review);
+            assert_eq!(worker_target_patch_lines, None);
+            assert_eq!(worker_max_patch_lines, None);
             assert!(!no_require_local);
             assert_eq!(prompt, vec!["Fix", "checkout", "totals"]);
         }
@@ -311,6 +315,10 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         "--supervisor-init",
         "investigate",
         "--stop-after-first-review",
+        "--worker-target-patch-lines",
+        "120",
+        "--worker-max-patch-lines",
+        "300",
         "Fix checkout totals.",
     ])
     .unwrap();
@@ -323,6 +331,8 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             supervisor_init,
             stop_after_first_worker,
             stop_after_first_review,
+            worker_target_patch_lines,
+            worker_max_patch_lines,
             no_require_local,
             prompt,
             ..
@@ -333,6 +343,8 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
             assert!(!stop_after_first_worker);
             assert!(stop_after_first_review);
+            assert_eq!(worker_target_patch_lines, Some(120));
+            assert_eq!(worker_max_patch_lines, Some(300));
             assert!(!no_require_local);
             assert_eq!(prompt, vec!["Fix checkout totals."]);
         }
@@ -356,6 +368,10 @@ fn experiment_run_default_accepts_model_override_flags() {
         "--supervisor-init",
         "investigate",
         "--stop-after-first-review",
+        "--worker-target-patch-lines",
+        "100",
+        "--worker-max-patch-lines",
+        "250",
     ])
     .unwrap();
 
@@ -371,6 +387,8 @@ fn experiment_run_default_accepts_model_override_flags() {
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
+                    worker_target_patch_lines,
+                    worker_max_patch_lines,
                 },
         } => {
             assert_eq!(name, "deepswe");
@@ -384,6 +402,8 @@ fn experiment_run_default_accepts_model_override_flags() {
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
             assert!(!stop_after_first_worker);
             assert!(stop_after_first_review);
+            assert_eq!(worker_target_patch_lines, Some(100));
+            assert_eq!(worker_max_patch_lines, Some(250));
         }
         _ => panic!("expected experiment run-default command"),
     }

@@ -184,6 +184,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             supervisor_init,
             stop_after_first_worker,
             stop_after_first_review,
+            worker_target_patch_lines,
+            worker_max_patch_lines,
             no_require_local,
             prompt,
         } => {
@@ -202,6 +204,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
+                    worker_target_patch_lines,
+                    worker_max_patch_lines,
                     no_require_local,
                 },
             )
@@ -303,6 +307,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
+                    worker_target_patch_lines,
+                    worker_max_patch_lines,
                 } => {
                     ensure_project_state(&root, false)?;
                     experiment_run_default(
@@ -315,6 +321,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                             supervisor_init,
                             stop_after_first_worker,
                             stop_after_first_review,
+                            worker_target_patch_lines,
+                            worker_max_patch_lines,
                         },
                     )
                 }
@@ -327,6 +335,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
+                    worker_target_patch_lines,
+                    worker_max_patch_lines,
                 } => {
                     ensure_project_state(&root, false)?;
                     experiment_run_default(
@@ -339,6 +349,8 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                             supervisor_init,
                             stop_after_first_worker,
                             stop_after_first_review,
+                            worker_target_patch_lines,
+                            worker_max_patch_lines,
                         },
                     )
                 }

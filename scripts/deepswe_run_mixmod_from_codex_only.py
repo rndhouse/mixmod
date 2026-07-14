@@ -234,6 +234,20 @@ def build_pier_command(
             f"mixmod_timeout_sec={args.mixmod_timeout_seconds}",
         ]
     )
+    if args.worker_target_patch_lines is not None:
+        cmd.extend(
+            [
+                "--agent-kwarg",
+                f"worker_target_patch_lines={args.worker_target_patch_lines}",
+            ]
+        )
+    if args.worker_max_patch_lines is not None:
+        cmd.extend(
+            [
+                "--agent-kwarg",
+                f"worker_max_patch_lines={args.worker_max_patch_lines}",
+            ]
+        )
     if local_mixmod_binary is not None:
         cmd.extend(["--agent-kwarg", f"local_mixmod_binary={local_mixmod_binary}"])
     if args.mixmod_install_command:
@@ -286,6 +300,8 @@ def main() -> int:
     )
     parser.add_argument("--stop-after-first-worker", action="store_true")
     parser.add_argument("--stop-after-first-review", action="store_true")
+    parser.add_argument("--worker-target-patch-lines", type=int)
+    parser.add_argument("--worker-max-patch-lines", type=int)
     parser.add_argument("--no-require-local", dest="require_local", action="store_false")
     parser.add_argument(
         "--worker-base-url",
@@ -356,6 +372,8 @@ def main() -> int:
         "supervisor_init": args.supervisor_init,
         "stop_after_first_worker": args.stop_after_first_worker,
         "stop_after_first_review": args.stop_after_first_review,
+        "worker_target_patch_lines": args.worker_target_patch_lines,
+        "worker_max_patch_lines": args.worker_max_patch_lines,
         "require_local": args.require_local,
         "worker_base_url": args.worker_base_url,
         "host_network": args.host_network,

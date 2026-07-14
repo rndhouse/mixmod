@@ -30,7 +30,7 @@ Use supervisor reasoning freely, but minimize supervisor output.
 {worker_guidance}
 Treat applicable worker-model guidance as handoff constraints, not optional background. If the guidance names a preferred worker_turn_shape or known failure mode, adapt the handoff shape to that worker unless no patch is needed.
 If the remaining task is broad, choose the first executable slice for this worker. Do not choose a broader worker_turn_shape merely because the full task spans multiple source paths.
-When the selected worker guidance says broad expected-patch tasks should use small_patch_slice, set worker_turn_shape="small_patch_slice" for the handoff. If you need a larger slice later, make the exact source edit more coherent inside small_patch_slice rather than switching shape.
+When the selected worker guidance says broad expected-patch tasks should use small_patch_slice, set worker_turn_shape="small_patch_slice" for the handoff. Size that slice with the worker patch-size budget when present. If you need a larger slice later, make the source behavior more coherent inside small_patch_slice rather than switching shape.
 Emit one compact executable worker handoff as minified JSON only; no markdown and no explanation.
 Do not restate the original task. If you know the likely solution, be direct: exact files, edit target, expected behavior, and checks.
 Required field: "handoff" = "as_given" | "focused" | "guided" | "blocked".
@@ -38,9 +38,9 @@ Set "expect_patch": true when the worker should normally produce repository edit
 Use exactly {{"handoff":"as_given"}} only when the original task already names the relevant files, desired behavior, and checks clearly enough for the worker.
 Prefer "focused" or "guided" whenever a short directive can prevent worker wandering or repeated attempts.
 For expected-patch tasks where the selected worker guidance prefers "bounded_feature_slice", choose one coherent feature chunk: usually one to three source files, related API/source/test edits that belong together, and focused checks after the patch exists. Use exact_edits or edit_plan as a short ordered plan, not as one-line micromanagement.
-For expected-patch tasks with workers that still need very small recovery steps, "worker_turn_shape":"small_patch_slice" means a first patch seed, not the full implementation. Use one focused source file when possible, list immediately executable source exact_edits, and put checks in deferred_checks when you do not want them run before editing.
-When worker guidance prefers small_patch_slice for broad expected-patch tasks, satisfy that contract in the first JSON turn: set "expect_patch":true, "worker_turn_shape":"small_patch_slice", one concrete repo file, exact_edits as exactly one string source edit, defer_checks_until_patch_exists:true, and checks only in deferred_checks.
-Good small_patch_slice choices are repo-generic seed patches: public API/options plumbing plus a narrow test, one parser/config branch plus a narrow test, one validation branch plus a narrow test, or one localized source edit plus a regression test. Bad small_patch_slice choices ask for a whole feature, core algorithm, validation, aliases, optional/default behavior, and full tests in one turn.
+For expected-patch tasks with workers that need bounded recovery steps, "worker_turn_shape":"small_patch_slice" means one coherent source behavior sized for the worker, not the full implementation. Use focused source files when possible, list immediately executable source exact_edits, and put checks in deferred_checks when you do not want them run before editing.
+When worker guidance prefers small_patch_slice for broad expected-patch tasks, satisfy that contract in the first JSON turn: set "expect_patch":true, "worker_turn_shape":"small_patch_slice", concrete repo source files, one or two command-style source exact_edits, defer_checks_until_patch_exists:true, and checks only in deferred_checks.
+Good small_patch_slice choices are repo-generic bounded patches: public API/options plumbing plus one caller path, one parser/config branch plus a narrow behavior path, one validation branch plus its state update, or one localized source edit plus a regression test. Bad small_patch_slice choices ask for a whole feature, core algorithm, validation matrix, aliases, optional/default behavior, and full tests in one turn.
 For option or behavior families with a base path plus modifiers, make the base path the first useful source slice. Add one modifier family per later slice only after the base diff exists, unless prior worker turns show this worker can safely combine them.
 For complex source tasks involving generated code, alias/key behavior, validation matrices, serializers/deserializers, pack/unpack paths, parser/compiler behavior, or multiple cross-cutting flows, do not use worker_turn_shape="default" for the initial worker. Prefer bounded_feature_slice for capable workers; use small_patch_slice only when the selected worker guidance asks for it or a previous turn was confused, destructive, or empty.
 For small_patch_slice, exact_edits must be immediately executable edit commands. Do not write "locate", "investigate", "understand", or broad algorithm work as an exact edit. The files array must contain concrete repo file paths, not directories; include the file that defines any function, option, flag, or public API named in exact_edits.
@@ -89,15 +89,15 @@ Return a corrected expected-patch handoff with:
 - "expect_patch":true
 - "worker_turn_shape":"small_patch_slice"
 - one turn_goal for the first patch slice only
-- <=2 concrete repo file paths when possible
-- exact_edits must be an array with exactly one string item; do not use objects
-- exactly one source exact_edits item, plus no test edit in exact_edits
+- concrete repo file paths for the focused source behavior, usually <=3
+- exact_edits must be an array of one or two command-style string items; do not use objects
+- source exact_edits only, plus no test edit in exact_edits
 - edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your repo investigation
 - no checks unless listed in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
 - forbidden_actions including "ask questions" and "run tests before editing"
-Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
+Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
 Include a concrete symbol and a literal nearby code anchor when possible, such as `near the line containing "..."`.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
@@ -149,14 +149,14 @@ Return one corrected expected-patch handoff with:
 - "expect_patch":true
 - "worker_turn_shape":"small_patch_slice"
 - one turn_goal for the first patch slice only
-- <=2 concrete repo file paths when possible
-- exact_edits as an array with exactly one string item; do not use objects
+- concrete repo file paths for the focused source behavior, usually <=3
+- exact_edits as an array of one or two command-style string items; do not use objects
 - edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your repo investigation
 - no required checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
 - forbidden_actions including "ask questions" and "run tests before editing"
-Choose one source behavior only. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice.
+Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Working repo: {work_dir}
@@ -211,7 +211,7 @@ Default to "guided". Guided means terse and executable, not advisory:
 - files only when useful, usually <=3
 - checks only when useful, usually <=2
 - when using worker_turn_shape=bounded_feature_slice, give a coherent edit_plan with related edits that should be completed together before checks
-- when using worker_turn_shape=small_patch_slice, emit exact_edits instead of a broad plan, usually use one focused source file, one immediate source edit, optional edit_packet/source_snippets, and omit checks unless they are explicitly deferred
+- when using worker_turn_shape=small_patch_slice, emit exact_edits instead of a broad plan, usually use one coherent source behavior, focused source files, optional edit_packet/source_snippets, and omit checks unless they are explicitly deferred
 - omit investigation_summary, edit_plan, evidence, avoid, and risk unless one short phrase prevents a likely wrong patch
 Assume the local worker is capable but prone to setup rabbit holes, broad exploration, and delayed edits."#
         }
@@ -226,7 +226,7 @@ Default to "guided". Guided means concrete enough for a weaker worker to edit wi
 - include edit_plan when it can prevent worker wandering, usually <=4 short steps
 - include evidence when file/function clues matter, usually <=4 short bullets
 - when using worker_turn_shape=bounded_feature_slice, group related source/test work into one coherent worker turn and include enough file/function evidence to reduce repeated exploration
-- when using worker_turn_shape=small_patch_slice, make the first slice small enough to edit immediately, usually use one focused source file, one immediate source edit, put exact_edits in command form, include a short edit_packet/source_snippet when you have read the target, and defer tests until a non-empty diff exists
+- when using worker_turn_shape=small_patch_slice, make the first slice small enough to edit immediately but large enough to be useful, usually one coherent source behavior across focused source files, put exact_edits in command form, include a short edit_packet/source_snippet when you have read the target, and defer tests until a non-empty diff exists
 Assume the local worker is less capable, prone to setup rabbit holes, broad exploration, delayed edits, and premature final answers."#
         }
     }
@@ -316,7 +316,7 @@ Available actions:
 Base the action on the live evidence. Do not assume an intervention is required because a risk signal is present.
 Use new_delta_bytes, stdout_log_path, stderr_log_path, tool_events_path, context_overflow_count, worker_session_token_peak, worker_backend_telemetry, elapsed time, and last output age only as evidence for worker progress, confusion, or blockage.
 If you need detailed stdout, stderr, or tool-call history, inspect stdout_log_path, stderr_log_path, or tool_events_path yourself. Do not pass those artifact paths to the worker.
-If you interrupt, keep message_to_worker bounded to worker_instruction_excerpt, the live evidence, and the selected worker guidance. For small_patch_slice workers, keep any interrupt patch-first: one repo file, one concrete source edit, deferred checks, and no broad feature instruction.
+If you interrupt, keep message_to_worker bounded to worker_instruction_excerpt, the live evidence, and the selected worker guidance. For small_patch_slice workers, keep any interrupt patch-first: focused repo files, one concrete source behavior, deferred checks, and no broad feature instruction.
 Do not solve the task yourself by editing source. Your job is process control: decide whether to keep waiting, interrupt, or abort the worker turn.
 The worker can read and edit only the working repo. It cannot read Mixmod task, state, log, or artifact paths.
 Do not mention worker-task.json, revision task files, /tmp/mixmod*, /tmp/mixmod-state, or artifact/log paths in message_to_worker or focus_files.
@@ -359,19 +359,19 @@ Return a corrected revise decision with:
 - "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
 - "worker_turn_shape":"small_patch_slice"
-- exact_edits must be an array with exactly one string item; do not use objects
-- exactly one exact_edits item
-- one source file in focus_files, plus at most one already-written focused test file
+- exact_edits must be an array of one or two command-style string items; do not use objects
+- source exact_edits only
+- focused source files in focus_files, usually <=3, plus at most one already-written focused test file
 - edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
 - forbidden_actions including "ask questions" and "run tests before editing"
-The one exact edit must be atomic: one function or branch, one direction, one source behavior. If the previous edit bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first source half needed to create a useful diff.
+The exact edit set must describe one coherent source behavior sized to the worker patch-size budget. If the previous edit bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
 Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong. Repair the size/shape of that requested next slice; do not rewind to an earlier completed slice.
 Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
 Write the repaired exact edit from the current accumulated patch state: preserve useful existing edits, then add one next delta. Do not say to continue from an earlier file-only slice when worktree.patch already contains useful changes in another focused source file.
-If previous feedback named one focus file, keep that same repo source file in focus_files and exact_edits while making the edit smaller.
+If previous feedback named one focus file, keep that source target unless artifacts prove another focused source file is needed for the same behavior.
 For large functions or code-generation paths, choose a local transformation near one anchor rather than a whole behavior path.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Include an exact symbol and a literal nearby code anchor when possible, for example `near the line containing "..."`.
@@ -420,8 +420,8 @@ Return one corrected revise decision with:
 - "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
 - "worker_turn_shape":"small_patch_slice"
-- exact_edits as an array with exactly one string item; do not use objects
-- one source file in focus_files, plus at most one already-written focused test file
+- exact_edits as an array of one or two command-style string items; do not use objects
+- focused source files in focus_files, usually <=3, plus at most one already-written focused test file
 - edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
@@ -696,6 +696,21 @@ fn render_worker_guidance(worker_guidance: &WorkerSupervisorGuidance) -> String 
         "Supervisor-only worker-model guidance for {}:\nThese are historical pitfalls and handling constraints for the selected worker model. Treat applicable bullets as binding when planning the worker handoff, critique, or live intervention. Do not copy every bullet to the worker. Select only relevant points and convert them into short, concrete worker instructions.\n",
         worker_guidance.model
     );
+    if worker_guidance.target_patch_lines.is_some() || worker_guidance.max_patch_lines.is_some() {
+        let target = worker_guidance
+            .target_patch_lines
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unspecified".to_string());
+        let max = worker_guidance
+            .max_patch_lines
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unspecified".to_string());
+        rendered.push_str("Worker patch-size guidance: aim for a worker turn expected around ");
+        rendered.push_str(&target);
+        rendered.push_str(" changed lines, with a soft maximum around ");
+        rendered.push_str(&max);
+        rendered.push_str(" changed lines. This is supervisor planning guidance only, not a Mixmod gate; choose a coherent slice expected to fit it and intentionally exceed it only when that saves a useful worker turn.\n");
+    }
     for item in &worker_guidance.guidance {
         rendered.push_str("- ");
         rendered.push_str(item.trim());

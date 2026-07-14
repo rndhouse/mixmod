@@ -13,6 +13,8 @@ pub struct DefaultRunOptions {
     pub supervisor_init: Option<SupervisorInitMode>,
     pub stop_after_first_worker: bool,
     pub stop_after_first_review: bool,
+    pub worker_target_patch_lines: Option<u64>,
+    pub worker_max_patch_lines: Option<u64>,
 }
 
 pub fn experiment_run_default(root: &Path, name: &str, options: DefaultRunOptions) -> Result<()> {
@@ -61,7 +63,12 @@ impl DefaultExperimentRun<'_> {
             .supervisor_init
             .unwrap_or(config.strategy.supervisor_init);
         let live_supervision = config.strategy.live_supervision.clone();
-        let worker_guidance = config.worker_supervisor_guidance();
+        let worker_guidance = config
+            .worker_supervisor_guidance()
+            .with_patch_line_overrides(
+                options.worker_target_patch_lines,
+                options.worker_max_patch_lines,
+            );
         let default_dir = exp_dir.join("default");
         let logs_dir = default_dir.join("logs");
         fs::create_dir_all(&logs_dir).with_context(|| {
@@ -354,6 +361,8 @@ impl DefaultExperimentRun<'_> {
             "revision_attempts": opencode_calls.saturating_sub(1),
             "stop_after_first_worker": options.stop_after_first_worker,
             "stop_after_first_review": options.stop_after_first_review,
+            "worker_target_patch_lines": worker_guidance.target_patch_lines,
+            "worker_max_patch_lines": worker_guidance.max_patch_lines,
             "worker_brief": WORKER_BRIEF_JSON,
             "worker_task": display_path(root, &worker_task),
             "worker_brief_output_tokens": worker_brief.output_tokens,

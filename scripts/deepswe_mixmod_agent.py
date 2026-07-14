@@ -79,6 +79,8 @@ class MixmodAgent(BaseInstalledAgent):
         supervisor_init: str = "compact",
         stop_after_first_worker: bool | str = False,
         stop_after_first_review: bool | str = False,
+        worker_target_patch_lines: int | str | None = None,
+        worker_max_patch_lines: int | str | None = None,
         require_local: bool | str = True,
         mixmod_command: str = "mixmod",
         mixmod_install_command: str | None = None,
@@ -99,6 +101,16 @@ class MixmodAgent(BaseInstalledAgent):
             raise ValueError(
                 "stop_after_first_worker and stop_after_first_review are mutually exclusive"
             )
+        self.worker_target_patch_lines = (
+            int(worker_target_patch_lines)
+            if worker_target_patch_lines not in (None, "")
+            else None
+        )
+        self.worker_max_patch_lines = (
+            int(worker_max_patch_lines)
+            if worker_max_patch_lines not in (None, "")
+            else None
+        )
         self.require_local = _truthy(require_local)
         self.mixmod_command = mixmod_command
         self.mixmod_install_command = mixmod_install_command
@@ -234,6 +246,14 @@ class MixmodAgent(BaseInstalledAgent):
             run_default_args.append("--stop-after-first-worker")
         if self.stop_after_first_review:
             run_default_args.append("--stop-after-first-review")
+        if self.worker_target_patch_lines is not None:
+            run_default_args.extend(
+                ["--worker-target-patch-lines", str(self.worker_target_patch_lines)]
+            )
+        if self.worker_max_patch_lines is not None:
+            run_default_args.extend(
+                ["--worker-max-patch-lines", str(self.worker_max_patch_lines)]
+            )
         if not self.require_local:
             run_default_args.append("--no-require-local")
         quoted_run_default = " ".join(shlex.quote(arg) for arg in run_default_args)

@@ -14,6 +14,10 @@ pub(crate) struct DefaultStrategyOptions {
     pub(crate) stop_after_first_worker: bool,
     /// Stop after the first supervisor review and leave artifacts for inspection.
     pub(crate) stop_after_first_review: bool,
+    /// Optional worker changed-line target for one turn.
+    pub(crate) worker_target_patch_lines: Option<u64>,
+    /// Optional worker changed-line ceiling for one turn.
+    pub(crate) worker_max_patch_lines: Option<u64>,
     /// Disable local-inference verification for this run.
     pub(crate) no_require_local: bool,
 }
@@ -71,7 +75,12 @@ impl DefaultStrategyRun<'_> {
             .supervisor_init
             .unwrap_or(config.strategy.supervisor_init);
         let live_supervision = config.strategy.live_supervision.clone();
-        let worker_guidance = config.worker_supervisor_guidance();
+        let worker_guidance = config
+            .worker_supervisor_guidance()
+            .with_patch_line_overrides(
+                options.worker_target_patch_lines,
+                options.worker_max_patch_lines,
+            );
         let runner = worker_harness_for_config(config);
 
         let task_file = out_dir.join(TASK_JSON);
@@ -340,6 +349,8 @@ impl DefaultStrategyRun<'_> {
             "revision_attempts": opencode_calls.saturating_sub(1),
             "stop_after_first_worker": options.stop_after_first_worker,
             "stop_after_first_review": options.stop_after_first_review,
+            "worker_target_patch_lines": worker_guidance.target_patch_lines,
+            "worker_max_patch_lines": worker_guidance.max_patch_lines,
             "worker_brief": WORKER_BRIEF_JSON,
             "worker_task": display_path(root, &worker_task),
             "worker_brief_output_tokens": worker_brief.output_tokens,

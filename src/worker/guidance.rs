@@ -14,6 +14,10 @@ pub struct WorkerModelProfile {
     pub model: String,
     /// Additional model/provider labels that should select this profile.
     pub aliases: Vec<String>,
+    /// Expected changed-line target for one worker turn.
+    pub target_patch_lines: Option<u64>,
+    /// Expected changed-line ceiling for one worker turn.
+    pub max_patch_lines: Option<u64>,
     /// Supervisor-only guidance for adapting worker instructions.
     pub supervisor_guidance: Vec<String>,
 }
@@ -42,12 +46,30 @@ impl WorkerModelProfile {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct WorkerSupervisorGuidance {
     pub(crate) model: String,
+    pub(crate) target_patch_lines: Option<u64>,
+    pub(crate) max_patch_lines: Option<u64>,
     pub(crate) guidance: Vec<String>,
 }
 
 impl WorkerSupervisorGuidance {
     pub(crate) fn is_empty(&self) -> bool {
         self.guidance.is_empty()
+            && self.target_patch_lines.is_none()
+            && self.max_patch_lines.is_none()
+    }
+
+    pub(crate) fn with_patch_line_overrides(
+        mut self,
+        target_patch_lines: Option<u64>,
+        max_patch_lines: Option<u64>,
+    ) -> Self {
+        if target_patch_lines.is_some() {
+            self.target_patch_lines = target_patch_lines;
+        }
+        if max_patch_lines.is_some() {
+            self.max_patch_lines = max_patch_lines;
+        }
+        self
     }
 }
 
@@ -61,13 +83,15 @@ pub(crate) fn default_worker_model_profiles() -> Vec<WorkerModelProfile> {
                 "qwen/qwen3.6-27b".to_string(),
                 format!("{DEFAULT_OPENCODE_PROVIDER}/{DEFAULT_OPENCODE_LOCAL_MODEL}"),
             ],
+            target_patch_lines: Some(100),
+            max_patch_lines: Some(250),
             supervisor_guidance: vec![
                 "This worker can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.".to_string(),
                 "This worker can struggle with large effective context before an explicit overflow occurs; keep initial handoffs compact, split broad tasks into small concrete source slices, and avoid asking it to reread many files at once.".to_string(),
                 "When worker_session_token_peak is high for the configured context window, treat the current worker session as context-pressured; shrink the next revision or use worker_mode=context_focus if the next edit would require broad rereading.".to_string(),
-                "For broad expected-patch tasks, use worker_turn_shape=small_patch_slice by default with one immediate source edit, one focused source file, a literal nearby anchor when available, no tests before a diff exists, and a compact edit packet/snippet so the worker can patch before broad exploration.".to_string(),
+                "For broad expected-patch tasks, use worker_turn_shape=small_patch_slice by default, but size the slice with the patch-line budget: one coherent source behavior, usually one to three focused files, literal nearby anchors when available, no tests before a diff exists, and a compact edit packet/snippet so the worker can patch before broad exploration.".to_string(),
                 "When giving a small_patch_slice, tell it to use the provided edit packet first and avoid reading whole large files before the first edit.".to_string(),
-                "For revision small_patch_slice turns, make the next instruction executable from the current accumulated patch: preserve useful existing edits, name the one next source delta, and avoid telling the worker to restart from an earlier completed slice.".to_string(),
+                "For revision small_patch_slice turns, make the next instruction executable from the current accumulated patch: preserve useful existing edits, name the next coherent source delta that fits the patch-line budget, and avoid telling the worker to restart from an earlier completed slice.".to_string(),
                 "This worker often follows narrow edit instructions but may miss end-to-end semantics across slices; before approval, check the accumulated patch for integration gaps between helpers, callers, options, parser/generated code, state mutation paths, and error propagation.".to_string(),
                 "This worker may produce directionally useful but messy patches around generated files, parsers, grammar, code generation, or broad integration paths; before opening large diffs, inspect changed-file lists and patch stats for generated scratch artifacts, broad mechanical churn, incidental formatter/line-directive changes, or unrequested generated outputs.".to_string(),
                 "Preserve useful semantic edits from this worker, but revise for cleanup when it leaves scratch artifacts, large generated-file noise, unrelated churn, or claims a partial slice is complete without end-to-end wiring.".to_string(),
@@ -93,6 +117,8 @@ pub(crate) fn default_worker_model_profiles() -> Vec<WorkerModelProfile> {
                 "glm-4.7-flash:Q4_K_M".to_string(),
                 format!("{DEFAULT_OPENCODE_PROVIDER}/glm-4.7-flash:Q4_K_M"),
             ],
+            target_patch_lines: Some(180),
+            max_patch_lines: Some(400),
             supervisor_guidance: vec![
                 "It tends to act readily, but can rewrite or delete too much when asked for broad source changes.".to_string(),
                 "For broad expected-patch tasks, prefer worker_turn_shape=small_patch_slice with one source behavior, one focused file, one exact edit, and no tests before editing.".to_string(),
@@ -107,6 +133,8 @@ pub(crate) fn default_worker_model_profiles() -> Vec<WorkerModelProfile> {
                 "openrouter/z-ai/glm-5.2".to_string(),
                 "z-ai/glm-5.2".to_string(),
             ],
+            target_patch_lines: Some(300),
+            max_patch_lines: Some(800),
             supervisor_guidance: vec![
                 "This worker is capable, but may over-investigate when the handoff contains an apparent implementation constraint conflict or an unresolved toolchain choice.".to_string(),
                 "For generated-code, parser/compiler, toolchain, or similar trap-prone tasks, resolve the implementation route in the supervisor handoff before invoking the worker; do not ask the worker to discover whether the obvious route is viable.".to_string(),

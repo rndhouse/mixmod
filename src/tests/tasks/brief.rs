@@ -90,7 +90,7 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("completion_gate"));
     assert!(prompt.contains("preferred worker_turn_shape"));
-    assert!(prompt.contains("first patch seed"));
+    assert!(prompt.contains("one coherent source behavior"));
     assert!(prompt.contains("Bad small_patch_slice choices ask for a whole feature"));
     assert!(prompt.contains("immediately executable edit commands"));
     assert!(prompt.contains("concrete repo file paths, not directories"));

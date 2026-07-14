@@ -170,7 +170,9 @@ fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
     assert!(prompt.contains("edit_packet or source_snippets"));
     assert!(prompt.contains("local transformation near one anchor"));
     assert!(prompt.contains("If previous feedback named one focus file"));
-    assert!(prompt.contains("exact_edits must be an array with exactly one string item"));
+    assert!(
+        prompt.contains("exact_edits must be an array of one or two command-style string items")
+    );
     assert!(prompt.contains("Do not invent a different file/symbol pair"));
     assert!(prompt.contains("Artifact index:"));
     assert!(prompt.contains("worktree.patch"));
@@ -216,8 +218,12 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("reasoning before editing"));
     assert!(brief_prompt.contains("large effective context"));
     assert!(brief_prompt.contains("split broad tasks into small concrete source slices"));
+    assert!(brief_prompt.contains("Worker patch-size guidance"));
+    assert!(brief_prompt.contains("expected around 100 changed lines"));
+    assert!(brief_prompt.contains("soft maximum around 250 changed lines"));
+    assert!(brief_prompt.contains("planning guidance only"));
     assert!(brief_prompt.contains("worker_turn_shape=small_patch_slice"));
-    assert!(brief_prompt.contains("one immediate source edit"));
+    assert!(brief_prompt.contains("one coherent source behavior"));
     assert!(brief_prompt.contains("current accumulated patch"));
     assert!(brief_prompt.contains("one literal anchor plus the smallest local transformation"));
     assert!(brief_prompt.contains("compile-driven repair instruction"));
@@ -226,7 +232,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("use worker_turn_shape=small_patch_slice by default"));
     assert!(brief_prompt.contains("switching this profile to bounded_feature_slice"));
     assert!(
-        brief_prompt.contains("make the exact source edit more coherent inside small_patch_slice")
+        brief_prompt.contains("make the source behavior more coherent inside small_patch_slice")
     );
     assert!(brief_prompt.contains("multiple clean small_patch_slice revisions"));
     assert!(brief_prompt.contains("prioritize the first useful behavior path"));
@@ -235,7 +241,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Select only relevant points"));
     assert!(brief_prompt.contains("worker-model guidance as handoff constraints"));
     assert!(brief_prompt.contains("satisfy that contract in the first JSON turn"));
-    assert!(brief_prompt.contains("exact_edits as exactly one string source edit"));
+    assert!(brief_prompt.contains("one or two command-style source exact_edits"));
     assert!(brief_prompt.contains("base path plus modifiers"));
     assert!(brief_prompt.contains("one modifier family per later slice"));
 }

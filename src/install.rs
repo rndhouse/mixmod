@@ -188,13 +188,15 @@ backend_command = "curl -fsS http://127.0.0.1:8080/v1/models"
 [[worker_model_profiles]]
 model = "{default_model}"
 aliases = ["{default_model}", "{local_model}", "{opencode_provider}/{local_model}"]
+target_patch_lines = 100
+max_patch_lines = 250
 supervisor_guidance = [
   "This worker can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.",
   "This worker can struggle with large effective context before an explicit overflow occurs; keep initial handoffs compact, split broad tasks into small concrete source slices, and avoid asking it to reread many files at once.",
   "When worker_session_token_peak is high for the configured context window, treat the current worker session as context-pressured; shrink the next revision or use worker_mode=context_focus if the next edit would require broad rereading.",
-  "For broad expected-patch tasks, use worker_turn_shape=small_patch_slice by default with one immediate source edit, one focused source file, a literal nearby anchor when available, no tests before a diff exists, and a compact edit packet/snippet so the worker can patch before broad exploration.",
+  "For broad expected-patch tasks, use worker_turn_shape=small_patch_slice by default, but size the slice with the patch-line budget: one coherent source behavior, usually one to three focused files, literal nearby anchors when available, no tests before a diff exists, and a compact edit packet/snippet so the worker can patch before broad exploration.",
   "When giving a small_patch_slice, tell it to use the provided edit packet first and avoid reading whole large files before the first edit.",
-  "For revision small_patch_slice turns, make the next instruction executable from the current accumulated patch: preserve useful existing edits, name the one next source delta, and avoid telling the worker to restart from an earlier completed slice.",
+  "For revision small_patch_slice turns, make the next instruction executable from the current accumulated patch: preserve useful existing edits, name the next coherent source delta that fits the patch-line budget, and avoid telling the worker to restart from an earlier completed slice.",
   "For large functions or code-generation paths, provide one literal anchor plus the smallest local transformation near that anchor; avoid asking for an entire behavior path when a preparatory branch or helper would create useful progress.",
   "For alias/key generated-code repairs, hand off one path at a time such as valid-key collection, serialization key mapping, deserialization key mapping, or collision detection; when the source API permits either form, tell the worker to preserve both raw field names and resolved aliases.",
   "For option families or behavior families with a base path plus modifiers, ask for the base behavior first and then one modifier family per later small_patch_slice unless prior worker turns show it can safely combine them.",
@@ -211,6 +213,8 @@ supervisor_guidance = [
 [[worker_model_profiles]]
 model = "openrouter/z-ai/glm-5.2"
 aliases = ["openrouter/z-ai/glm-5.2", "z-ai/glm-5.2"]
+target_patch_lines = 300
+max_patch_lines = 800
 supervisor_guidance = [
   "This worker is capable, but may over-investigate when the handoff contains an apparent implementation constraint conflict or an unresolved toolchain choice.",
   "For generated-code, parser/compiler, toolchain, or similar trap-prone tasks, resolve the implementation route in the supervisor handoff before invoking the worker; do not ask the worker to discover whether the obvious route is viable.",

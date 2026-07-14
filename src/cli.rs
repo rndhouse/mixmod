@@ -51,6 +51,12 @@ pub enum Commands {
         /// Stop after the first supervisor review and leave artifacts for inspection.
         #[arg(long, conflicts_with = "stop_after_first_worker")]
         stop_after_first_review: bool,
+        /// Suggested worker changed-line target for one turn.
+        #[arg(long)]
+        worker_target_patch_lines: Option<u64>,
+        /// Suggested worker changed-line ceiling for one turn.
+        #[arg(long)]
+        worker_max_patch_lines: Option<u64>,
         /// Do not require local worker inference verification for this run.
         #[arg(long)]
         no_require_local: bool,
@@ -196,6 +202,12 @@ pub enum ExperimentCommand {
         /// Stop after the first supervisor review and leave artifacts for inspection.
         #[arg(long, conflicts_with = "stop_after_first_worker")]
         stop_after_first_review: bool,
+        /// Suggested worker changed-line target for one turn.
+        #[arg(long)]
+        worker_target_patch_lines: Option<u64>,
+        /// Suggested worker changed-line ceiling for one turn.
+        #[arg(long)]
+        worker_max_patch_lines: Option<u64>,
     },
     /// Deprecated alias for `run-default`.
     #[command(hide = true)]
@@ -218,6 +230,12 @@ pub enum ExperimentCommand {
         /// Stop after the first supervisor review and leave artifacts for inspection.
         #[arg(long, conflicts_with = "stop_after_first_worker")]
         stop_after_first_review: bool,
+        /// Suggested worker changed-line target for one turn.
+        #[arg(long)]
+        worker_target_patch_lines: Option<u64>,
+        /// Suggested worker changed-line ceiling for one turn.
+        #[arg(long)]
+        worker_max_patch_lines: Option<u64>,
     },
     /// Recover a default-strategy run by restarting the configured worker.
     Recover {
