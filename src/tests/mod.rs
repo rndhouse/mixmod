@@ -186,6 +186,77 @@ impl AgentHarness for RevisionNoopThenPatchRunner {
     }
 }
 
+struct PatchThenSelfReviewRunner {
+    calls: AtomicUsize,
+}
+
+impl PatchThenSelfReviewRunner {
+    fn new() -> Self {
+        Self {
+            calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl AgentHarness for PatchThenSelfReviewRunner {
+    fn run(&self, request: &AgentRequest) -> Result<AgentOutput> {
+        let call = self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+        let stdout = if call == 0 {
+            assert!(request.resume_session_id.is_none());
+            fs::create_dir_all(request.root.join("src"))?;
+            atomic_write(
+                &request.root.join("src/generated.rs"),
+                b"pub fn generated() -> &'static str {\n    \"ok\" // temporary debug marker\n}\n",
+            )?;
+            b"Changed files: src/generated.rs\n".to_vec()
+        } else {
+            assert_eq!(
+                request.resume_session_id.as_deref(),
+                Some("ses_self_review")
+            );
+            assert!(request.instruction.contains("Worker Self-Review Cleanup"));
+            assert!(
+                request
+                    .instruction
+                    .contains("not a new implementation slice")
+            );
+            atomic_write(
+                &request.root.join("src/generated.rs"),
+                b"pub fn generated() -> &'static str {\n    \"ok\"\n}\n",
+            )?;
+            b"Cleanup changed files: src/generated.rs\nConcerns: none\n".to_vec()
+        };
+
+        Ok(AgentOutput {
+            backend: AgentBackend::OpenCode,
+            command_for_metrics: vec!["fake-opencode".to_string()],
+            segments: vec![json!({"call": call})],
+            exit_status: Some(0),
+            success: true,
+            stdout,
+            stderr: Vec::new(),
+            provider: Some("fake-local".to_string()),
+            model: Some(DEFAULT_OPENCODE_LOCAL_MODEL.to_string()),
+            model_arg: Some(format!("fake-local/{DEFAULT_OPENCODE_LOCAL_MODEL}")),
+            session_label: Some(request.session_id.clone()),
+            session_id: Some("ses_self_review".to_string()),
+            resume_session_id: request.resume_session_id.clone(),
+            session_reused: request.resume_session_id.is_some(),
+            interrupted_by_supervisor: false,
+            supervisor_control_action: None,
+            supervisor_control_events: Vec::new(),
+            timed_out: false,
+            idle_timed_out: false,
+            heartbeat_count: 0,
+            require_local: false,
+            local_inference_verified: false,
+            gpu_activity_observed: false,
+            backend_activity_observed: false,
+            verification_notes: Vec::new(),
+        })
+    }
+}
+
 fn init_git(root: &Path) {
     Command::new("git")
         .arg("init")

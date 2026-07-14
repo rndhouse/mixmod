@@ -13,8 +13,10 @@ pub(crate) use context::{WorkerContextSignals, worker_context_signals, worker_se
 pub(crate) use prompts::build_opencode_instruction;
 use recovery::{
     EmptyPatchFollowup, EmptyPatchFollowupRequest, RevisionNoopContext, RevisionNoopFollowup,
-    RevisionNoopFollowupRequest, merge_worker_outputs, run_empty_patch_followup,
-    run_revision_noop_followup, should_run_empty_patch_followup, should_run_revision_noop_followup,
+    RevisionNoopFollowupRequest, WorkerSelfReview, WorkerSelfReviewRequest, merge_worker_outputs,
+    run_empty_patch_followup, run_revision_noop_followup, run_worker_self_review,
+    should_run_empty_patch_followup, should_run_revision_noop_followup,
+    worker_self_review_skip_reason,
 };
 pub(crate) use report::build_run_summary;
 #[cfg(test)]
@@ -69,6 +71,7 @@ pub(crate) fn run_mixmod_task_with_session(
 pub(crate) struct WorkerRunOptions {
     pub(crate) resume_session_id: Option<String>,
     pub(crate) allow_auto_followups: bool,
+    pub(crate) worker_self_review: bool,
     pub(crate) supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
 }
 
@@ -77,6 +80,7 @@ impl Default for WorkerRunOptions {
         Self {
             resume_session_id: None,
             allow_auto_followups: true,
+            worker_self_review: false,
             supervisor_advisor: None,
         }
     }
@@ -100,6 +104,7 @@ pub(crate) fn run_mixmod_task_with_worker_options(
         require_local,
         resume_session_id: options.resume_session_id,
         allow_auto_followups: options.allow_auto_followups,
+        worker_self_review: options.worker_self_review,
         supervisor_advisor: options.supervisor_advisor,
     }
     .execute()
@@ -122,6 +127,7 @@ struct MixmodRun<'a> {
     require_local: bool,
     resume_session_id: Option<String>,
     allow_auto_followups: bool,
+    worker_self_review: bool,
     supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
 }
 
@@ -136,6 +142,7 @@ impl MixmodRun<'_> {
             require_local,
             resume_session_id,
             allow_auto_followups,
+            worker_self_review,
             supervisor_advisor,
         } = self;
         let run_id = make_run_id("run");
@@ -206,6 +213,7 @@ impl MixmodRun<'_> {
                 .as_ref()
                 .is_some_and(|ctx| ctx.delta_expected),
         );
+        let mut worker_self_review = WorkerSelfReview::new(worker_self_review);
 
         write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
 
@@ -458,6 +466,116 @@ impl MixmodRun<'_> {
             }
             write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
         }
+        worker_self_review.reason = worker_self_review_skip_reason(
+            worker_self_review.enabled,
+            mode,
+            expect_patch,
+            &output,
+            &patch,
+        );
+        if worker_self_review.reason.is_none() {
+            let patch_before_self_review = patch.clone();
+            worker_self_review.triggered = true;
+            worker_self_review.reason = Some(
+                "patch-mode worker run produced a diff eligible for same-session self-review"
+                    .to_string(),
+            );
+            match run_worker_self_review(WorkerSelfReviewRequest {
+                root,
+                mode,
+                task: &task_spec,
+                task_path: &task_path,
+                out_dir: &out_dir,
+                runner,
+                require_local,
+                original_request: &request,
+                output: &output,
+            }) {
+                Ok((review_output, review_dir)) => {
+                    worker_self_review.performed = true;
+                    worker_self_review.run_dir = Some(display_path(root, &review_dir));
+                    notes.push(format!(
+                        "Worker self-review was enabled and ran in {}.",
+                        display_path(root, &review_dir)
+                    ));
+                    output = merge_worker_outputs(
+                        output,
+                        review_output,
+                        "worker self-review",
+                        "Worker self-review output was merged into this run.",
+                    );
+                    end_timestamp = Utc::now();
+                    wall_clock_ms = start.elapsed().as_millis();
+                    worktree_patch = match git_diff_with_untracked(root) {
+                        Ok(after_diff) => after_diff,
+                        Err(error) => {
+                            notes.push(format!(
+                                "Unable to capture git diff after worker self-review: {error}"
+                            ));
+                            String::new()
+                        }
+                    };
+                    patch = diff_without_unchanged_blocks(
+                        &worktree_patch,
+                        before_diff.as_deref().unwrap_or_default(),
+                    );
+                    worker_self_review.patch_changed = patch != patch_before_self_review;
+                    intervention_log.record(
+                        InterventionEvent::new(
+                            InterventionKind::WorkerSelfReview,
+                            InterventionPhase::PostWorker,
+                            InterventionTarget::Worker,
+                            worker_self_review
+                                .reason
+                                .as_deref()
+                                .unwrap_or("worker self-review was enabled"),
+                            if worker_self_review.patch_changed {
+                                "patch_changed"
+                            } else {
+                                "no_patch_change"
+                            },
+                        )
+                        .with_session_policy(InterventionSessionPolicy::SameSession)
+                        .with_artifacts(vec![
+                            format!("worker-self-review/{TASK_JSON}"),
+                            format!("worker-self-review/{OPENCODE_INSTRUCTIONS_MD}"),
+                        ])
+                        .with_details(intervention_details([
+                            ("patch_changed", json!(worker_self_review.patch_changed)),
+                            ("patch_bytes", json!(patch.len() as u64)),
+                        ])),
+                    );
+                }
+                Err(error) => {
+                    worker_self_review.reason = Some(format!(
+                        "worker self-review was triggered but could not run: {error}"
+                    ));
+                    notes.push(format!(
+                        "Worker self-review was triggered but could not run: {error}"
+                    ));
+                    intervention_log.record(
+                        InterventionEvent::new(
+                            InterventionKind::WorkerSelfReview,
+                            InterventionPhase::PostWorker,
+                            InterventionTarget::Worker,
+                            worker_self_review
+                                .reason
+                                .as_deref()
+                                .unwrap_or("worker self-review failed before it could run"),
+                            "failed",
+                        )
+                        .with_session_policy(InterventionSessionPolicy::SameSession)
+                        .with_performed(false)
+                        .with_artifacts(vec![
+                            format!("worker-self-review/{TASK_JSON}"),
+                            format!("worker-self-review/{OPENCODE_INSTRUCTIONS_MD}"),
+                        ])
+                        .with_details(intervention_details([("error", json!(error.to_string()))])),
+                    );
+                }
+            }
+            write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
+        }
         atomic_write(&out_dir.join(CHANGES_PATCH), patch.as_bytes())?;
         atomic_write(&out_dir.join(WORKTREE_PATCH), worktree_patch.as_bytes())?;
         if output.timed_out || output.idle_timed_out {
@@ -574,6 +692,12 @@ impl MixmodRun<'_> {
             revision_noop_followup_patch_created: revision_noop_followup.patch_created,
             revision_noop_followup_reason: revision_noop_followup.reason.clone(),
             revision_noop_followup_run_dir: revision_noop_followup.run_dir.clone(),
+            worker_self_review_enabled: worker_self_review.enabled,
+            worker_self_review_triggered: worker_self_review.triggered,
+            worker_self_review_performed: worker_self_review.performed,
+            worker_self_review_patch_changed: worker_self_review.patch_changed,
+            worker_self_review_reason: worker_self_review.reason.clone(),
+            worker_self_review_run_dir: worker_self_review.run_dir.clone(),
             require_local: output.require_local,
             local_inference_verified: output.local_inference_verified,
             gpu_activity_observed: output.gpu_activity_observed,

@@ -196,6 +196,86 @@ fn recovery_can_be_disabled_for_first_worker_inspection() {
 }
 
 #[test]
+fn worker_self_review_is_optional_and_reuses_worker_session() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    init_git(root);
+    fs::write(root.join("README.md"), "base\n").unwrap();
+    Command::new("git")
+        .args(["add", "README.md"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "base"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    let task = root.join("example.task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Generate file",
+  "instructions": "Create a small generated file.",
+  "expect_patch": true,
+  "files": ["src/generated.rs"],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+    let runner = PatchThenSelfReviewRunner::new();
+    let run_dir = state_layout(root).runs().join("self-review");
+    let receipt = run_mixmod_task_with_worker_options(
+        root,
+        DelegationMode::Patch,
+        &task,
+        &run_dir,
+        &runner,
+        false,
+        WorkerRunOptions {
+            worker_self_review: true,
+            ..WorkerRunOptions::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(receipt.status, "success");
+    assert_eq!(runner.calls.load(AtomicOrdering::SeqCst), 2);
+    assert!(run_dir.join("worker-self-review/task.json").exists());
+    assert!(
+        run_dir
+            .join("worker-self-review/opencode-instructions.md")
+            .exists()
+    );
+    let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
+    assert!(patch.contains("src/generated.rs"));
+    assert!(!patch.contains("temporary debug marker"));
+    let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();
+    assert_eq!(get_bool(&metrics, "worker_self_review_enabled"), Some(true));
+    assert_eq!(
+        get_bool(&metrics, "worker_self_review_triggered"),
+        Some(true)
+    );
+    assert_eq!(
+        get_bool(&metrics, "worker_self_review_performed"),
+        Some(true)
+    );
+    assert_eq!(
+        get_bool(&metrics, "worker_self_review_patch_changed"),
+        Some(true)
+    );
+    assert_eq!(get_u64(&metrics, "intervention_count"), Some(2));
+    assert_eq!(
+        get_string_array(&metrics, "intervention_kinds"),
+        vec!["worker_handoff", "worker_self_review"]
+    );
+    let interventions = fs::read_to_string(run_dir.join("interventions.jsonl")).unwrap();
+    assert!(interventions.contains("\"kind\":\"worker_self_review\""));
+    assert!(interventions.contains("\"session_policy\":\"same_session\""));
+}
+
+#[test]
 fn revision_noop_followup_reuses_worker_session_and_requires_delta() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

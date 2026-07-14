@@ -63,6 +63,8 @@ impl DefaultExperimentRun<'_> {
             .supervisor_init
             .unwrap_or(config.strategy.supervisor_init);
         let live_supervision = config.strategy.live_supervision.clone();
+        let worker_self_review =
+            env_bool("MIXMOD_WORKER_SELF_REVIEW").unwrap_or(config.strategy.worker_self_review);
         let worker_guidance = config
             .worker_supervisor_guidance()
             .with_patch_line_overrides(
@@ -138,6 +140,7 @@ impl DefaultExperimentRun<'_> {
                 resume_session_id: None,
                 allow_auto_followups: !(options.stop_after_first_worker
                     || options.stop_after_first_review),
+                worker_self_review,
                 supervisor_advisor: live_supervisor_advisor(&live_supervisor),
             },
         )?;
@@ -248,6 +251,7 @@ impl DefaultExperimentRun<'_> {
                             WorkerRunOptions {
                                 resume_session_id,
                                 allow_auto_followups: true,
+                                worker_self_review,
                                 supervisor_advisor: live_supervisor_advisor(&live_supervisor),
                             },
                         )?;
@@ -361,6 +365,7 @@ impl DefaultExperimentRun<'_> {
             "revision_attempts": opencode_calls.saturating_sub(1),
             "stop_after_first_worker": options.stop_after_first_worker,
             "stop_after_first_review": options.stop_after_first_review,
+            "worker_self_review": worker_self_review,
             "worker_target_patch_lines": worker_guidance.target_patch_lines,
             "worker_max_patch_lines": worker_guidance.max_patch_lines,
             "worker_brief": WORKER_BRIEF_JSON,

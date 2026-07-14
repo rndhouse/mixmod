@@ -12,6 +12,8 @@ pub enum InterventionKind {
     EmptyPatchFollowup,
     /// Mixmod retried a supervisor revision that produced no new delta.
     RevisionNoopFollowup,
+    /// Mixmod asked the same worker session to review and clean its own diff.
+    WorkerSelfReview,
 }
 
 impl InterventionKind {
@@ -21,6 +23,7 @@ impl InterventionKind {
             Self::WorkerHandoff => "worker_handoff",
             Self::EmptyPatchFollowup => "empty_patch_followup",
             Self::RevisionNoopFollowup => "revision_noop_followup",
+            Self::WorkerSelfReview => "worker_self_review",
         }
     }
 }

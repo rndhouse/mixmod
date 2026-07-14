@@ -1,9 +1,13 @@
 use crate::*;
 
+use super::context::worker_context_signals;
 use super::prompts::{
     build_empty_patch_followup_instruction, build_revision_noop_followup_instruction,
-    revision_focus_files,
+    build_worker_self_review_instruction, revision_focus_files,
 };
+
+const WORKER_SELF_REVIEW_TOKEN_PEAK_LIMIT: u64 = 24_000;
+const WORKER_SELF_REVIEW_CHANGED_LINE_LIMIT: usize = 500;
 
 #[derive(Debug)]
 pub(super) struct EmptyPatchFollowup {
@@ -43,6 +47,29 @@ impl RevisionNoopFollowup {
             triggered: false,
             performed: false,
             patch_created: false,
+            reason: None,
+            run_dir: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct WorkerSelfReview {
+    pub(super) enabled: bool,
+    pub(super) triggered: bool,
+    pub(super) performed: bool,
+    pub(super) patch_changed: bool,
+    pub(super) reason: Option<String>,
+    pub(super) run_dir: Option<String>,
+}
+
+impl WorkerSelfReview {
+    pub(super) fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            triggered: false,
+            performed: false,
+            patch_changed: false,
             reason: None,
             run_dir: None,
         }
@@ -295,6 +322,84 @@ pub(super) fn run_empty_patch_followup(
     Ok((followup_output, followup_dir))
 }
 
+pub(super) struct WorkerSelfReviewRequest<'a> {
+    pub(super) root: &'a Path,
+    pub(super) mode: DelegationMode,
+    pub(super) task: &'a TaskSpec,
+    pub(super) task_path: &'a Path,
+    pub(super) out_dir: &'a Path,
+    pub(super) runner: &'a dyn AgentHarness,
+    pub(super) require_local: bool,
+    pub(super) original_request: &'a AgentRequest,
+    pub(super) output: &'a AgentOutput,
+}
+
+pub(super) fn run_worker_self_review(
+    request: WorkerSelfReviewRequest<'_>,
+) -> Result<(AgentOutput, PathBuf)> {
+    let WorkerSelfReviewRequest {
+        root,
+        mode,
+        task,
+        task_path,
+        out_dir,
+        runner,
+        require_local,
+        original_request,
+        output,
+    } = request;
+    let resume_session_id = output
+        .session_id
+        .clone()
+        .ok_or_else(|| anyhow!("cannot run worker self-review without a worker session id"))?;
+    let review_dir = out_dir.join("worker-self-review");
+    fs::create_dir_all(&review_dir).with_context(|| {
+        format!(
+            "failed to create worker self-review dir {}",
+            review_dir.display()
+        )
+    })?;
+    let review_task = json!({
+        "title": format!("Worker self-review cleanup: {}", task.title),
+        "expect_patch": true,
+        "instructions": "Review the current worker diff for obvious cleanup only before supervisor review.",
+        "files": &task.files,
+        "tests": Vec::<String>::new(),
+        "constraints": [
+            "Do not add new feature scope.",
+            "Do not rewrite the solution.",
+            "Do not commit."
+        ],
+        "acceptance": [
+            "Either apply a small safe cleanup to the current diff, or leave the worktree unchanged and report no cleanup."
+        ],
+        "context": {
+            "source_task": task_path.to_string_lossy(),
+            "worker_self_review": true
+        }
+    });
+    let review_task_path = review_dir.join(TASK_JSON);
+    write_pretty_json(&review_task_path, &review_task, "worker self-review task")?;
+
+    let instruction = build_worker_self_review_instruction(mode, task);
+    let instruction_path = review_dir.join(OPENCODE_INSTRUCTIONS_MD);
+    atomic_write(&instruction_path, instruction.as_bytes())?;
+    let review_request = AgentRequest {
+        root: root.to_path_buf(),
+        mode,
+        task_path: review_task_path,
+        out_dir: review_dir.clone(),
+        instruction_path,
+        instruction,
+        session_id: original_request.session_id.clone(),
+        resume_session_id: Some(resume_session_id),
+        require_local,
+        supervisor_advisor: original_request.supervisor_advisor.clone(),
+    };
+    let review_output = runner.run(&review_request)?;
+    Ok((review_output, review_dir))
+}
+
 pub(super) fn should_run_empty_patch_followup(
     mode: DelegationMode,
     expect_patch: bool,
@@ -325,6 +430,56 @@ pub(super) fn should_run_revision_noop_followup(
         && !output.idle_timed_out
         && !output.interrupted_by_supervisor
         && patch.trim().is_empty()
+}
+
+pub(super) fn worker_self_review_skip_reason(
+    enabled: bool,
+    mode: DelegationMode,
+    expect_patch: bool,
+    output: &AgentOutput,
+    patch: &str,
+) -> Option<String> {
+    if !enabled {
+        return Some("disabled".to_string());
+    }
+    if mode != DelegationMode::Patch {
+        return Some("mode_not_patch".to_string());
+    }
+    if !expect_patch {
+        return Some("patch_not_expected".to_string());
+    }
+    if !output.success {
+        return Some("worker_failed".to_string());
+    }
+    if output.timed_out {
+        return Some("worker_timed_out".to_string());
+    }
+    if output.idle_timed_out {
+        return Some("worker_idle_timed_out".to_string());
+    }
+    if output.interrupted_by_supervisor {
+        return Some("worker_interrupted_by_supervisor".to_string());
+    }
+    if output.session_id.is_none() {
+        return Some("missing_worker_session_id".to_string());
+    }
+    if patch.trim().is_empty() {
+        return Some("empty_patch".to_string());
+    }
+    let context = worker_context_signals(&output.stdout);
+    if context.context_overflow_count > 0 {
+        return Some("context_overflow_observed".to_string());
+    }
+    if worker_session_token_peak(&output.stdout)
+        .is_some_and(|tokens| tokens >= WORKER_SELF_REVIEW_TOKEN_PEAK_LIMIT)
+    {
+        return Some("worker_context_token_peak_high".to_string());
+    }
+    let changed_lines = patch_stats(patch).changed_line_count;
+    if changed_lines > WORKER_SELF_REVIEW_CHANGED_LINE_LIMIT {
+        return Some("patch_too_large_for_self_review".to_string());
+    }
+    None
 }
 
 pub(super) fn merge_worker_outputs(

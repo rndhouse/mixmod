@@ -115,6 +115,8 @@ pub struct StrategyConfig {
     pub supervisor_init: SupervisorInitMode,
     /// Periodic supervisor checks while a worker turn is still running.
     pub live_supervision: LiveSupervisionConfig,
+    /// Optional same-session worker cleanup pass before supervisor review.
+    pub worker_self_review: bool,
 }
 
 impl Default for StrategyConfig {
@@ -122,6 +124,7 @@ impl Default for StrategyConfig {
         Self {
             supervisor_init: SupervisorInitMode::Compact,
             live_supervision: LiveSupervisionConfig::default(),
+            worker_self_review: false,
         }
     }
 }
