@@ -5,6 +5,9 @@ use serde_json::Value;
 
 use crate::*;
 
+pub(super) const NO_EDIT_PACKET: &str =
+    "- none provided; use focused anchor searches in the relevant files.";
+
 pub(super) fn patch_request_edit_packet_from_value(
     work_dir: &Path,
     focus_files: &[String],
@@ -203,7 +206,7 @@ fn line_numbered_text(text: &str, start_line: usize, line_count: usize) -> Strin
 
 fn finalize_edit_packet(parts: Vec<String>) -> String {
     if parts.is_empty() {
-        "- none provided; use focused anchor searches in the relevant files.".to_string()
+        NO_EDIT_PACKET.to_string()
     } else {
         truncate_for_report(&parts.join("\n\n"), 4200)
     }

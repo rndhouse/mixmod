@@ -164,8 +164,8 @@ fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
     assert!(prompt.contains("Treat useful accumulated worktree.patch changes as context to keep"));
     assert!(prompt.contains("Write the repaired request from the current accumulated patch state"));
     assert!(prompt.contains("Do not say to continue from an earlier file-only slice"));
-    assert!(prompt.contains("edit_packet or source_snippets"));
-    assert!(prompt.contains("local transformation near one anchor"));
+    assert!(prompt.contains("edit_packet/source_snippets"));
+    assert!(prompt.contains("add an anchor only when it prevents worker wandering"));
     assert!(prompt.contains("If previous feedback named one focus file"));
     assert!(prompt.contains("exact_edits is optional"));
     assert!(prompt.contains("Do not invent a different file/symbol pair"));
@@ -237,7 +237,9 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("task-derived behavior evidence"));
     assert!(brief_prompt.contains("base path plus modifiers"));
     assert!(brief_prompt.contains("one modifier family later"));
-    assert!(brief_prompt.contains("one literal anchor and the smallest local transformation"));
+    assert!(
+        brief_prompt.contains("include a literal anchor only when it prevents worker wandering")
+    );
     assert!(brief_prompt.contains("context overflow"));
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("repo-level evidence"));
@@ -245,7 +247,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("largest coherent request"));
     assert!(brief_prompt.contains("Handoff requirements:"));
     assert!(brief_prompt.contains("exact_edits is optional"));
-    assert!(brief_prompt.contains("only anchors or evidence"));
+    assert!(brief_prompt.contains("optional and sparse"));
 }
 
 #[test]

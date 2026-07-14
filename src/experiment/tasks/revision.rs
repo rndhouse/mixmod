@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::*;
 
-use super::edit_packet::patch_request_edit_packet_from_decision;
+use super::edit_packet::{NO_EDIT_PACKET, patch_request_edit_packet_from_decision};
 use super::focus::split_worker_focus_files;
 use super::format::{bullet_list, hard_rule_from_forbidden_action, non_empty_or, numbered_list};
 use super::types::{RevisionTask, RevisionTaskContext, RevisionTaskDetails};
@@ -369,6 +369,18 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
             numbered_list(&exact_edits)
         )
     };
+    let edit_packet_note = if edit_packet == NO_EDIT_PACKET {
+        String::new()
+    } else {
+        format!(
+            r#"
+Worker edit packet:
+{edit_packet}
+
+Use the Worker edit packet before reading whole files. If the packet contains the needed anchor, edit from that context first.
+"#
+        )
+    };
 
     format!(
         r#"Noninteractive coding revision. This is the full instruction. No user will answer questions.
@@ -379,17 +391,14 @@ Continue from the current working tree; do not revert existing correct edits.{pa
 
 Patch request goal: {turn_goal}
 {hard_rules_note}{exact_edits_note}
-
-Worker edit packet:
-{edit_packet}
+{edit_packet_note}
 
 Relevant files:
 {file_list}
 
 {focus_note}
-Use the Worker edit packet before reading whole files. If the packet contains the needed anchor, edit from that context first.
 Use concrete files from the relevant file list. If a listed item is a directory, do not read the whole directory; choose the one file required by the patch request.
-Do not read an entire large file before the first edit unless the patch request cannot be applied from the packet and focused anchor searches.
+Do not read an entire large file before the first edit unless focused anchor searches are not enough to apply the patch request.
 Do not expand beyond this patch request unless the supervisor request requires it.
 If a listed file is missing, continue with the remaining request; create a missing file only when the request requires it.
 {checks_note}
@@ -400,6 +409,7 @@ Changed files: <comma-separated list>
 "#,
         hard_rules_note = hard_rules_note,
         exact_edits_note = exact_edits_note,
+        edit_packet_note = edit_packet_note,
         completion_gate_note = completion_gate_note,
     )
 }

@@ -102,7 +102,7 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("Handoff requirements:"));
     assert!(prompt.contains("exact_edits is optional"));
     assert!(prompt.contains("immediately executable edit instructions"));
-    assert!(prompt.contains("only anchors or evidence"));
+    assert!(prompt.contains("optional and sparse"));
     assert!(prompt.contains("only for acceptance criteria"));
     assert!(prompt.contains("only for task-specific limits"));
     assert!(prompt.contains("concrete repo file paths, not directories"));
@@ -246,8 +246,8 @@ fn patch_request_worker_task_preserves_explicit_supervisor_gate() {
     assert!(instructions.contains("4. Return all three keys in the metadata dict."));
     assert!(instructions.contains("5. Update tests/test_helper.py expectations"));
     assert!(instructions.contains("Supervisor-provided edit details:"));
-    assert!(instructions.contains("Worker edit packet:"));
-    assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
+    assert!(!instructions.contains("Worker edit packet:"));
+    assert!(!instructions.contains("Use the Worker edit packet before reading whole files."));
     assert!(
         instructions.contains("If a listed item is a directory, do not read the whole directory")
     );

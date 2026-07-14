@@ -54,13 +54,13 @@ Handoff requirements:
 - exact_edits is optional. Use it only when you already know the precise source edit or when a prior worker turn drifted.
 - If exact_edits is present, use immediately executable edit instructions; do not use broad "investigate/understand/design" wording there.
 - Put checks in deferred_checks when they should run only after a non-empty diff exists.
-- edit_packet/source_snippets are only anchors or evidence; do not restate other fields there.
+- edit_packet/source_snippets are optional and sparse. Omit them by default; include them only when you already have a cheap anchor/snippet and it will likely save more worker exploration than it costs in supervisor output.
 - completion_gate is only for acceptance criteria not already covered by the patch request or deferred_checks.
 - forbidden_actions is only for task-specific limits beyond normal noninteractive worker behavior.
 - Omit optional fields unless they reduce worker confusion or supervisor output.
 
 JSON shape:
-{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["optional concrete edit"],"edit_packet":["optional anchor"],"source_snippets":["optional source"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"completion_gate":"optional gate","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["optional concrete edit"],"edit_packet":["optional cost-justified anchor"],"source_snippets":["optional cost-justified snippet"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"completion_gate":"optional gate","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -105,13 +105,13 @@ Return a corrected expected-patch handoff with:
 - concrete repo file paths for the focused source behavior, usually <=3
 - exact_edits is optional; include one or two command-style string items only when that saves supervisor output or corrects worker drift
 - source exact_edits only when included, plus no test edit in exact_edits
-- edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your repo investigation
+- edit_packet/source_snippets are optional; include them only when already-known file/symbol/anchor context is likely to save worker exploration
 - no checks unless listed in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
 - forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
 Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one request. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
-Include a concrete symbol and a literal nearby code anchor when possible, such as `near the line containing "..."`.
+Do not inspect or write extra source context just to fill edit_packet. Include a literal anchor only when you already have it and it is worth the supervisor output.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
 If file details are uncertain, pick the smallest public API source seed patch; do not ask the worker to investigate broadly.
@@ -164,7 +164,7 @@ Return one corrected expected-patch handoff with:
 - one turn_goal for the first patch request only
 - concrete repo file paths for the focused source behavior, usually <=3
 - exact_edits is optional; include one or two command-style string items only when that saves supervisor output or corrects worker drift
-- edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your repo investigation
+- edit_packet/source_snippets are optional; include them only when already-known file/symbol/anchor context is likely to save worker exploration
 - no required checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
@@ -262,7 +262,7 @@ Treat supervisor input tokens as scarce. Inspect only the artifacts needed for t
 For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on prior accumulated edits.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}
@@ -374,7 +374,7 @@ Return a corrected revise decision with:
 - "worker_turn_shape":"patch_request"
 - exact_edits is optional; include one or two command-style source edit strings only when that saves supervisor output or corrects worker drift
 - focused source files in focus_files, usually <=3, plus at most one already-written focused test file
-- edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
+- edit_packet/source_snippets only when artifacts already show a relevant anchor or current accumulated patch state and including it is worth the supervisor output
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
@@ -384,9 +384,9 @@ Preserve the previous feedback's intended target behavior and source file unless
 Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier request was narrower.
 Write the repaired request from the current accumulated patch state: preserve useful existing edits, then ask for one next delta. Do not say to continue from an earlier file-only slice when worktree.patch already contains useful changes in another focused source file.
 If previous feedback named one focus file, keep that source target unless artifacts prove another focused source file is needed for the same behavior.
-For large functions or code-generation paths, choose a local transformation near one anchor rather than a whole behavior path.
+For large functions or code-generation paths, prefer a local transformation over a whole behavior path; add an anchor only when it prevents worker wandering without much supervisor output.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
-Include an exact symbol and a literal nearby code anchor when that saves supervisor output, for example `near the line containing "..."`.
+Do not inspect or write extra source context just to fill edit_packet. Include a literal anchor only when artifacts already provide it or it clearly saves supervisor output.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
 Do not include a test edit in exact_edits. Tests belong in deferred_checks or a later revision.
 Working repo: {work_dir}
@@ -434,7 +434,7 @@ Return one corrected revise decision with:
 - "worker_turn_shape":"patch_request"
 - exact_edits is optional; include one or two command-style source edit strings only when that saves supervisor output or corrects worker drift
 - focused source files in focus_files, usually <=3, plus at most one already-written focused test file
-- edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
+- edit_packet/source_snippets only when artifacts already show a relevant anchor or current accumulated patch state and including it is worth the supervisor output
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
@@ -443,7 +443,7 @@ Repair the size/shape of the previous requested next patch. Preserve the previou
 Do not rewind to an earlier completed request. Do not ask the worker to remove already-useful required task options or fields merely because an earlier request was narrower.
 Write the repaired request from the current accumulated patch state: preserve useful existing edits, then ask for one next delta.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
-For large functions or code-generation paths, choose a local transformation near one anchor rather than a whole behavior path.
+For large functions or code-generation paths, prefer a local transformation over a whole behavior path; add an anchor only when it prevents worker wandering without much supervisor output.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Working repo: {work_dir}
 

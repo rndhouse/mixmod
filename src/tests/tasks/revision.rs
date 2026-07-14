@@ -315,8 +315,8 @@ fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
     assert!(instructions.contains("Noninteractive coding revision"));
     assert!(instructions.contains("Current accumulated patch is useful but not yet accepted"));
     assert!(instructions.contains("Supervisor-provided edit details:"));
-    assert!(instructions.contains("Worker edit packet:"));
-    assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
+    assert!(!instructions.contains("Worker edit packet:"));
+    assert!(!instructions.contains("Use the Worker edit packet before reading whole files."));
     assert!(instructions.contains("nested item discount branch"));
     assert!(instructions.contains("add one assertion for a nested discounted item"));
     assert!(instructions.contains("Do not run broad tests before editing."));

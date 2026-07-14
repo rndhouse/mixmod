@@ -194,7 +194,7 @@ supervisor_guidance = [
   "This worker is cheap and useful for focused source edits, narrow repo inspection, compact command checks, and proposal turns; avoid broad autonomous design work.",
   "It can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.",
   "It can struggle with large effective context before explicit overflow; avoid asking it to reread many files, and use worker_mode=context_focus after context overflow, stale context, or repeated no-delta turns.",
-  "For broad expected-patch tasks, prefer worker_turn_shape=patch_request: choose the largest coherent source behavior it is likely to complete cleanly, usually one to three focused files, a bounded goal, deferred checks, and optional anchors/snippets or exact_edits when precision saves supervisor output.",
+  "For broad expected-patch tasks, prefer worker_turn_shape=patch_request: choose the largest coherent source behavior it is likely to complete cleanly, usually one to three focused files, a bounded goal, deferred checks, and optional exact_edits or anchors/snippets only when precision saves supervisor output.",
   "When route or file choice is unclear, use worker_turn_shape=planning_probe with expect_patch=false: ask it to inspect one to three focused authored-source files or targeted command outputs and propose the next request; do not let it decide task completion.",
   "After multiple clean patch_request turns with useful deltas and no context pressure, broaden the next patch_request within the same shape; after messy, broad, or stalled turns, shrink the next slice.",
   "Prefer human-authored source edits. Keep generated artifacts, vendored files, lockfiles, snapshots, and build outputs out of the worker-owned patch unless the supervisor explicitly chooses a generated-output step.",
@@ -203,7 +203,7 @@ supervisor_guidance = [
   "It may miss end-to-end integration across slices. Before approval, check that helpers, options, parser/generated code, callers, state mutation, and error propagation are wired where the task requires.",
   "Do not trust compile success, non-empty diff, or the worker's summary as proof of task completion; require task-derived behavior evidence plus likely negative or edge-case coverage when behavior changed.",
   "For option or behavior families with a base path plus modifiers, start with the base behavior and add one modifier family later unless prior worker turns show it can safely combine more.",
-  "For large functions or code-generation paths, give one literal anchor and the smallest local transformation; include preservation constraints when unrelated branches or formatting churn are likely.",
+  "For large functions or code-generation paths, describe the smallest local transformation; include a literal anchor only when it prevents worker wandering without much supervisor output.",
   "When tests cannot start because dependencies are missing, keep the worker focused on repo-level evidence and allowed commands instead of global environment repair.",
 ]
 
