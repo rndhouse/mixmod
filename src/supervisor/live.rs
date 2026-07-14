@@ -337,8 +337,6 @@ pub(super) fn live_supervision_snapshot_should_check(
     if snapshot.context_overflow_count > 0 {
         return true;
     }
-    let stale_with_output = snapshot.last_output_age_ms
-        >= config.stale_after_seconds.saturating_mul(1000)
-        && snapshot.stdout_bytes > 0;
-    stale_with_output
+    snapshot.last_output_age_ms >= config.stale_after_seconds.saturating_mul(1000)
+        && snapshot.stdout_bytes > 0
 }
