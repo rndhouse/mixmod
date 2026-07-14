@@ -24,8 +24,8 @@ const ASK_WORKER_TIMEOUT_SECONDS: u64 = 90;
 const ASK_IDLE_TIMEOUT_SECONDS: u64 = 60;
 const COMMAND_SUMMARY_WORKER_TIMEOUT_SECONDS: u64 = 25;
 const COMMAND_SUMMARY_IDLE_TIMEOUT_SECONDS: u64 = 15;
-const COMMAND_SUMMARY_BYTES: usize = 1_000;
-const DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES: u64 = 400;
+const COMMAND_SUMMARY_BYTES: usize = 1_100;
+const DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES: u64 = 800;
 const DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES: u64 = 240;
 const ASK_SUMMARY_BYTES: usize = 1_200;
 const COMMAND_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/command.stdout.txt,logs/command.stderr.txt,command-result.json,search-summary.json,logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,worktree.patch} if answer is insufficient";
@@ -635,13 +635,17 @@ fn should_prefer_worker_command_summary(
     command_result: &CommandToolResult,
     search_summary: Option<&Value>,
 ) -> bool {
-    if payload.need_text().is_some() && search_summary.is_some() {
-        return true;
+    if command_fits_direct_exact_summary(command_result) {
+        return false;
+    }
+    if search_summary.is_some_and(is_path_search_summary) {
+        return false;
     }
     if search_summary.is_some() && command_result.stdout_bytes >= WORKER_SEARCH_SUMMARY_MIN_BYTES {
         return true;
     }
-    command_result.stdout_bytes + command_result.stderr_bytes >= WORKER_SUMMARY_MIN_BYTES
+    payload.need_text().is_some()
+        && command_result.stdout_bytes + command_result.stderr_bytes >= WORKER_SUMMARY_MIN_BYTES
 }
 
 fn should_run_command_summary_worker(
@@ -649,15 +653,30 @@ fn should_run_command_summary_worker(
     out_dir: &Path,
     command_result: &CommandToolResult,
 ) -> bool {
-    if payload.need_text().is_some() {
-        return true;
+    if command_fits_direct_exact_summary(command_result) {
+        return false;
+    }
+    if let Ok(search_summary) = read_json_file(&out_dir.join("search-summary.json")) {
+        if is_path_search_summary(&search_summary) {
+            return false;
+        }
     }
     if out_dir.join("search-summary.json").exists()
         && command_result.stdout_bytes >= WORKER_SEARCH_SUMMARY_MIN_BYTES
     {
         return true;
     }
-    command_result.stdout_bytes + command_result.stderr_bytes >= WORKER_SUMMARY_MIN_BYTES
+    payload.need_text().is_some()
+        && command_result.stdout_bytes + command_result.stderr_bytes >= WORKER_SUMMARY_MIN_BYTES
+}
+
+fn command_fits_direct_exact_summary(command_result: &CommandToolResult) -> bool {
+    command_result.stdout_bytes <= DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES
+        && command_result.stderr_bytes <= DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES
+}
+
+fn is_path_search_summary(summary: &Value) -> bool {
+    summary.get("kind").and_then(Value::as_str) == Some("path_search")
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -705,9 +724,7 @@ fn direct_summary_kind(
     {
         return Some(DirectCommandSummaryKind::TestPass);
     }
-    if command_result.stdout_bytes <= DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES
-        && command_result.stderr_bytes <= DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES
-    {
+    if command_fits_direct_exact_summary(command_result) {
         return Some(DirectCommandSummaryKind::SmallExactOutput);
     }
     None
@@ -1117,25 +1134,38 @@ enum SearchCommandKind {
 
 fn search_command_kind(command: &str) -> Option<SearchCommandKind> {
     for view in command_views(command) {
-        for segment in command_segments(&view) {
-            if segment == "find" || segment.starts_with("find ") {
-                return Some(SearchCommandKind::PathList);
-            }
-            if segment == "rg --files" || segment.starts_with("rg --files ") {
-                return Some(SearchCommandKind::PathList);
-            }
-            if segment == "rg"
-                || segment.starts_with("rg ")
-                || segment == "grep"
-                || segment.starts_with("grep ")
-                || segment == "git grep"
-                || segment.starts_with("git grep ")
-            {
+        let segments: Vec<&str> = command_segments(&view).collect();
+        if segments
+            .iter()
+            .any(|segment| is_path_search_command(segment))
+        {
+            return Some(SearchCommandKind::PathList);
+        }
+        for segment in segments {
+            if is_line_search_command(segment) {
                 return Some(SearchCommandKind::LineSearch);
             }
         }
     }
     None
+}
+
+fn is_path_search_command(segment: &str) -> bool {
+    segment == "find"
+        || segment.starts_with("find ")
+        || segment == "rg --files"
+        || segment.starts_with("rg --files ")
+        || segment == "git ls-files"
+        || segment.starts_with("git ls-files ")
+}
+
+fn is_line_search_command(segment: &str) -> bool {
+    segment == "rg"
+        || segment.starts_with("rg ")
+        || segment == "grep"
+        || segment.starts_with("grep ")
+        || segment == "git grep"
+        || segment.starts_with("git grep ")
 }
 
 fn path_search_summary(stdout: &str) -> Value {
@@ -2094,7 +2124,7 @@ tests/lib.rs:5:assert!(target_symbol());
     }
 
     #[test]
-    fn search_with_need_prefers_worker_summary() {
+    fn small_search_with_need_uses_deterministic_summary() {
         let temp = tempfile::tempdir().unwrap();
         let out_dir = temp.path().join("tool-run");
         let logs = out_dir.join("logs");
@@ -2117,16 +2147,20 @@ tests/lib.rs:5:assert!(target_symbol());
             stderr_path: logs.join("command.stderr.txt"),
         };
 
-        assert!(
-            deterministic_command_summary(&payload, &out_dir, &result)
-                .unwrap()
-                .is_none()
+        let summary = deterministic_command_summary(&payload, &out_dir, &result)
+            .unwrap()
+            .expect("small search output should be summarized directly");
+        assert!(summary.text.contains("summary_kind: search_summary"));
+        assert_eq!(
+            summary.metrics.unwrap()["opencode_call"],
+            json!(false),
+            "small search summaries must not call OpenCode"
         );
         assert!(out_dir.join("search-summary.json").exists());
     }
 
     #[test]
-    fn large_search_without_need_prefers_worker_summary() {
+    fn large_line_search_prefers_worker_summary() {
         let temp = tempfile::tempdir().unwrap();
         let out_dir = temp.path().join("tool-run");
         let logs = out_dir.join("logs");
@@ -2156,6 +2190,80 @@ tests/lib.rs:5:assert!(target_symbol());
                 .is_none()
         );
         assert!(should_run_command_summary_worker(
+            &payload, &out_dir, &result
+        ));
+    }
+
+    #[test]
+    fn git_ls_files_pipeline_is_path_summary_not_worker() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::write(logs.join("command.stdout.txt"), "").unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "git ls-files | grep '^objects/' | head -n 5",
+            Some("Return first few tracked files under objects if any."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 1,
+            stdout_bytes: 0,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        let summary = deterministic_command_summary(&payload, &out_dir, &result)
+            .unwrap()
+            .expect("empty path-list output should be summarized directly");
+
+        assert!(summary.text.contains("summary_kind: search_summary"));
+        assert!(summary.text.contains("search_kind: path_search"));
+        assert!(summary.text.contains("total_output_lines: 0"));
+        assert!(!should_run_command_summary_worker(
+            &payload, &out_dir, &result
+        ));
+    }
+
+    #[test]
+    fn exact_source_slice_with_need_uses_deterministic_summary() {
+        let temp = tempfile::tempdir().unwrap();
+        let out_dir = temp.path().join("tool-run");
+        let logs = out_dir.join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let stdout = (190..=210)
+            .map(|line| format!("{line}\tfunc example{line}() {{}}\n"))
+            .collect::<String>();
+        assert!(stdout.len() < DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES as usize);
+        std::fs::write(logs.join("command.stdout.txt"), &stdout).unwrap();
+        std::fs::write(logs.join("command.stderr.txt"), "").unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "nl -ba script.go | sed -n '190,210p'",
+            Some("Return script.go lines 190-210 exactly."),
+            temp.path(),
+        );
+        let result = CommandToolResult {
+            exit_status: Some(0),
+            timed_out: false,
+            duration_ms: 1,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: 0,
+            stdout_path: logs.join("command.stdout.txt"),
+            stderr_path: logs.join("command.stderr.txt"),
+        };
+
+        let summary = deterministic_command_summary(&payload, &out_dir, &result)
+            .unwrap()
+            .expect("short source slices should be returned directly");
+
+        assert!(summary.text.contains("summary_kind: small_exact_output"));
+        assert!(summary.text.contains("190\tfunc example190() {}"));
+        assert_eq!(summary.metrics.unwrap()["opencode_call"], json!(false));
+        assert!(!should_run_command_summary_worker(
             &payload, &out_dir, &result
         ));
     }
