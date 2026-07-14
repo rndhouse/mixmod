@@ -57,6 +57,7 @@ impl RevisionNoopFollowup {
 #[derive(Debug)]
 pub(super) struct WorkerSelfReview {
     pub(super) enabled: bool,
+    pub(super) forced: bool,
     pub(super) triggered: bool,
     pub(super) performed: bool,
     pub(super) patch_changed: bool,
@@ -65,9 +66,10 @@ pub(super) struct WorkerSelfReview {
 }
 
 impl WorkerSelfReview {
-    pub(super) fn new(enabled: bool) -> Self {
+    pub(super) fn new(enabled: bool, forced: bool) -> Self {
         Self {
             enabled,
+            forced,
             triggered: false,
             performed: false,
             patch_changed: false,
@@ -445,6 +447,7 @@ pub(super) fn should_run_revision_noop_followup(
 
 pub(super) fn worker_self_review_skip_reason(
     enabled: bool,
+    forced: bool,
     mode: DelegationMode,
     expect_patch: bool,
     output: &AgentOutput,
@@ -476,6 +479,9 @@ pub(super) fn worker_self_review_skip_reason(
     }
     if patch.trim().is_empty() {
         return Some("empty_patch".to_string());
+    }
+    if forced {
+        return None;
     }
     let context = worker_context_signals(&output.stdout);
     if context.context_overflow_count > 0 {
@@ -540,4 +546,103 @@ pub(super) fn merge_worker_outputs(
     first.verification_notes.push(note.to_string());
     first.verification_notes.extend(second.verification_notes);
     first
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn successful_worker_output(stdout: &[u8]) -> AgentOutput {
+        AgentOutput {
+            backend: AgentBackend::OpenCode,
+            command_for_metrics: vec!["fake-opencode".to_string()],
+            segments: Vec::new(),
+            exit_status: Some(0),
+            success: true,
+            stdout: stdout.to_vec(),
+            stderr: Vec::new(),
+            provider: Some("fake-local".to_string()),
+            model: Some(DEFAULT_OPENCODE_LOCAL_MODEL.to_string()),
+            model_arg: Some(format!("fake-local/{DEFAULT_OPENCODE_LOCAL_MODEL}")),
+            session_label: Some("worker-session".to_string()),
+            session_id: Some("ses_worker".to_string()),
+            resume_session_id: None,
+            session_reused: false,
+            interrupted_by_supervisor: false,
+            supervisor_control_action: None,
+            supervisor_control_events: Vec::new(),
+            timed_out: false,
+            idle_timed_out: false,
+            heartbeat_count: 0,
+            require_local: false,
+            local_inference_verified: false,
+            gpu_activity_observed: false,
+            backend_activity_observed: false,
+            verification_notes: Vec::new(),
+        }
+    }
+
+    fn oversized_patch() -> String {
+        let mut patch = String::from(
+            "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n",
+        );
+        for line in 0..600 {
+            patch.push_str(&format!("+line {line}\n"));
+        }
+        patch
+    }
+
+    #[test]
+    fn forced_worker_self_review_bypasses_soft_context_gates() {
+        let output = successful_worker_output(
+            br#"
+{"type":"step_finish","part":{"tokens":{"total":30000}}}
+ContextOverflowError: exceeds the available context size
+"#,
+        );
+
+        assert_eq!(
+            worker_self_review_skip_reason(
+                true,
+                false,
+                DelegationMode::Patch,
+                true,
+                &output,
+                &oversized_patch(),
+            ),
+            Some("context_overflow_observed".to_string())
+        );
+        assert_eq!(
+            worker_self_review_skip_reason(
+                true,
+                true,
+                DelegationMode::Patch,
+                true,
+                &output,
+                &oversized_patch(),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn forced_worker_self_review_keeps_hard_prerequisites() {
+        let output = successful_worker_output(b"");
+
+        assert_eq!(
+            worker_self_review_skip_reason(true, true, DelegationMode::Patch, true, &output, ""),
+            Some("empty_patch".to_string())
+        );
+        assert_eq!(
+            worker_self_review_skip_reason(
+                false,
+                true,
+                DelegationMode::Patch,
+                true,
+                &output,
+                &oversized_patch(),
+            ),
+            Some("disabled".to_string())
+        );
+    }
 }

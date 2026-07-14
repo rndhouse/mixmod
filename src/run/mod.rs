@@ -213,7 +213,10 @@ impl MixmodRun<'_> {
                 .as_ref()
                 .is_some_and(|ctx| ctx.delta_expected),
         );
-        let mut worker_self_review = WorkerSelfReview::new(worker_self_review);
+        let worker_self_review_forced =
+            env_bool("MIXMOD_WORKER_SELF_REVIEW_FORCE").unwrap_or(false);
+        let mut worker_self_review =
+            WorkerSelfReview::new(worker_self_review, worker_self_review_forced);
 
         write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
 
@@ -468,6 +471,7 @@ impl MixmodRun<'_> {
         }
         worker_self_review.reason = worker_self_review_skip_reason(
             worker_self_review.enabled,
+            worker_self_review.forced,
             mode,
             expect_patch,
             &output,
@@ -703,6 +707,7 @@ impl MixmodRun<'_> {
             worker_self_review_triggered: worker_self_review.triggered,
             worker_self_review_performed: worker_self_review.performed,
             worker_self_review_patch_changed: worker_self_review.patch_changed,
+            worker_self_review_forced: worker_self_review.forced,
             worker_self_review_reason: worker_self_review.reason.clone(),
             worker_self_review_run_dir: worker_self_review.run_dir.clone(),
             require_local: output.require_local,

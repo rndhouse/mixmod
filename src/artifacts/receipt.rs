@@ -61,6 +61,7 @@ pub struct RunMetrics {
     pub worker_self_review_triggered: bool,
     pub worker_self_review_performed: bool,
     pub worker_self_review_patch_changed: bool,
+    pub worker_self_review_forced: bool,
     pub worker_self_review_reason: Option<String>,
     pub worker_self_review_run_dir: Option<String>,
     pub require_local: bool,
