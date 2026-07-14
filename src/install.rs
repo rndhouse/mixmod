@@ -1,5 +1,5 @@
 use crate::*;
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 
 pub fn init_project(root: &Path) -> Result<()> {
     ensure_project_state(root, true)
@@ -270,7 +270,7 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
             "mode": "primary",
             "prompt": mixmod_opencode_agent_prompt(),
             "permission": {
-                "read": "allow",
+                "read": "deny",
                 "glob": "allow",
                 "grep": "allow",
                 "list": "allow",
@@ -356,6 +356,16 @@ fn previous_opencode_config_content_for_provider(provider: &str, name: &str) -> 
 fn mixmod_opencode_agent_prompt() -> &'static str {
     "You are the Mixmod worker. The supervisor model reviews your output and remains the final authority.\n\
 Use the Mixmod worker task as the source of truth.\n\
+The full-file read tool is disabled. Inspect files with bounded shell commands such as `rg`, `sed -n 'start,endp'`, `nl -ba file | sed -n 'start,endp'`, `head`, or `tail`.\n\
+Do not print whole large files, generated files, vendored files, lockfiles, snapshots, or build outputs into context. Use targeted searches or line ranges instead.\n\
+When the task says `Expected repository patch: yes`, a plan, todo list, or explanation is not complete by itself. Inspect the relevant files narrowly, make the smallest necessary repository edits, and confirm the repository diff is non-empty before finalizing. If no patch is actually needed, say that explicitly and explain the blocker or reason compactly.\n\
+When the task says `Expected repository patch: no`, do not invent edits; answer or investigate compactly as requested.\n\
+Do not inspect Mixmod-managed state or artifact directories. Keep final output concise."
+}
+
+fn previous_mixmod_opencode_agent_prompt() -> &'static str {
+    "You are the Mixmod worker. The supervisor model reviews your output and remains the final authority.\n\
+Use the Mixmod worker task as the source of truth.\n\
 When the task says `Expected repository patch: yes`, a plan, todo list, or explanation is not complete by itself. Read the relevant files, make the smallest necessary repository edits, and confirm the repository diff is non-empty before finalizing. If no patch is actually needed, say that explicitly and explain the blocker or reason compactly.\n\
 When the task says `Expected repository patch: no`, do not invent edits; answer or investigate compactly as requested.\n\
 Do not inspect Mixmod-managed state or artifact directories. Keep final output concise."
@@ -410,7 +420,54 @@ pub(crate) fn is_managed_file(path: &Path) -> bool {
         && (content.trim_end() == opencode_config_content().trim_end()
             || content.trim_end() == previous_opencode_config_content().trim_end()
             || content.trim_end() == legacy_opencode_config_content().trim_end()
-            || content.trim_end() == previous_legacy_opencode_config_content().trim_end())
+            || content.trim_end() == previous_legacy_opencode_config_content().trim_end()
+            || is_managed_opencode_json(&content))
+}
+
+fn is_managed_opencode_json(content: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(content) else {
+        return false;
+    };
+    if get_bool(&value, "autoupdate") != Some(false) {
+        return false;
+    }
+    if get_str(&value, "default_agent") != Some(MIXMOD_OPENCODE_AGENT) {
+        return false;
+    }
+
+    let Some(agent) = value
+        .get("agent")
+        .and_then(|agents| agents.get(MIXMOD_OPENCODE_AGENT))
+    else {
+        return false;
+    };
+    if get_str(agent, "description") != Some("Mixmod supervised code worker") {
+        return false;
+    }
+    if get_str(agent, "mode") != Some("primary") {
+        return false;
+    }
+    let Some(prompt) = get_str(agent, "prompt") else {
+        return false;
+    };
+    if prompt != mixmod_opencode_agent_prompt() && prompt != previous_mixmod_opencode_agent_prompt()
+    {
+        return false;
+    }
+
+    let Some(permission) = agent.get("permission") else {
+        return false;
+    };
+    let read = get_str(permission, "read");
+    if read != Some("allow") && read != Some("deny") {
+        return false;
+    }
+    get_str(permission, "edit") == Some("allow")
+        && get_str(permission, "bash") == Some("allow")
+        && get_str(permission, "task") == Some("deny")
+        && get_str(permission, "webfetch") == Some("deny")
+        && get_str(permission, "websearch") == Some("deny")
+        && get_str(permission, "external_directory") == Some("deny")
 }
 
 fn file_state(path: &Path) -> String {
