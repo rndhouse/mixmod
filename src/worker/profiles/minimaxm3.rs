@@ -20,5 +20,8 @@ pub(super) fn profile() -> WorkerModelProfile {
             "It may eagerly regenerate files or keep generator sidecars after a source edit; ask it to leave only intentional tracked outputs and summarize the generator command/result when generated output changes.".to_string(),
             "If the worker starts broad repo reading, generated-file inspection, or test-before-edit behavior without a useful diff, revise with a tighter patch_request rather than expanding context further.".to_string(),
         ],
+        enable_auto_followups: false,
+        enable_worker_self_review: false,
+        enable_forced_context_focus: false,
     }
 }

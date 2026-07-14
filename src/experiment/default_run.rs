@@ -64,14 +64,17 @@ impl DefaultExperimentRun<'_> {
             .supervisor_init
             .unwrap_or(config.strategy.supervisor_init);
         let live_supervision = config.strategy.live_supervision.clone();
-        let worker_self_review =
-            env_bool("MIXMOD_WORKER_SELF_REVIEW").unwrap_or(config.strategy.worker_self_review);
         let worker_guidance = config
             .worker_supervisor_guidance()
             .with_patch_line_overrides(
                 options.worker_target_patch_lines,
                 options.worker_max_patch_lines,
             );
+        let worker_self_review = env_bool("MIXMOD_WORKER_SELF_REVIEW")
+            .unwrap_or_else(|| worker_guidance.worker_self_review_enabled())
+            && worker_guidance.worker_self_review_enabled();
+        let worker_auto_followups = worker_guidance.auto_followups_enabled();
+        let worker_forced_context_focus = worker_guidance.forced_context_focus_enabled();
         let default_dir = exp_dir.join("default");
         let logs_dir = default_dir.join("logs");
         fs::create_dir_all(&logs_dir).with_context(|| {
@@ -139,9 +142,10 @@ impl DefaultExperimentRun<'_> {
             options.require_local,
             WorkerRunOptions {
                 resume_session_id: None,
-                allow_auto_followups: !(options.stop_after_first_worker
-                    || options.stop_after_first_review
-                    || options.stop_after_worker_turns.is_some()),
+                allow_auto_followups: worker_auto_followups
+                    && !(options.stop_after_first_worker
+                        || options.stop_after_first_review
+                        || options.stop_after_worker_turns.is_some()),
                 worker_self_review,
                 supervisor_advisor: live_supervisor_advisor(&live_supervisor),
             },
@@ -199,7 +203,9 @@ impl DefaultExperimentRun<'_> {
                     break;
                 }
 
-                force_context_focus_after_worker_context_overflow(&mut decision, &final_out)?;
+                if worker_forced_context_focus {
+                    force_context_focus_after_worker_context_overflow(&mut decision, &final_out)?;
+                }
                 append_jsonl(&feedback_path, &decision.feedback)?;
 
                 if decision.verdict_kind().is_terminal() {
@@ -237,7 +243,8 @@ impl DefaultExperimentRun<'_> {
                         options.require_local,
                         WorkerRunOptions {
                             resume_session_id,
-                            allow_auto_followups: options.stop_after_worker_turns.is_none(),
+                            allow_auto_followups: worker_auto_followups
+                                && options.stop_after_worker_turns.is_none(),
                             worker_self_review,
                             supervisor_advisor: live_supervisor_advisor(&live_supervisor),
                         },
@@ -330,6 +337,8 @@ impl DefaultExperimentRun<'_> {
             "stop_after_first_review": options.stop_after_first_review,
             "stop_after_worker_turns": options.stop_after_worker_turns,
             "worker_self_review": worker_self_review,
+            "worker_auto_followups": worker_auto_followups,
+            "worker_forced_context_focus_after_overflow": worker_forced_context_focus,
             "worker_target_patch_lines": worker_guidance.target_patch_lines,
             "worker_max_patch_lines": worker_guidance.max_patch_lines,
             "worker_brief": WORKER_BRIEF_JSON,

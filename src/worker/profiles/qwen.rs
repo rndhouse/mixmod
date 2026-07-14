@@ -32,5 +32,8 @@ pub(super) fn profile() -> WorkerModelProfile {
             "For large functions or code-generation paths, describe the smallest local transformation; include a literal anchor only when it prevents worker wandering without much supervisor output.".to_string(),
             "When tests cannot start because dependencies are missing, keep the worker focused on repo-level evidence and allowed commands instead of global environment repair.".to_string(),
         ],
+        enable_auto_followups: true,
+        enable_worker_self_review: true,
+        enable_forced_context_focus: true,
     }
 }

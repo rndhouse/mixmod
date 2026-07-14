@@ -19,6 +19,12 @@ pub(crate) struct WorkerModelProfile {
     pub(crate) max_patch_lines: Option<u64>,
     /// Supervisor-only guidance for adapting worker instructions.
     pub(crate) supervisor_guidance: Vec<String>,
+    /// Enable Mixmod-owned retry turns after empty worker patches.
+    pub(crate) enable_auto_followups: bool,
+    /// Enable Mixmod-owned same-session worker self-review cleanup.
+    pub(crate) enable_worker_self_review: bool,
+    /// Enable Mixmod forcing fresh worker context after observed overflow.
+    pub(crate) enable_forced_context_focus: bool,
 }
 
 impl WorkerModelProfile {
@@ -48,6 +54,9 @@ pub(crate) struct WorkerSupervisorGuidance {
     pub(crate) target_patch_lines: Option<u64>,
     pub(crate) max_patch_lines: Option<u64>,
     pub(crate) guidance: Vec<String>,
+    pub(crate) enable_auto_followups: bool,
+    pub(crate) enable_worker_self_review: bool,
+    pub(crate) enable_forced_context_focus: bool,
 }
 
 impl WorkerSupervisorGuidance {
@@ -55,6 +64,9 @@ impl WorkerSupervisorGuidance {
         self.guidance.is_empty()
             && self.target_patch_lines.is_none()
             && self.max_patch_lines.is_none()
+            && !self.enable_auto_followups
+            && !self.enable_worker_self_review
+            && !self.enable_forced_context_focus
     }
 
     pub(crate) fn with_patch_line_overrides(
@@ -69,6 +81,21 @@ impl WorkerSupervisorGuidance {
             self.max_patch_lines = max_patch_lines;
         }
         self
+    }
+
+    /// Return whether Mixmod may run automatic no-delta worker follow-ups.
+    pub(crate) fn auto_followups_enabled(&self) -> bool {
+        self.enable_auto_followups
+    }
+
+    /// Return whether Mixmod may run same-session worker self-review.
+    pub(crate) fn worker_self_review_enabled(&self) -> bool {
+        self.enable_worker_self_review
+    }
+
+    /// Return whether Mixmod may force fresh worker context after overflow.
+    pub(crate) fn forced_context_focus_enabled(&self) -> bool {
+        self.enable_forced_context_focus
     }
 }
 

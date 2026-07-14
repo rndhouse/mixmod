@@ -19,6 +19,9 @@ pub(super) fn local_flash_profile() -> WorkerModelProfile {
             "Prefer worker_mode=continue for revisions so it keeps accumulated file context; use context_focus only when the previous worker context is clearly harmful.".to_string(),
             "Before accepting a turn, check whether the diff is too broad or destructive for the requested patch.".to_string(),
         ],
+        enable_auto_followups: true,
+        enable_worker_self_review: false,
+        enable_forced_context_focus: true,
     }
 }
 
@@ -42,5 +45,8 @@ pub(super) fn openrouter_glm_5_2_profile() -> WorkerModelProfile {
             "For revisions, anchor the next instruction to the current accumulated patch, preserve useful existing edits, and name the next missing behavior instead of restarting discovery.".to_string(),
             "Before approval, check that the accumulated patch implements the requested end-to-end behavior, not just the first structural field or helper, and require focused behavior evidence for the main path plus likely invalid or edge case.".to_string(),
         ],
+        enable_auto_followups: true,
+        enable_worker_self_review: false,
+        enable_forced_context_focus: true,
     }
 }

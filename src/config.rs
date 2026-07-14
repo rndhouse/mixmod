@@ -72,6 +72,9 @@ impl MixmodConfig {
                     target_patch_lines: profile.target_patch_lines,
                     max_patch_lines: profile.max_patch_lines,
                     guidance: profile.supervisor_guidance,
+                    enable_auto_followups: profile.enable_auto_followups,
+                    enable_worker_self_review: profile.enable_worker_self_review,
+                    enable_forced_context_focus: profile.enable_forced_context_focus,
                 })
                 .unwrap_or_default(),
             WorkerBackend::Codex => WorkerSupervisorGuidance::default(),
