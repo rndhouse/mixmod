@@ -10,6 +10,15 @@ pub(crate) struct WorkerMetricsSummary {
     pub(crate) local_reasoning_trace_event_count: u64,
     pub(crate) local_tool_events_bytes: u64,
     pub(crate) local_tool_event_count: u64,
+    pub(crate) worker_input_tokens: u64,
+    pub(crate) worker_cached_input_tokens: u64,
+    pub(crate) worker_cache_write_tokens: u64,
+    pub(crate) worker_output_tokens: u64,
+    pub(crate) worker_reasoning_tokens: u64,
+    pub(crate) worker_total_tokens: u64,
+    pub(crate) worker_reported_cost_usd: f64,
+    pub(crate) worker_token_step_count: u64,
+    pub(crate) worker_token_usage_comparable: bool,
     pub(crate) opencode_session_ids: Vec<String>,
     pub(crate) opencode_session_labels: Vec<String>,
     pub(crate) worker_session_reuse_count: u64,
@@ -35,6 +44,18 @@ impl WorkerMetricsSummary {
             ),
             local_tool_events_bytes: sum_u64(worker_metrics, "tool_events_bytes"),
             local_tool_event_count: sum_u64(worker_metrics, "tool_event_count"),
+            worker_input_tokens: sum_u64(worker_metrics, "worker_input_tokens"),
+            worker_cached_input_tokens: sum_u64(worker_metrics, "worker_cached_input_tokens"),
+            worker_cache_write_tokens: sum_u64(worker_metrics, "worker_cache_write_tokens"),
+            worker_output_tokens: sum_u64(worker_metrics, "worker_output_tokens"),
+            worker_reasoning_tokens: sum_u64(worker_metrics, "worker_reasoning_tokens"),
+            worker_total_tokens: sum_u64(worker_metrics, "worker_total_tokens"),
+            worker_reported_cost_usd: sum_f64(worker_metrics, "worker_reported_cost_usd"),
+            worker_token_step_count: sum_u64(worker_metrics, "worker_token_step_count"),
+            worker_token_usage_comparable: !worker_metrics.is_empty()
+                && worker_metrics.iter().all(|metrics| {
+                    get_bool(metrics, "worker_token_usage_comparable").unwrap_or(false)
+                }),
             opencode_session_ids: collect_strings(worker_metrics, "opencode_session_id"),
             opencode_session_labels: collect_strings(worker_metrics, "opencode_session_label"),
             worker_session_reuse_count: worker_metrics
@@ -75,6 +96,13 @@ fn sum_u64(worker_metrics: &[Value], key: &str) -> u64 {
     worker_metrics
         .iter()
         .map(|metrics| get_u64(metrics, key).unwrap_or(0))
+        .sum()
+}
+
+fn sum_f64(worker_metrics: &[Value], key: &str) -> f64 {
+    worker_metrics
+        .iter()
+        .map(|metrics| metrics.get(key).and_then(Value::as_f64).unwrap_or(0.0))
         .sum()
 }
 

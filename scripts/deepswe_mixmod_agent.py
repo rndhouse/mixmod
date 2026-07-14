@@ -434,6 +434,13 @@ def sum_field(records: list[dict], field: str) -> int | None:
         return None
     return sum(values)
 
+def sum_float_field(records: list[dict], field: str) -> float | None:
+    values = [record.get(field) for record in records]
+    values = [value for value in values if isinstance(value, (int, float))]
+    if not values:
+        return None
+    return float(sum(values))
+
 def any_bool(values: list[object]) -> bool | None:
     bools = [value for value in values if isinstance(value, bool)]
     if not bools:
@@ -584,6 +591,28 @@ summary = {{
     "supervisor_output_tokens": metrics.get("supervisor_output_tokens") or sum_field(feedback, "supervisor_output_tokens"),
     "supervisor_reasoning_tokens": metrics.get("supervisor_reasoning_tokens") or sum_field(feedback, "supervisor_reasoning_tokens"),
     "supervisor_total_tokens": metrics.get("supervisor_total_tokens") or sum_field(feedback, "supervisor_total_tokens"),
+    "worker_input_tokens": metrics.get("worker_input_tokens") or sum_field(worker_metrics, "worker_input_tokens"),
+    "worker_cached_input_tokens": metrics.get("worker_cached_input_tokens") or sum_field(worker_metrics, "worker_cached_input_tokens"),
+    "worker_cache_write_tokens": metrics.get("worker_cache_write_tokens") or sum_field(worker_metrics, "worker_cache_write_tokens"),
+    "worker_output_tokens": metrics.get("worker_output_tokens") or sum_field(worker_metrics, "worker_output_tokens"),
+    "worker_reasoning_tokens": metrics.get("worker_reasoning_tokens") or sum_field(worker_metrics, "worker_reasoning_tokens"),
+    "worker_total_tokens": metrics.get("worker_total_tokens") or sum_field(worker_metrics, "worker_total_tokens"),
+    "worker_reported_cost_usd": metrics.get("worker_reported_cost_usd") or sum_float_field(worker_metrics, "worker_reported_cost_usd"),
+    "worker_token_step_count": metrics.get("worker_token_step_count") or sum_field(worker_metrics, "worker_token_step_count"),
+    "worker_token_usage_source": metrics.get("worker_token_usage_source")
+        or latest_completed_worker.get("worker_token_usage_source"),
+    "worker_token_usage_scope": metrics.get("worker_token_usage_scope")
+        or latest_completed_worker.get("worker_token_usage_scope"),
+    "worker_token_usage_comparable": metrics.get("worker_token_usage_comparable")
+        if metrics.get("worker_token_usage_comparable") is not None
+        else (
+            all(
+                item.get("worker_token_usage_comparable") is True
+                for item in worker_metrics
+            )
+            if worker_metrics
+            else None
+        ),
     "codex_calls": metrics.get("codex_calls") or len(feedback) or None,
     "opencode_calls": metrics.get("opencode_calls") or len(worker_dirs) or len(worker_metrics) or None,
     "worker_runs_observed": len(worker_dirs) or None,

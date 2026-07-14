@@ -9,7 +9,9 @@ mod report;
 mod session;
 
 pub(crate) use command::shell_command;
-pub(crate) use context::{WorkerContextSignals, worker_context_signals, worker_session_token_peak};
+pub(crate) use context::{
+    WorkerContextSignals, worker_context_signals, worker_session_token_peak, worker_token_usage,
+};
 pub(crate) use prompts::build_opencode_instruction;
 use recovery::{
     EmptyPatchFollowup, EmptyPatchFollowupRequest, RevisionNoopContext, RevisionNoopFollowup,
@@ -636,6 +638,7 @@ impl MixmodRun<'_> {
             ));
         }
         let worker_session_token_peak = worker_session_token_peak(&output.stdout);
+        let worker_token_usage = worker_token_usage(&output.stdout);
         if worker_session_token_peak.is_some_and(|tokens| tokens >= 24_000) {
             notes.push(
                 "Worker session token peak was high; prefer a smaller next slice or worker_mode=context_focus if another revision is needed."
@@ -740,6 +743,25 @@ impl MixmodRun<'_> {
             context_overflow_count: context_overflow.context_overflow_count,
             context_overflow_last_message: context_overflow.context_overflow_last_message.clone(),
             worker_session_token_peak,
+            worker_input_tokens: worker_token_usage.input_tokens,
+            worker_cached_input_tokens: worker_token_usage.cached_input_tokens,
+            worker_cache_write_tokens: worker_token_usage.cache_write_tokens,
+            worker_output_tokens: worker_token_usage.output_tokens,
+            worker_reasoning_tokens: worker_token_usage.reasoning_tokens,
+            worker_total_tokens: worker_token_usage.total_tokens,
+            worker_reported_cost_usd: worker_token_usage.reported_cost_usd,
+            worker_token_step_count: worker_token_usage.step_count,
+            worker_token_usage_source: if worker_token_usage.step_count > 0 {
+                Some("opencode_step_finish_tokens".to_string())
+            } else {
+                None
+            },
+            worker_token_usage_scope: if worker_token_usage.step_count > 0 {
+                Some("worker_run_step_sum".to_string())
+            } else {
+                None
+            },
+            worker_token_usage_comparable: worker_token_usage.step_count > 0,
             reasoning_trace_bytes,
             reasoning_trace_event_count,
             opencode_events_bytes,

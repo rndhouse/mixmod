@@ -125,7 +125,7 @@ pub(crate) use run::{
 #[cfg(test)]
 pub(crate) use run::{
     build_opencode_instruction, build_run_summary, opencode_exit_status_label,
-    worker_context_signals,
+    worker_context_signals, worker_token_usage,
 };
 pub(crate) use state::state_layout;
 pub(crate) use strategy_metrics::WorkerMetricsSummary;

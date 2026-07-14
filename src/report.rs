@@ -14,6 +14,12 @@ pub(crate) fn budgeted_report(name: &str, metrics: &Value) -> String {
 - Supervisor model: {supervisor_model}
 - Supervisor reasoning effort: {reasoning_effort}
 - Supervisor turns: {turns}
+- Worker input tokens: {worker_input_tokens}
+- Worker cached input tokens: {worker_cached_input_tokens}
+- Worker output tokens: {worker_output_tokens}
+- Worker reasoning tokens: {worker_reasoning_tokens}
+- Worker reported cost USD: {worker_reported_cost_usd}
+- Worker token usage comparable: {worker_token_comparable}
 - Supervisor control events: {supervisor_control_count}
 - Supervisor control interrupts: {supervisor_control_interrupts}
 - Supervisor control actions: {supervisor_control_actions}
@@ -38,6 +44,17 @@ Default strategy result is `{status}` for this arm. This arm uses the supervisor
         supervisor_model = get_str(metrics, "supervisor_model").unwrap_or("unknown"),
         reasoning_effort = get_str(metrics, "supervisor_reasoning_effort").unwrap_or("unknown"),
         turns = get_u64(metrics, "supervision_turn_count").unwrap_or(0),
+        worker_input_tokens = get_u64(metrics, "worker_input_tokens").unwrap_or(0),
+        worker_cached_input_tokens = get_u64(metrics, "worker_cached_input_tokens").unwrap_or(0),
+        worker_output_tokens = get_u64(metrics, "worker_output_tokens").unwrap_or(0),
+        worker_reasoning_tokens = get_u64(metrics, "worker_reasoning_tokens").unwrap_or(0),
+        worker_reported_cost_usd = metrics
+            .get("worker_reported_cost_usd")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0),
+        worker_token_comparable = get_bool(metrics, "worker_token_usage_comparable")
+            .map(yes_no)
+            .unwrap_or("unknown"),
         supervisor_control_count = get_u64(metrics, "supervisor_control_count").unwrap_or(0),
         supervisor_control_interrupts =
             get_u64(metrics, "supervisor_control_interrupts").unwrap_or(0),

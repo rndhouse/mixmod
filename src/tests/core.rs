@@ -94,6 +94,27 @@ not json
 }
 
 #[test]
+fn worker_token_usage_sums_open_code_step_tokens_separately() {
+    let stdout = br#"
+not json
+{"type":"step_finish","part":{"cost":0.0125,"tokens":{"cache":{"read":100,"write":2},"input":10,"output":5,"reasoning":3,"total":118}}}
+{"type":"reasoning","part":{"text":"ignore"}}
+{"type":"step_finish","part":{"cost":0.003,"tokens":{"cache":{"read":200,"write":0},"input":20,"output":7,"reasoning":4,"total":231}}}
+"#;
+
+    let usage = worker_token_usage(stdout);
+
+    assert_eq!(usage.input_tokens, 30);
+    assert_eq!(usage.cached_input_tokens, 300);
+    assert_eq!(usage.cache_write_tokens, 2);
+    assert_eq!(usage.output_tokens, 12);
+    assert_eq!(usage.reasoning_tokens, 7);
+    assert_eq!(usage.total_tokens, 349);
+    assert!((usage.reported_cost_usd - 0.0155).abs() < f64::EPSILON);
+    assert_eq!(usage.step_count, 2);
+}
+
+#[test]
 fn worker_session_token_peak_ignores_stdout_without_token_events() {
     let stdout = br#"
 {"type":"reasoning","part":{"text":"still thinking"}}
