@@ -166,7 +166,7 @@ impl DefaultExperimentRun<'_> {
         } else {
             Some(loop {
                 let decision_index = opencode_calls;
-                let decision = if let Some(decision) = pending_supervisor_control.take() {
+                let mut decision = if let Some(decision) = pending_supervisor_control.take() {
                     decision
                 } else {
                     let label = if decision_index == 1 {
@@ -198,11 +198,13 @@ impl DefaultExperimentRun<'_> {
                     supervisor_samples.push(decision.usage_sample());
                     decision
                 };
-                append_jsonl(&feedback_path, &decision.feedback)?;
-
                 if options.stop_after_first_review && decision_index == 1 {
+                    append_jsonl(&feedback_path, &decision.feedback)?;
                     break decision;
                 }
+
+                force_context_focus_after_worker_context_overflow(&mut decision, &final_out)?;
+                append_jsonl(&feedback_path, &decision.feedback)?;
 
                 match decision.verdict.as_str() {
                     "approve" | "stop" => break decision,

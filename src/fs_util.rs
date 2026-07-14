@@ -144,6 +144,60 @@ pub(crate) fn supervisor_control_decision_from_metrics(
     }))
 }
 
+pub(crate) fn force_context_focus_after_worker_context_overflow(
+    decision: &mut SupervisorFeedbackTurn,
+    previous_run_dir: &Path,
+) -> Result<bool> {
+    if matches!(decision.verdict.as_str(), "approve" | "stop") || decision.worker_mode != "continue"
+    {
+        return Ok(false);
+    }
+
+    let metrics_path = previous_run_dir.join(METRICS_JSON);
+    if !metrics_path.exists() {
+        return Ok(false);
+    }
+    let metrics = read_json_file(&metrics_path)?;
+    let context_overflow_count = get_u64(&metrics, "context_overflow_count").unwrap_or(0);
+    if context_overflow_count == 0 {
+        return Ok(false);
+    }
+
+    decision.worker_mode = "context_focus".to_string();
+    record_context_overflow_session_hygiene(
+        &mut decision.feedback,
+        previous_run_dir,
+        context_overflow_count,
+    );
+    Ok(true)
+}
+
+fn record_context_overflow_session_hygiene(
+    feedback: &mut Value,
+    previous_run_dir: &Path,
+    context_overflow_count: u64,
+) {
+    let hygiene = json!({
+        "worker_mode_forced": true,
+        "from": "continue",
+        "to": "context_focus",
+        "reason": "previous_worker_context_overflow",
+        "source_run": previous_run_dir.to_string_lossy(),
+        "context_overflow_count": context_overflow_count,
+    });
+
+    let Value::Object(map) = feedback else {
+        return;
+    };
+    map.insert("session_hygiene".to_string(), hygiene);
+    if map.contains_key("worker_mode") {
+        map.insert("worker_mode".to_string(), json!("context_focus"));
+    }
+    if let Some(Value::Object(inner)) = map.get_mut("feedback") {
+        inner.insert("worker_mode".to_string(), json!("context_focus"));
+    }
+}
+
 fn revision_handoff_from_supervisor_control(
     control: &Value,
     no_delta_recovery: bool,

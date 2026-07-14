@@ -104,6 +104,69 @@ plain backend line
 }
 
 #[test]
+fn worker_context_overflow_forces_next_revision_context_focus() {
+    let temp = TempDir::new().unwrap();
+    let previous_run = temp.path();
+    write_pretty_json(
+        &previous_run.join(METRICS_JSON),
+        &json!({
+            "context_overflow_count": 2,
+            "opencode_session_id": "ses_overflowed"
+        }),
+        "worker metrics",
+    )
+    .unwrap();
+
+    let mut decision = SupervisorFeedbackTurn {
+        feedback: json!({
+            "label": "critique",
+            "feedback": {
+                "action": "revise",
+                "worker_mode": "continue",
+                "message_to_worker": "make the next focused edit"
+            }
+        }),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "revise_current".to_string(),
+        hint: "make the next focused edit".to_string(),
+        revision_handoff: RevisionHandoff::default(),
+        focus_files: vec![],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+        token_usage_comparable: true,
+    };
+
+    let changed =
+        force_context_focus_after_worker_context_overflow(&mut decision, previous_run).unwrap();
+
+    assert!(changed);
+    assert_eq!(decision.worker_mode, "context_focus");
+    assert_eq!(
+        decision
+            .feedback
+            .get("feedback")
+            .and_then(|feedback| get_str(feedback, "worker_mode")),
+        Some("context_focus")
+    );
+    let hygiene = decision.feedback.get("session_hygiene").unwrap();
+    assert_eq!(get_bool(hygiene, "worker_mode_forced"), Some(true));
+    assert_eq!(
+        get_str(hygiene, "reason"),
+        Some("previous_worker_context_overflow")
+    );
+    assert_eq!(get_u64(hygiene, "context_overflow_count"), Some(2));
+}
+
+#[test]
 fn codex_usage_reads_rollout_total_token_usage() {
     let stdout = br#"
 {"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":2,"reasoning_output_tokens":1,"total_tokens":12}}}}
