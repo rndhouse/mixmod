@@ -15,6 +15,7 @@ pub(super) fn local_flash_profile() -> WorkerModelProfile {
             "It tends to act readily, but can rewrite or delete too much when asked for broad source changes.".to_string(),
             "For broad expected-patch tasks, prefer worker_turn_shape=patch_request with one source behavior, one focused file, a bounded goal, optional exact_edits when precision is needed, and no tests before editing.".to_string(),
             "For large functions or code-generation paths, include preservation constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete or reindent unrelated branches, and edit only the focused block.".to_string(),
+            "If generated output changes, watch for unrelated regenerated churn or transient tool sidecars; ask it to leave only intentional tracked outputs in the diff.".to_string(),
             "Prefer worker_mode=continue for revisions so it keeps accumulated file context; use context_focus only when the previous worker context is clearly harmful.".to_string(),
             "Before accepting a turn, check whether the diff is too broad or destructive for the requested patch.".to_string(),
         ],
@@ -33,6 +34,7 @@ pub(super) fn openrouter_glm_5_2_profile() -> WorkerModelProfile {
         supervisor_guidance: vec![
             "This worker is capable, but may over-investigate when the handoff contains an apparent implementation constraint conflict or an unresolved toolchain choice.".to_string(),
             "For generated-code, parser/compiler, toolchain, or similar trap-prone tasks, resolve the implementation route in the supervisor handoff before invoking the worker; do not ask the worker to discover whether the obvious route is viable.".to_string(),
+            "For generated outputs, make the expected command and acceptable output boundary explicit; ask it to report broad unrelated generator churn rather than carrying it forward.".to_string(),
             "When the supervisor has selected a route, tell the worker to trust that route unless a direct compile, test, or command result proves it impossible.".to_string(),
             "For broad expected-patch tasks, prefer worker_turn_shape=bounded_feature_slice with one concrete implementation path, one to three focused files, and the first reversible source edit named explicitly.".to_string(),
             "Make the initial handoff patch-first: include the chosen strategy, the exact next behavior slice, the files to touch, and deferred checks; avoid leaving design forks for the worker to resolve before editing.".to_string(),

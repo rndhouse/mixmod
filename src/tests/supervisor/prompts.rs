@@ -30,6 +30,9 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("Prefer latest-turn evidence first"));
     assert!(prompt.contains("Avoid opening worktree.patch unless approval"));
     assert!(prompt.contains("do not inspect more artifacts, logs, or diff content"));
+    assert!(prompt.contains("For generated-output diffs"));
+    assert!(prompt.contains("Avoid opening whole generated files"));
+    assert!(prompt.contains("transient tool sidecars"));
     assert!(prompt.contains("Approve only when the accumulated patch appears to satisfy"));
     assert!(prompt.contains("Before approving, inspect task.json and enough accumulated state"));
     assert!(prompt.contains("false approval as a terminal correctness failure"));
@@ -231,10 +234,12 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("files list as a likely read queue"));
     assert!(brief_prompt.contains("do not list large or generated files"));
     assert!(brief_prompt.contains("human-authored source edits"));
-    assert!(brief_prompt.contains("generated artifacts"));
+    assert!(brief_prompt.contains("generated outputs"));
+    assert!(brief_prompt.contains("intentional generated-output step"));
     assert!(brief_prompt.contains("separate authored-source edits"));
     assert!(brief_prompt.contains("after a source diff exists"));
     assert!(brief_prompt.contains("not manual full-file inspection"));
+    assert!(brief_prompt.contains("transient generator/debug/build sidecars"));
     assert!(brief_prompt.contains("changed-file lists and patch stats"));
     assert!(brief_prompt.contains("helpers, options, parser/generated code"));
     assert!(brief_prompt.contains("Do not trust compile success"));
@@ -283,6 +288,8 @@ fn supervisor_prompts_include_openrouter_glm_worker_guidance() {
     assert!(brief_prompt.contains("openrouter/z-ai/glm-5.2"));
     assert!(brief_prompt.contains("over-investigate"));
     assert!(brief_prompt.contains("resolve the implementation route"));
+    assert!(brief_prompt.contains("acceptable output boundary"));
+    assert!(brief_prompt.contains("unrelated generator churn"));
     assert!(brief_prompt.contains("trust that route"));
     assert!(brief_prompt.contains("worker_turn_shape=bounded_feature_slice"));
     assert!(brief_prompt.contains("prefer worker_turn_shape=\"bounded_feature_slice\""));

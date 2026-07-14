@@ -44,6 +44,7 @@ Choose the cheapest reliable next worker handoff:
 - For expected-patch implementation handoffs, obey the worker shape contract before choosing field detail.
 - Choose the largest coherent request this worker is likely to complete cleanly. Do not make requests tiny by default; broaden when the worker can bear it, narrow when ambiguity or context risk is high.
 - If the route is clear, hand off concrete source edits instead of spending GPT output explaining the whole solution.
+- For generated outputs, keep the request bounded to intentional repo outputs. Ask the worker to leave no transient generator/debug/build sidecars and to report broad unrelated generator churn instead of carrying it forward.
 
 Handoff requirements:
 - Emit minified JSON only; no markdown, no explanation.
@@ -562,6 +563,7 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
 - worktree.patch is the accumulated current diff; changes.patch is only the latest worker-turn delta. Avoid opening worktree.patch unless approval, rollback, or integration with prior edits depends on it.
 {tool_evidence}
 - Minimize supervisor input tokens: do not inspect more artifacts, logs, or diff content once the next action is clear.
+- For generated-output diffs, inspect authored-source changes and patch stats first. Avoid opening whole generated files; judge whether generated changes are bounded expected outputs and free of transient tool sidecars.
 - Approve only when the accumulated patch appears to satisfy the original task and no worker action or check remains. Before approving, inspect task.json and enough accumulated state to verify completion.
 - Treat a false approval as a terminal correctness failure. If evidence is missing for the main requested behavior or a likely edge case, choose revise for a targeted verification or repair turn.
 - On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
