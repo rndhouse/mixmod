@@ -2,6 +2,8 @@ use serde_json::{Value, json};
 
 use crate::get_str;
 
+use super::types::{PatchDecision, SupervisorVerdict, WorkerMode};
+
 pub(super) fn parse_feedback_json(text: &str) -> Option<Value> {
     if let Ok(value) = serde_json::from_str::<Value>(text.trim()) {
         return Some(normalize_supervisor_json_value(value));
@@ -87,56 +89,34 @@ fn first_object_string<'a>(
         .find(|value| !value.is_empty())
 }
 
-pub(crate) fn normalize_feedback_value(mut value: Value) -> (Value, String) {
+pub(crate) fn normalize_feedback_value(mut value: Value) -> (Value, SupervisorVerdict) {
     let raw = get_str(&value, "verdict")
         .or_else(|| get_str(&value, "action"))
         .unwrap_or("revise")
         .to_string();
     let verdict = normalize_supervisor_verdict(&raw);
     if let Value::Object(map) = &mut value {
-        if raw != verdict {
+        if raw != verdict.as_str() {
             map.insert("raw_verdict".to_string(), json!(raw));
         }
-        map.insert("verdict".to_string(), json!(verdict.clone()));
-        map.insert("action".to_string(), json!(verdict.clone()));
+        map.insert("verdict".to_string(), json!(verdict.as_str()));
+        map.insert("action".to_string(), json!(verdict.as_str()));
     }
     (value, verdict)
 }
 
-pub(super) fn normalize_supervisor_verdict(value: &str) -> String {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "approve" | "approved" => "approve".to_string(),
-        "stop" | "stopped" | "halt" | "done" | "needs_user" | "needs-user" => "stop".to_string(),
-        "revise" | "revision" | "needs_revision" | "needs-review" | "needs_review" | "reject"
-        | "rejected" => "revise".to_string(),
-        _ => "revise".to_string(),
-    }
+pub(super) fn normalize_supervisor_verdict(value: &str) -> SupervisorVerdict {
+    SupervisorVerdict::from_raw(value)
 }
 
-pub(super) fn normalize_patch_decision(value: Option<&str>) -> String {
-    match value
-        .unwrap_or("accept_current")
-        .trim()
-        .to_ascii_lowercase()
-        .replace('-', "_")
-        .as_str()
-    {
-        "revise_previous" | "previous" | "keep_previous" | "restore_previous"
-        | "recover_previous" => "revise_previous".to_string(),
-        "revise_current" | "current_revision" | "continue_current" => "revise_current".to_string(),
-        _ => "accept_current".to_string(),
-    }
+pub(super) fn normalize_patch_decision_kind(value: Option<&str>) -> PatchDecision {
+    PatchDecision::from_raw(value)
 }
 
 pub(crate) fn normalize_worker_mode(value: Option<&str>) -> String {
-    match value
-        .unwrap_or("continue")
-        .trim()
-        .to_ascii_lowercase()
-        .replace('-', "_")
-        .as_str()
-    {
-        "context_focus" | "focused" | "focus" | "fresh" | "reset" => "context_focus".to_string(),
-        _ => "continue".to_string(),
-    }
+    normalize_worker_mode_kind(value).as_str().to_string()
+}
+
+pub(crate) fn normalize_worker_mode_kind(value: Option<&str>) -> WorkerMode {
+    WorkerMode::from_raw(value)
 }

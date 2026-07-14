@@ -8,7 +8,8 @@ use crate::*;
 
 use super::codex::SupervisorCodexSession;
 use super::normalize::{
-    normalize_feedback_value, normalize_patch_decision, normalize_worker_mode, parse_feedback_json,
+    normalize_feedback_value, normalize_patch_decision_kind, normalize_worker_mode,
+    normalize_worker_mode_kind, parse_feedback_json,
 };
 use super::prompts::{
     supervisor_feedback_approval_consistency_repair_prompt, supervisor_feedback_prompt,
@@ -21,7 +22,9 @@ use super::repair::{
     supervisor_feedback_needs_patch_request_repair, supervisor_feedback_repair_rejection_reason,
     worker_brief_needs_patch_request_repair, worker_brief_repair_rejection_reason,
 };
-use super::types::{RevisionHandoff, SupervisorBriefTurn, SupervisorFeedbackTurn};
+use super::types::{
+    RevisionHandoff, SupervisorBriefTurn, SupervisorFeedbackTurn, SupervisorVerdict,
+};
 
 pub(crate) fn run_supervisor_brief_turn(
     session: &mut SupervisorCodexSession,
@@ -198,20 +201,22 @@ pub(crate) fn run_supervisor_brief_turn(
 pub(super) fn approval_consistency_rejection(feedback: &Value) -> Option<String> {
     let (feedback, verdict) = normalize_feedback_value(feedback.clone());
     let typed_feedback = SupervisorFeedback::from_value(&feedback);
-    approval_consistency_rejection_reason(&verdict, &typed_feedback)
+    approval_consistency_rejection_reason(verdict, &typed_feedback)
 }
 
 pub(super) fn approval_consistency_repair_is_accepted(feedback: &Value) -> bool {
     let (feedback, verdict) = normalize_feedback_value(feedback.clone());
-    matches!(verdict.as_str(), "approve" | "revise")
-        && approval_consistency_rejection(&feedback).is_none()
+    matches!(
+        verdict,
+        SupervisorVerdict::Approve | SupervisorVerdict::Revise
+    ) && approval_consistency_rejection(&feedback).is_none()
 }
 
 fn approval_consistency_rejection_reason(
-    verdict: &str,
+    verdict: SupervisorVerdict,
     feedback: &SupervisorFeedback,
 ) -> Option<String> {
-    if verdict != "approve" {
+    if verdict != SupervisorVerdict::Approve {
         return None;
     }
     let pending = pending_approval_check_items(feedback);
@@ -478,7 +483,7 @@ pub(crate) fn run_supervisor_feedback_turn(
     }
     let (mut parsed_feedback, mut verdict) = normalize_feedback_value(parsed_feedback);
     let mut typed_feedback = SupervisorFeedback::from_value(&parsed_feedback);
-    if let Some(rejection_reason) = approval_consistency_rejection_reason(&verdict, &typed_feedback)
+    if let Some(rejection_reason) = approval_consistency_rejection_reason(verdict, &typed_feedback)
     {
         let repair_prompt = supervisor_feedback_approval_consistency_repair_prompt(
             work_dir,
@@ -545,17 +550,17 @@ pub(crate) fn run_supervisor_feedback_turn(
         verdict = normalized.1;
         typed_feedback = SupervisorFeedback::from_value(&parsed_feedback);
     }
-    let worker_mode = normalize_worker_mode(typed_feedback.worker_mode.as_deref());
-    let patch_decision = normalize_patch_decision(typed_feedback.patch_decision.as_deref());
+    let worker_mode = normalize_worker_mode_kind(typed_feedback.worker_mode.as_deref());
+    let patch_decision = normalize_patch_decision_kind(typed_feedback.patch_decision.as_deref());
     let revision_handoff = RevisionHandoff::from_feedback(&typed_feedback);
     if let Value::Object(map) = &mut parsed_feedback {
-        map.insert("worker_mode".to_string(), json!(worker_mode.clone()));
-        map.insert("patch_decision".to_string(), json!(patch_decision.clone()));
+        map.insert("worker_mode".to_string(), json!(worker_mode.as_str()));
+        map.insert("patch_decision".to_string(), json!(patch_decision.as_str()));
     }
     let turn = SupervisorFeedbackTurn {
-        verdict,
-        worker_mode,
-        patch_decision,
+        verdict: verdict.as_str().to_string(),
+        worker_mode: worker_mode.as_str().to_string(),
+        patch_decision: patch_decision.as_str().to_string(),
         hint: typed_feedback
             .message_to_worker
             .or(typed_feedback.hint)

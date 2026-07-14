@@ -4,6 +4,141 @@ use serde_json::Value;
 
 use crate::SupervisorFeedback;
 
+/// Normalized supervisor decision for the worker loop.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SupervisorVerdict {
+    /// The accumulated patch is accepted.
+    Approve,
+    /// The worker should make another focused attempt.
+    Revise,
+    /// The loop should stop without approval.
+    Stop,
+}
+
+impl SupervisorVerdict {
+    /// Return the stable artifact string for this verdict.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Approve => "approve",
+            Self::Revise => "revise",
+            Self::Stop => "stop",
+        }
+    }
+
+    /// Parse a loose model-produced verdict into the protocol enum.
+    pub(crate) fn from_raw(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "approve" | "approved" => Self::Approve,
+            "stop" | "stopped" | "halt" | "done" | "needs_user" | "needs-user" => Self::Stop,
+            "revise" | "revision" | "needs_revision" | "needs-review" | "needs_review"
+            | "reject" | "rejected" => Self::Revise,
+            _ => Self::Revise,
+        }
+    }
+
+    /// Return whether no additional worker turn should be started.
+    pub(crate) fn is_terminal(self) -> bool {
+        matches!(self, Self::Approve | Self::Stop)
+    }
+}
+
+/// Normalized worker session mode requested by the supervisor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WorkerMode {
+    /// Continue the current worker backend session.
+    Continue,
+    /// Start a fresh worker backend session on the current worktree.
+    ContextFocus,
+}
+
+impl WorkerMode {
+    /// Return the stable artifact string for this worker mode.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Continue => "continue",
+            Self::ContextFocus => "context_focus",
+        }
+    }
+
+    /// Parse a loose model-produced worker mode into the protocol enum.
+    pub(crate) fn from_raw(value: Option<&str>) -> Self {
+        match value
+            .unwrap_or("continue")
+            .trim()
+            .to_ascii_lowercase()
+            .replace('-', "_")
+            .as_str()
+        {
+            "context_focus" | "focused" | "focus" | "fresh" | "reset" => Self::ContextFocus,
+            _ => Self::Continue,
+        }
+    }
+}
+
+/// Normalized patch checkpoint decision for the next worker turn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PatchDecision {
+    /// Keep the current accumulated worktree patch.
+    AcceptCurrent,
+    /// Continue revising the current accumulated patch.
+    ReviseCurrent,
+    /// Restore the previous candidate patch before revising.
+    RevisePrevious,
+}
+
+impl PatchDecision {
+    /// Return the stable artifact string for this patch decision.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::AcceptCurrent => "accept_current",
+            Self::ReviseCurrent => "revise_current",
+            Self::RevisePrevious => "revise_previous",
+        }
+    }
+
+    /// Parse a loose model-produced patch decision into the protocol enum.
+    pub(crate) fn from_raw(value: Option<&str>) -> Self {
+        match value
+            .unwrap_or("accept_current")
+            .trim()
+            .to_ascii_lowercase()
+            .replace('-', "_")
+            .as_str()
+        {
+            "revise_previous" | "previous" | "keep_previous" | "restore_previous"
+            | "recover_previous" => Self::RevisePrevious,
+            "revise_current" | "current_revision" | "continue_current" => Self::ReviseCurrent,
+            _ => Self::AcceptCurrent,
+        }
+    }
+}
+
+/// Normalized shape of the next worker turn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WorkerTurnShape {
+    /// Ask the worker to inspect narrowly and propose the next patch request.
+    PlanningProbe,
+    /// Ask for one focused source edit.
+    PatchRequest,
+    /// Ask for a coherent bounded feature chunk.
+    BoundedFeatureSlice,
+    /// Use the default worker instruction shape.
+    Default,
+}
+
+impl WorkerTurnShape {
+    /// Parse a model-produced worker-turn shape when one was provided.
+    pub(crate) fn from_raw(value: Option<&str>) -> Option<Self> {
+        match value?.trim() {
+            "planning_probe" => Some(Self::PlanningProbe),
+            "patch_request" => Some(Self::PatchRequest),
+            "bounded_feature_slice" => Some(Self::BoundedFeatureSlice),
+            "default" => Some(Self::Default),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct SupervisorFeedbackTurn {
     pub(crate) feedback: Value,
@@ -58,26 +193,41 @@ impl RevisionHandoff {
         if self.expect_patch == Some(false) {
             return false;
         }
-        self.worker_turn_shape
-            .as_deref()
-            .is_some_and(|shape| shape.trim() == "patch_request")
+        self.worker_turn_shape() == Some(WorkerTurnShape::PatchRequest)
     }
 
     pub(crate) fn is_bounded_feature_slice(&self) -> bool {
         if self.expect_patch == Some(false) {
             return false;
         }
-        self.worker_turn_shape
-            .as_deref()
-            .is_some_and(|shape| shape.trim() == "bounded_feature_slice")
+        self.worker_turn_shape() == Some(WorkerTurnShape::BoundedFeatureSlice)
     }
 
     pub(crate) fn is_planning_probe(&self) -> bool {
         self.expect_patch == Some(false)
-            && self
-                .worker_turn_shape
-                .as_deref()
-                .is_some_and(|shape| shape.trim() == "planning_probe")
+            && self.worker_turn_shape() == Some(WorkerTurnShape::PlanningProbe)
+    }
+
+    /// Return the normalized worker turn shape, when one was supplied.
+    pub(crate) fn worker_turn_shape(&self) -> Option<WorkerTurnShape> {
+        WorkerTurnShape::from_raw(self.worker_turn_shape.as_deref())
+    }
+}
+
+impl SupervisorFeedbackTurn {
+    /// Return the normalized verdict for this turn.
+    pub(crate) fn verdict_kind(&self) -> SupervisorVerdict {
+        SupervisorVerdict::from_raw(&self.verdict)
+    }
+
+    /// Return the normalized worker mode for this turn.
+    pub(crate) fn worker_mode_kind(&self) -> WorkerMode {
+        WorkerMode::from_raw(Some(&self.worker_mode))
+    }
+
+    /// Return the normalized patch decision for this turn.
+    pub(crate) fn patch_decision_kind(&self) -> PatchDecision {
+        PatchDecision::from_raw(Some(&self.patch_decision))
     }
 }
 

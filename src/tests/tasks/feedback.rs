@@ -9,7 +9,7 @@ fn feedback_reject_is_normalized_to_revise() {
         "required_checks": ["python -m unittest -q"]
     }));
 
-    assert_eq!(verdict, "revise");
+    assert_eq!(verdict, SupervisorVerdict::Revise);
     assert_eq!(get_str(&feedback, "verdict"), Some("revise"));
     assert_eq!(get_str(&feedback, "raw_verdict"), Some("reject"));
 }
@@ -23,7 +23,7 @@ fn feedback_stop_is_preserved_as_codex_stop() {
         "required_checks": []
     }));
 
-    assert_eq!(verdict, "stop");
+    assert_eq!(verdict, SupervisorVerdict::Stop);
     assert_eq!(get_str(&feedback, "verdict"), Some("stop"));
     assert_eq!(get_str(&feedback, "action"), Some("stop"));
 }

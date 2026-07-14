@@ -9,7 +9,7 @@ use chrono::Utc;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::{METRICS_JSON, RevisionHandoff, SupervisorFeedbackTurn};
+use crate::{METRICS_JSON, RevisionHandoff, SupervisorFeedbackTurn, WorkerMode};
 
 pub(crate) fn append_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -148,7 +148,7 @@ pub(crate) fn force_context_focus_after_worker_context_overflow(
     decision: &mut SupervisorFeedbackTurn,
     previous_run_dir: &Path,
 ) -> Result<bool> {
-    if matches!(decision.verdict.as_str(), "approve" | "stop") || decision.worker_mode != "continue"
+    if decision.verdict_kind().is_terminal() || decision.worker_mode_kind() != WorkerMode::Continue
     {
         return Ok(false);
     }
@@ -163,7 +163,7 @@ pub(crate) fn force_context_focus_after_worker_context_overflow(
         return Ok(false);
     }
 
-    decision.worker_mode = "context_focus".to_string();
+    decision.worker_mode = WorkerMode::ContextFocus.as_str().to_string();
     record_context_overflow_session_hygiene(
         &mut decision.feedback,
         previous_run_dir,

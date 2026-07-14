@@ -3,7 +3,7 @@ use serde_json::Value;
 use crate::*;
 
 use super::normalize::normalize_supervisor_verdict;
-use super::types::RevisionHandoff;
+use super::types::{RevisionHandoff, SupervisorVerdict, WorkerTurnShape};
 
 pub(super) fn worker_brief_needs_patch_request_repair(
     brief: &Value,
@@ -21,13 +21,14 @@ pub(super) fn worker_brief_needs_patch_request_repair(
         return false;
     }
     let expect_patch = typed.expect_patch.unwrap_or(handoff != "as_given");
-    if !expect_patch && typed.worker_turn_shape.as_deref() == Some("planning_probe") {
+    if !expect_patch
+        && WorkerTurnShape::from_raw(typed.worker_turn_shape.as_deref())
+            == Some(WorkerTurnShape::PlanningProbe)
+    {
         return false;
     }
-    let patch_request = typed
-        .worker_turn_shape
-        .as_deref()
-        .is_some_and(|shape| shape.trim() == "patch_request");
+    let patch_request = WorkerTurnShape::from_raw(typed.worker_turn_shape.as_deref())
+        == Some(WorkerTurnShape::PatchRequest);
     if !expect_patch {
         return false;
     }
@@ -52,7 +53,7 @@ pub(super) fn supervisor_feedback_needs_patch_request_repair(
     let raw_verdict = get_str(feedback, "verdict")
         .or_else(|| get_str(feedback, "action"))
         .unwrap_or("revise");
-    if normalize_supervisor_verdict(raw_verdict) != "revise" {
+    if normalize_supervisor_verdict(raw_verdict) != SupervisorVerdict::Revise {
         return false;
     }
     if worker_guidance_prefers_bounded_feature_slice(worker_guidance) {
@@ -63,7 +64,8 @@ pub(super) fn supervisor_feedback_needs_patch_request_repair(
     }
     let typed = SupervisorFeedback::from_value(feedback);
     if typed.expect_patch == Some(false)
-        && typed.worker_turn_shape.as_deref() == Some("planning_probe")
+        && WorkerTurnShape::from_raw(typed.worker_turn_shape.as_deref())
+            == Some(WorkerTurnShape::PlanningProbe)
     {
         return false;
     }

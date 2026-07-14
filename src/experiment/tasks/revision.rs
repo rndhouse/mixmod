@@ -96,9 +96,9 @@ pub(crate) fn write_revision_task(
     constraints.sort();
     constraints.dedup();
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
-    let patch_decision_note = if decision.patch_decision == "revise_previous" {
+    let patch_decision_note = if decision.patch_decision_kind() == PatchDecision::RevisePrevious {
         "\nPatch checkpoint decision: revise_previous. Mixmod has restored the previous candidate patch in the worktree before this turn. Apply only the focused follow-up edit from the supervisor message below. Do not read Mixmod artifacts directly.\n"
-    } else if decision.patch_decision == "revise_current" {
+    } else if decision.patch_decision_kind() == PatchDecision::ReviseCurrent {
         "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues the supervisor identified.\n"
     } else {
         ""
@@ -121,7 +121,7 @@ pub(crate) fn write_revision_task(
             completion_gate: explicit_completion_gate,
             patch_decision_note,
         })
-    } else if decision.worker_mode == "context_focus" {
+    } else if decision.worker_mode_kind() == WorkerMode::ContextFocus {
         format!(
             "Original task instructions:\n{original_instructions}\n\nThe supervisor requested worker_mode=context_focus.\nThis starts a new worker session on the current worktree.\nTreat this as a fresh focused worker attempt and ignore previous worker reasoning unless it is repeated here.{patch_decision_note}\nSupervisor message to worker:\n{}\n\n{focus_note}\nRequired checks: {:?}\nIf checks cannot run because of local environment problems, make the code/test edit first and report the blocker compactly.",
             decision.hint, decision.required_checks
@@ -516,7 +516,9 @@ fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {
     if decision.revision_handoff.expect_patch == Some(false) {
         return false;
     }
-    decision.verdict == "revise"
-        || decision.patch_decision == "revise_current"
-        || decision.patch_decision == "revise_previous"
+    decision.verdict_kind() == SupervisorVerdict::Revise
+        || matches!(
+            decision.patch_decision_kind(),
+            PatchDecision::ReviseCurrent | PatchDecision::RevisePrevious
+        )
 }

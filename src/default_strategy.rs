@@ -197,71 +197,72 @@ impl DefaultStrategyRun<'_> {
                 force_context_focus_after_worker_context_overflow(&mut decision, &final_out)?;
                 append_jsonl(&feedback_path, &decision.feedback)?;
 
-                match decision.verdict.as_str() {
-                    "approve" | "stop" => break decision,
-                    _ => {
-                        let mut worker_decision = decision.clone();
-                        let previous_patch_source =
-                            if worker_decision.patch_decision == "revise_previous" {
-                                restore_previous_patch_checkpoint(root, &final_out)?;
-                                worker_decision.worker_mode = "context_focus".to_string();
-                                final_out.join(PREVIOUS_WORKTREE_PATCH)
-                            } else {
-                                final_out.join(WORKTREE_PATCH)
-                            };
-                        worker_modes.push(worker_decision.worker_mode.clone());
-                        let resume_session_id = if worker_decision.worker_mode == "continue" {
-                            Some(active_opencode_session_id.clone().ok_or_else(|| {
+                if decision.verdict_kind().is_terminal() {
+                    break decision;
+                } else {
+                    let mut worker_decision = decision.clone();
+                    let previous_patch_source = if worker_decision.patch_decision_kind()
+                        == PatchDecision::RevisePrevious
+                    {
+                        restore_previous_patch_checkpoint(root, &final_out)?;
+                        worker_decision.worker_mode = WorkerMode::ContextFocus.as_str().to_string();
+                        final_out.join(PREVIOUS_WORKTREE_PATCH)
+                    } else {
+                        final_out.join(WORKTREE_PATCH)
+                    };
+                    worker_modes.push(worker_decision.worker_mode.clone());
+                    let resume_session_id = if worker_decision.worker_mode_kind()
+                        == WorkerMode::Continue
+                    {
+                        Some(active_opencode_session_id.clone().ok_or_else(|| {
                                 anyhow!(
                                     "The supervisor requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
                                     final_out.join(METRICS_JSON).display()
                                 )
                             })?)
-                        } else {
-                            None
-                        };
-                        let revision_task = write_revision_task(
-                            root,
-                            &task_file,
-                            &out_dir,
-                            "exec",
-                            &worker_decision,
-                            decision_index,
-                        )?;
-                        let revision_out_name = if decision_index == 1 {
-                            "revision".to_string()
-                        } else {
-                            format!("revision-{decision_index}")
-                        };
-                        final_out = worker_runs_dir.join(revision_out_name);
-                        let revision_receipt = run_mixmod_task_with_worker_options(
-                            root,
-                            DelegationMode::Patch,
-                            &revision_task,
-                            &final_out,
-                            runner.as_ref(),
-                            false,
-                            WorkerRunOptions {
-                                resume_session_id,
-                                allow_auto_followups: true,
-                                worker_self_review,
-                                supervisor_advisor: live_supervisor_advisor(&live_supervisor),
-                            },
-                        )?;
-                        ensure_worker_run_verified(&out_dir, &revision_receipt, &final_out)?;
-                        write_patch_checkpoint_comparison_from_patch(
-                            &previous_patch_source,
-                            &final_out,
-                            &worker_decision,
-                        )?;
-                        opencode_calls += 1;
-                        worker_run_dirs.push(final_out.clone());
-                        write_supervision_loop_summary(&out_dir, &worker_run_dirs)?;
-                        active_opencode_session_id =
-                            read_opencode_session_id_from_metrics(&final_out)?;
-                        pending_supervisor_control =
-                            supervisor_control_decision_from_metrics(&final_out)?;
-                    }
+                    } else {
+                        None
+                    };
+                    let revision_task = write_revision_task(
+                        root,
+                        &task_file,
+                        &out_dir,
+                        "exec",
+                        &worker_decision,
+                        decision_index,
+                    )?;
+                    let revision_out_name = if decision_index == 1 {
+                        "revision".to_string()
+                    } else {
+                        format!("revision-{decision_index}")
+                    };
+                    final_out = worker_runs_dir.join(revision_out_name);
+                    let revision_receipt = run_mixmod_task_with_worker_options(
+                        root,
+                        DelegationMode::Patch,
+                        &revision_task,
+                        &final_out,
+                        runner.as_ref(),
+                        false,
+                        WorkerRunOptions {
+                            resume_session_id,
+                            allow_auto_followups: true,
+                            worker_self_review,
+                            supervisor_advisor: live_supervisor_advisor(&live_supervisor),
+                        },
+                    )?;
+                    ensure_worker_run_verified(&out_dir, &revision_receipt, &final_out)?;
+                    write_patch_checkpoint_comparison_from_patch(
+                        &previous_patch_source,
+                        &final_out,
+                        &worker_decision,
+                    )?;
+                    opencode_calls += 1;
+                    worker_run_dirs.push(final_out.clone());
+                    write_supervision_loop_summary(&out_dir, &worker_run_dirs)?;
+                    active_opencode_session_id = read_opencode_session_id_from_metrics(&final_out)?;
+                    pending_supervisor_control =
+                        supervisor_control_decision_from_metrics(&final_out)?;
                 }
             })
         };
