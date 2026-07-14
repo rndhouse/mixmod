@@ -332,6 +332,14 @@ copy_if_exists(run_dir / "supervisor-feedback.jsonl", agent_dir / "supervisor-fe
 for name in ["task.json", "worker-brief.json", "worker-task.json"]:
     copy_if_exists(run_dir / name, agent_dir / name)
 
+run_logs = run_dir / "logs"
+if run_logs.exists():
+    target_logs = agent_dir / "logs"
+    target_logs.mkdir(parents=True, exist_ok=True)
+    for source in sorted(run_logs.glob("codex*")):
+        if source.is_file():
+            copy_if_exists(source, target_logs / source.name)
+
 def worker_dir_sort_key(path: Path) -> tuple[int, int, str]:
     name = path.name
     if name == "proposal":
@@ -550,6 +558,8 @@ except OSError:
 summary = {{
     "snapshot_status": "final" if metrics else "in_progress_or_interrupted",
     "worker_backend": metrics.get("worker_backend") or latest_completed_worker.get("worker_backend"),
+    "supervisor_stdout_bytes": file_len(agent_dir / "logs" / "codex.stdout.txt"),
+    "supervisor_stderr_bytes": file_len(agent_dir / "logs" / "codex.stderr.txt"),
     "supervisor_input_tokens": metrics.get("supervisor_input_tokens") or sum_field(feedback, "supervisor_input_tokens"),
     "supervisor_cached_input_tokens": metrics.get("supervisor_cached_input_tokens") or sum_field(feedback, "supervisor_cached_input_tokens"),
     "supervisor_output_tokens": metrics.get("supervisor_output_tokens") or sum_field(feedback, "supervisor_output_tokens"),

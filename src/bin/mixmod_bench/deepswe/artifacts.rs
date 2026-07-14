@@ -282,6 +282,8 @@ fn important_artifacts(target: &Path) -> BTreeMap<String, String> {
         ("mixmod_summary", "agent/mixmod-summary.json"),
         ("mixmod_metrics", "agent/mixmod-metrics.json"),
         ("mixmod_final_patch", "agent/mixmod-final.patch"),
+        ("supervisor_stdout", "agent/logs/codex.stdout.txt"),
+        ("supervisor_stderr", "agent/logs/codex.stderr.txt"),
         ("model_patch", "artifacts/model.patch"),
         ("git_status", "artifacts/git-status.txt"),
     ];
@@ -545,6 +547,7 @@ mod tests {
         let pool = temp.path().join("job-output");
         let job_dir = temp.path().join("pier-jobs/job-1");
         let trial_dir = job_dir.join("trial-a");
+        fs::create_dir_all(trial_dir.join("agent/logs")).unwrap();
         fs::create_dir_all(trial_dir.join("agent/worker-runs/proposal/logs")).unwrap();
         fs::create_dir_all(trial_dir.join("artifacts")).unwrap();
         fs::write(
@@ -553,6 +556,11 @@ mod tests {
         )
         .unwrap();
         fs::write(trial_dir.join("agent/supervisor-feedback.jsonl"), "{}\n").unwrap();
+        fs::write(
+            trial_dir.join("agent/logs/codex.stdout.txt"),
+            "{\"method\":\"item/completed\"}\n",
+        )
+        .unwrap();
         fs::write(
             trial_dir.join("agent/worker-runs/proposal/logs/opencode.stdout.txt"),
             "thinking\n",
@@ -565,7 +573,16 @@ mod tests {
         let bundle_dir = pool.join("tasks/mashumaro-flattened-dataclass-fields");
         assert!(bundle_dir.join("artifact-manifest.json").exists());
         assert!(bundle_dir.join("agent/supervisor-feedback.jsonl").exists());
+        assert!(bundle_dir.join("agent/logs/codex.stdout.txt").exists());
         assert!(bundle_dir.join("artifacts/model.patch").exists());
+        let manifest: Value = serde_json::from_str(
+            &fs::read_to_string(bundle_dir.join("artifact-manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            manifest["important_artifacts"]["supervisor_stdout"].as_str(),
+            Some("agent/logs/codex.stdout.txt")
+        );
         assert!(pool.join("artifact-bundles.json").exists());
         assert_eq!(
             fs::read_to_string(pool.parent().unwrap().join("latest.txt")).unwrap(),
