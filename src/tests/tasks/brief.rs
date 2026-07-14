@@ -96,11 +96,11 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("completion_gate"));
     assert!(prompt.contains("obey the worker shape contract"));
-    assert!(prompt.contains("largest coherent slice"));
+    assert!(prompt.contains("largest coherent request"));
     assert!(prompt.contains("If the route is clear"));
     assert!(prompt.contains("concrete source edits"));
     assert!(prompt.contains("Handoff requirements:"));
-    assert!(prompt.contains("do not duplicate it in message_to_worker"));
+    assert!(prompt.contains("exact_edits is optional"));
     assert!(prompt.contains("immediately executable edit instructions"));
     assert!(prompt.contains("only anchors or evidence"));
     assert!(prompt.contains("only for acceptance criteria"));
@@ -239,13 +239,13 @@ fn patch_request_worker_task_preserves_explicit_supervisor_gate() {
     assert!(instructions.contains("No user will answer questions"));
     assert!(instructions.contains("Do not ask questions."));
     assert!(instructions.contains("Do not run tests before editing."));
-    assert!(instructions.contains("Patch slice goal: Create the first metadata plumbing patch."));
+    assert!(instructions.contains("Patch request goal: Create the first metadata plumbing patch."));
     assert!(instructions.contains("1. Add flatten: bool = False to field_options."));
     assert!(instructions.contains("2. Add flatten_prefix: Optional"));
     assert!(instructions.contains("3. Add flatten_rename: Optional"));
     assert!(instructions.contains("4. Return all three keys in the metadata dict."));
     assert!(instructions.contains("5. Update tests/test_helper.py expectations"));
-    assert!(instructions.contains("Supervisor-requested patch slice:"));
+    assert!(instructions.contains("Supervisor-provided edit details:"));
     assert!(instructions.contains("Worker edit packet:"));
     assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
     assert!(
@@ -257,6 +257,41 @@ fn patch_request_worker_task_preserves_explicit_supervisor_gate() {
     assert!(!instructions.contains("Supervisor handoff JSON"));
     assert!(!instructions.contains("python -m pytest tests/test_helper.py"));
     assert_eq!(worker_task["context"]["worker_brief"], brief);
+}
+
+#[test]
+fn patch_request_worker_task_allows_goal_without_exact_edits() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Checkout totals",
+  "instructions": "Fix typed checkout totals.",
+  "files": ["checkout.py"],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "worker_turn_shape": "patch_request",
+        "turn_goal": "Fix the typed checkout total calculation.",
+        "files": ["checkout.py"],
+        "defer_checks_until_patch_exists": true
+    });
+    let worker_task_path =
+        write_worker_brief_task(root, &task, &brief, &root.join("default")).unwrap();
+    let worker_task = read_json_file(&worker_task_path).unwrap();
+    let instructions = get_str(&worker_task, "instructions").unwrap();
+
+    assert!(instructions.contains("Patch request goal: Fix the typed checkout total calculation."));
+    assert!(!instructions.contains("Supervisor-provided edit details:"));
+    assert!(instructions.contains("Relevant files:"));
+    assert!(instructions.contains("- checkout.py"));
 }
 
 #[test]
@@ -331,7 +366,7 @@ fn planning_probe_worker_task_is_no_patch_and_proposal_only() {
         "handoff": "guided",
         "expect_patch": false,
         "worker_turn_shape": "planning_probe",
-        "turn_goal": "Propose the next authored-source patch slice.",
+        "turn_goal": "Propose the next authored-source patch request.",
         "files": ["checkout.py"],
         "planning_questions": [
             "Which one or two source edits should happen next?",

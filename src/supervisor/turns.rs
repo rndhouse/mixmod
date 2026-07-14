@@ -18,8 +18,8 @@ use super::prompts::{
 };
 use super::repair::{
     repaired_brief_is_accepted, repaired_feedback_is_accepted,
-    supervisor_feedback_needs_revision_slice_repair, supervisor_feedback_repair_rejection_reason,
-    worker_brief_needs_small_slice_repair, worker_brief_repair_rejection_reason,
+    supervisor_feedback_needs_patch_request_repair, supervisor_feedback_repair_rejection_reason,
+    worker_brief_needs_patch_request_repair, worker_brief_repair_rejection_reason,
 };
 use super::types::{RevisionHandoff, SupervisorBriefTurn, SupervisorFeedbackTurn};
 
@@ -52,7 +52,7 @@ pub(crate) fn run_supervisor_brief_turn(
     let mut thread_id = result.thread_id.clone();
     let mut turn_id = result.turn_id.clone();
     let mut token_usage_comparable = result.token_usage_comparable;
-    if worker_brief_needs_small_slice_repair(&final_brief, worker_guidance) {
+    if worker_brief_needs_patch_request_repair(&final_brief, worker_guidance) {
         let repair_prompt = supervisor_worker_brief_repair_prompt(
             work_dir,
             task_path,
@@ -358,7 +358,7 @@ pub(crate) fn run_supervisor_feedback_turn(
     let mut thread_id = result.thread_id.clone();
     let mut turn_id = result.turn_id.clone();
     let mut token_usage_comparable = result.token_usage_comparable;
-    if supervisor_feedback_needs_revision_slice_repair(&parsed_feedback, worker_guidance) {
+    if supervisor_feedback_needs_patch_request_repair(&parsed_feedback, worker_guidance) {
         let repair_prompt = supervisor_feedback_repair_prompt(
             work_dir,
             artifact_paths,

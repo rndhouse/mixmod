@@ -235,7 +235,7 @@ mod tests {
     use crate::{atomic_write, supervisor_review_artifact_paths};
 
     #[test]
-    fn loop_summary_counts_small_patch_delta_streak() {
+    fn loop_summary_counts_patch_request_delta_streak() {
         let temp = TempDir::new().unwrap();
         let default_dir = temp.path().join("default");
         let worker_root = temp.path().join("worker-runs");

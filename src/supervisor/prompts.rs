@@ -42,7 +42,7 @@ Choose the cheapest reliable next worker handoff:
 - Use "guided" or "focused" for normal implementation work.
 - Use worker_turn_shape="planning_probe" with expect_patch=false only when a short worker investigation can save supervisor output or avoid a bad implementation handoff. Ask for a compact proposal, not edits.
 - For expected-patch implementation handoffs, obey the worker shape contract before choosing field detail.
-- Choose the largest coherent slice this worker is likely to complete cleanly. Do not make slices tiny by default; broaden when the worker can bear it, narrow when ambiguity or context risk is high.
+- Choose the largest coherent request this worker is likely to complete cleanly. Do not make requests tiny by default; broaden when the worker can bear it, narrow when ambiguity or context risk is high.
 - If the route is clear, hand off concrete source edits instead of spending GPT output explaining the whole solution.
 
 Handoff requirements:
@@ -51,16 +51,16 @@ Handoff requirements:
 - Include "expect_patch":true when the worker should edit the repo.
 - Use concrete repo file paths, not directories.
 - message_to_worker is only the short command the worker should follow.
-- exact_edits is the implementation instruction list; do not duplicate it in message_to_worker.
-- exact_edits must be immediately executable edit instructions; do not use broad "investigate/understand/design" wording there.
+- exact_edits is optional. Use it only when you already know the precise source edit or when a prior worker turn drifted.
+- If exact_edits is present, use immediately executable edit instructions; do not use broad "investigate/understand/design" wording there.
 - Put checks in deferred_checks when they should run only after a non-empty diff exists.
-- edit_packet/source_snippets are only anchors or evidence; do not restate exact_edits there.
-- completion_gate is only for acceptance criteria not already covered by exact_edits or deferred_checks.
+- edit_packet/source_snippets are only anchors or evidence; do not restate other fields there.
+- completion_gate is only for acceptance criteria not already covered by the patch request or deferred_checks.
 - forbidden_actions is only for task-specific limits beyond normal noninteractive worker behavior.
 - Omit optional fields unless they reduce worker confusion or supervisor output.
 
 JSON shape:
-{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["concrete edit"],"edit_packet":["optional anchor"],"source_snippets":["optional source"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"completion_gate":"optional gate","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["optional concrete edit"],"edit_packet":["optional anchor"],"source_snippets":["optional source"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"completion_gate":"optional gate","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -94,23 +94,23 @@ pub(crate) fn supervisor_worker_brief_repair_prompt(
         r#"You are revising your Mixmod supervisor handoff before the worker sees it.
 {worktree_policy}
 Do not run tests. Emit minified JSON only; no markdown and no explanation.
-Your previous handoff did not fit the selected worker profile because it either omitted worker_turn_shape=patch_request or used a patch_request that still bundled too much work.
-Mixmod is not designing a replacement slice for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
+Your previous handoff did not fit the selected worker profile because it either omitted worker_turn_shape=patch_request, lacked a bounded patch goal, or bundled too much work.
+Mixmod is not designing a replacement request for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
 {worker_guidance}
 Return a corrected expected-patch handoff with:
 - "handoff":"guided"
 - "expect_patch":true
 - "worker_turn_shape":"patch_request"
-- one turn_goal for the first patch slice only
+- one turn_goal for the first patch request only
 - concrete repo file paths for the focused source behavior, usually <=3
-- exact_edits must be an array of one or two command-style string items; do not use objects
-- source exact_edits only, plus no test edit in exact_edits
+- exact_edits is optional; include one or two command-style string items only when that saves supervisor output or corrects worker drift
+- source exact_edits only when included, plus no test edit in exact_edits
 - edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your repo investigation
 - no checks unless listed in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
-- forbidden_actions including "ask questions" and "run tests before editing"
-Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
+- forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
+Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one request. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
 Include a concrete symbol and a literal nearby code anchor when possible, such as `near the line containing "..."`.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
@@ -155,21 +155,21 @@ pub(crate) fn supervisor_worker_brief_repair_retry_prompt(
 {worktree_policy}
 Do not run tests. Emit minified JSON only; no markdown and no explanation.
 The previous repair still did not fit the selected worker profile: {rejection_reason}
-Mixmod is not designing a replacement slice for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
+Mixmod is not designing a replacement request for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
 {worker_guidance}
 Return one corrected expected-patch handoff with:
 - "handoff":"guided"
 - "expect_patch":true
 - "worker_turn_shape":"patch_request"
-- one turn_goal for the first patch slice only
+- one turn_goal for the first patch request only
 - concrete repo file paths for the focused source behavior, usually <=3
-- exact_edits as an array of one or two command-style string items; do not use objects
+- exact_edits is optional; include one or two command-style string items only when that saves supervisor output or corrects worker drift
 - edit_packet or source_snippets should include the file/symbol/anchor context when provided by task context or your repo investigation
 - no required checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
-- forbidden_actions including "ask questions" and "run tests before editing"
-Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one slice.
+- forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
+Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one request.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
 Working repo: {work_dir}
@@ -262,8 +262,8 @@ Treat supervisor input tokens as scarce. Inspect only the artifacts needed for t
 For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on prior accumulated edits.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
-Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch slice. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
+{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}
 Instruction: {instruction}
@@ -318,7 +318,7 @@ pub(crate) fn supervisor_live_control_prompt(
 Do not run tests. Do not ask the user for approval.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"patch_request|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Treat applicable worker-model guidance as context for shaping message_to_worker if you choose to interrupt.
 Available actions:
 - wait: let the worker continue.
@@ -363,8 +363,8 @@ pub(crate) fn supervisor_feedback_repair_prompt(
         r#"You are revising your Mixmod supervisor revision decision before the worker sees it.
 {worktree_policy}
 Do not run tests. Emit minified JSON only; no markdown and no explanation.
-Your previous revision decision did not fit the selected worker profile. The selected worker needs a smaller, patch-first revision slice than the previous feedback provided.
-Mixmod is not designing a replacement slice for you. You are responsible for adapting the decision to the worker-model guidance below.
+Your previous revision decision did not fit the selected worker profile. The selected worker needs a bounded patch request rather than the previous feedback shape.
+Mixmod is not designing a replacement request for you. You are responsible for adapting the decision to the worker-model guidance below.
 Inspect the listed artifact files directly when you need evidence. This prompt lists artifact paths and roles, not artifact contents.
 {worker_guidance}
 Return a corrected revise decision with:
@@ -372,22 +372,21 @@ Return a corrected revise decision with:
 - "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
 - "worker_turn_shape":"patch_request"
-- exact_edits must be an array of one or two command-style string items; do not use objects
-- source exact_edits only
+- exact_edits is optional; include one or two command-style source edit strings only when that saves supervisor output or corrects worker drift
 - focused source files in focus_files, usually <=3, plus at most one already-written focused test file
 - edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
-- forbidden_actions including "ask questions" and "run tests before editing"
-The exact edit set must describe one coherent source behavior sized to the worker patch-size budget. If the previous edit bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
-Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong. Repair the size/shape of that requested next slice; do not rewind to an earlier completed slice.
-Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
-Write the repaired exact edit from the current accumulated patch state: preserve useful existing edits, then add one next delta. Do not say to continue from an earlier file-only slice when worktree.patch already contains useful changes in another focused source file.
+- forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
+The patch request must describe one coherent source behavior sized to the worker patch-size budget. If the previous request bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
+Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong. Repair the size/shape of that requested next patch; do not rewind to an earlier completed request.
+Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier request was narrower.
+Write the repaired request from the current accumulated patch state: preserve useful existing edits, then ask for one next delta. Do not say to continue from an earlier file-only slice when worktree.patch already contains useful changes in another focused source file.
 If previous feedback named one focus file, keep that source target unless artifacts prove another focused source file is needed for the same behavior.
 For large functions or code-generation paths, choose a local transformation near one anchor rather than a whole behavior path.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
-Include an exact symbol and a literal nearby code anchor when possible, for example `near the line containing "..."`.
+Include an exact symbol and a literal nearby code anchor when that saves supervisor output, for example `near the line containing "..."`.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
 Do not include a test edit in exact_edits. Tests belong in deferred_checks or a later revision.
 Working repo: {work_dir}
@@ -425,7 +424,7 @@ pub(crate) fn supervisor_feedback_repair_retry_prompt(
 {worktree_policy}
 Do not run tests. Emit minified JSON only; no markdown and no explanation.
 The previous repair still did not fit the selected worker profile: {rejection_reason}
-Mixmod is not designing a replacement slice for you. You are responsible for adapting the decision to the worker-model guidance below.
+Mixmod is not designing a replacement request for you. You are responsible for adapting the decision to the worker-model guidance below.
 Inspect the listed artifact files directly when you need evidence. This prompt lists artifact paths and roles, not artifact contents.
 {worker_guidance}
 Return one corrected revise decision with:
@@ -433,16 +432,16 @@ Return one corrected revise decision with:
 - "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
 - "worker_turn_shape":"patch_request"
-- exact_edits as an array of one or two command-style string items; do not use objects
+- exact_edits is optional; include one or two command-style source edit strings only when that saves supervisor output or corrects worker drift
 - focused source files in focus_files, usually <=3, plus at most one already-written focused test file
 - edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
 - no required_checks; put checks in deferred_checks
 - defer_checks_until_patch_exists:true
 - completion_gate only if you intentionally want a worker-visible completion gate
-- forbidden_actions including "ask questions" and "run tests before editing"
-Repair the size/shape of the previous requested next slice. Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong.
-Do not rewind to an earlier completed slice. Do not ask the worker to remove already-useful required task options or fields merely because an earlier slice was narrower.
-Write the repaired exact edit from the current accumulated patch state: preserve useful existing edits, then add one next delta.
+- forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
+Repair the size/shape of the previous requested next patch. Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong.
+Do not rewind to an earlier completed request. Do not ask the worker to remove already-useful required task options or fields merely because an earlier request was narrower.
+Write the repaired request from the current accumulated patch state: preserve useful existing edits, then ask for one next delta.
 Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
 For large functions or code-generation paths, choose a local transformation near one anchor rather than a whole behavior path.
 For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
@@ -473,7 +472,7 @@ struct SupervisorFeedbackPromptSignals {
     context_overflow: bool,
     context_pressure: bool,
     supervisor_control_seen: bool,
-    small_patch_progress_streak: bool,
+    patch_request_progress_streak: bool,
 }
 
 fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
@@ -484,7 +483,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Patch request context:
 - Treat a first non-empty delta as progress, not proof of completion.
-- If more work is needed, make the next revision one source behavior with an immediately executable exact_edits item.
+- If more work is needed, make the next revision one source behavior with a bounded patch goal; include exact_edits only when precision saves supervisor output.
 - Write from the current accumulated worktree.patch and preserve useful existing edits.
 - Put checks in deferred_checks until a non-empty patch exists unless artifacts show the edit already exists."#
                 .to_string(),
@@ -505,7 +504,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Context-pressure context:
 - The worker artifacts indicate context overflow or high token pressure.
-- If another revision is needed, prefer a smaller next slice.
+- If another revision is needed, prefer a smaller next request.
 - Use worker_mode=context_focus when continuing would require broad rereading or the previous context appears stale."#
                 .to_string(),
         );
@@ -515,16 +514,16 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Live-control context:
 - Supervisor control already intervened during a worker turn.
-- Judge whether the previous slice was too broad, too vague, or stale before issuing another revision.
+- Judge whether the previous request was too broad, too vague, or stale before issuing another revision.
 - Prefer one focused repair or verification step over adding a new feature concern in the same handoff."#
                 .to_string(),
         );
     }
 
-    if signals.small_patch_progress_streak {
+    if signals.patch_request_progress_streak {
         sections.push(
             r#"Slice-sizing context:
-- Multiple recent small-patch turns produced non-empty deltas without context overflow.
+- Multiple recent patch-request turns produced non-empty deltas without context overflow.
 - If the accumulated patch is coherent but incomplete, the next patch_request may cover one larger anchored source behavior.
 - Keep the selected worker profile's preferred shape unless the profile explicitly supports broadening."#
                 .to_string(),
@@ -632,7 +631,7 @@ impl SupervisorFeedbackPromptSignals {
             .is_some_and(|tokens| tokens >= 24_000);
         self.supervisor_control_seen |=
             get_u64(&summary, "supervisor_control_count").unwrap_or(0) > 0;
-        self.small_patch_progress_streak |=
+        self.patch_request_progress_streak |=
             get_u64(&summary, "patch_request_nonempty_delta_streak").unwrap_or(0) >= 2;
 
         if let Some(turns) = summary.get("turns").and_then(Value::as_array)

@@ -314,7 +314,7 @@ fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
     let instructions = get_str(&revision, "instructions").unwrap();
     assert!(instructions.contains("Noninteractive coding revision"));
     assert!(instructions.contains("Current accumulated patch is useful but not yet accepted"));
-    assert!(instructions.contains("Supervisor-requested patch slice:"));
+    assert!(instructions.contains("Supervisor-provided edit details:"));
     assert!(instructions.contains("Worker edit packet:"));
     assert!(instructions.contains("Use the Worker edit packet before reading whole files."));
     assert!(instructions.contains("nested item discount branch"));
@@ -334,6 +334,63 @@ fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
             "In test_checkout.py, add one assertion for a nested discounted item."
         ]
     );
+}
+
+#[test]
+fn patch_request_revision_task_allows_goal_without_exact_edits() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix checkout totals.",
+  "files": ["checkout.py"],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "revise_current".to_string(),
+        hint: "Fix checkout totals.".to_string(),
+        revision_handoff: RevisionHandoff {
+            expect_patch: Some(true),
+            worker_turn_shape: Some("patch_request".to_string()),
+            turn_goal: Some("Fix the checkout total calculation.".to_string()),
+            exact_edits: vec![],
+            edit_plan: vec![],
+            deferred_checks: vec![],
+            defer_checks_until_patch_exists: Some(true),
+            completion_gate: None,
+            forbidden_actions: vec![],
+        },
+        focus_files: vec!["checkout.py".to_string()],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+        token_usage_comparable: true,
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 1).unwrap();
+    let revision = read_json_file(&path).unwrap();
+    let instructions = get_str(&revision, "instructions").unwrap();
+
+    assert!(instructions.contains("Patch request goal: Fix the checkout total calculation."));
+    assert!(!instructions.contains("Supervisor-provided edit details:"));
+    assert!(instructions.contains("Relevant files:"));
+    assert!(instructions.contains("- checkout.py"));
 }
 
 #[test]

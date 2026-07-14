@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::*;
 
-pub(super) fn small_patch_edit_packet_from_value(
+pub(super) fn patch_request_edit_packet_from_value(
     work_dir: &Path,
     focus_files: &[String],
     exact_edits: &[String],
@@ -26,7 +26,7 @@ pub(super) fn small_patch_edit_packet_from_value(
     finalize_edit_packet(parts)
 }
 
-pub(super) fn small_patch_edit_packet_from_decision(
+pub(super) fn patch_request_edit_packet_from_decision(
     work_dir: &Path,
     focus_files: &[String],
     exact_edits: &[String],

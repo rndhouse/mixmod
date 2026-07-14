@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::*;
 
-use super::edit_packet::small_patch_edit_packet_from_decision;
+use super::edit_packet::patch_request_edit_packet_from_decision;
 use super::focus::split_worker_focus_files;
 use super::format::{bullet_list, hard_rule_from_forbidden_action, non_empty_or, numbered_list};
 use super::types::{RevisionTask, RevisionTaskContext, RevisionTaskDetails};
@@ -213,7 +213,7 @@ fn planning_probe_revision_instructions(
         .trim()
         .to_string();
     let fallback_goal = if decision.hint.trim().is_empty() {
-        "Inspect the focused source context and propose the next worker patch slice."
+        "Inspect the focused source context and propose the next worker patch request."
     } else {
         decision.hint.trim()
     };
@@ -230,7 +230,7 @@ fn planning_probe_revision_instructions(
             decision.revision_handoff.exact_edits.clone(),
         ),
         vec![
-            "Identify the next one or two authored-source patch slices from the current worktree state.".to_string(),
+            "Identify the next one or two authored-source patch requests from the current worktree state.".to_string(),
             "Name files, symbols, anchors, expected changed-line range, and the main risk for each slice.".to_string(),
         ],
     );
@@ -310,7 +310,7 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
         )
     };
     let fallback_goal = if decision.hint.trim().is_empty() {
-        "Apply the supervisor-requested next patch slice."
+        "Apply the supervisor-requested next patch request."
     } else {
         decision.hint.trim()
     };
@@ -321,10 +321,7 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(fallback_goal)
         .trim();
-    let exact_edits = non_empty_or(
-        decision.revision_handoff.exact_edits.clone(),
-        vec![turn_goal.to_string()],
-    );
+    let exact_edits = decision.revision_handoff.exact_edits.clone();
     let mut hard_rules = Vec::new();
     for action in &decision.revision_handoff.forbidden_actions {
         let rule = hard_rule_from_forbidden_action(action);
@@ -343,7 +340,7 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
             .join("\n")
     };
     let edit_packet =
-        small_patch_edit_packet_from_decision(work_dir, focus_files, &exact_edits, decision);
+        patch_request_edit_packet_from_decision(work_dir, focus_files, &exact_edits, decision);
     let checks = non_empty_or(
         decision.revision_handoff.deferred_checks.clone(),
         decision.required_checks.clone(),
@@ -364,6 +361,14 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
     let completion_gate_note = completion_gate
         .map(|gate| format!("\nSupervisor completion gate:\n{gate}\n"))
         .unwrap_or_default();
+    let exact_edits_note = if exact_edits.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nSupervisor-provided edit details:\n{}\n",
+            numbered_list(&exact_edits)
+        )
+    };
 
     format!(
         r#"Noninteractive coding revision. This is the full instruction. No user will answer questions.
@@ -372,11 +377,8 @@ Original task: {title}{original_context}
 Current accumulated patch is useful but not yet accepted as the full solution.
 Continue from the current working tree; do not revert existing correct edits.{patch_decision_note}
 
-Patch slice goal: {turn_goal}
-{hard_rules_note}
-
-Supervisor-requested patch slice:
-{exact_edits}
+Patch request goal: {turn_goal}
+{hard_rules_note}{exact_edits_note}
 
 Worker edit packet:
 {edit_packet}
@@ -386,10 +388,10 @@ Relevant files:
 
 {focus_note}
 Use the Worker edit packet before reading whole files. If the packet contains the needed anchor, edit from that context first.
-Use concrete files from the relevant file list. If a listed item is a directory, do not read the whole directory; choose the one file required by the exact edits.
-Do not read an entire large file before the first edit unless the exact edit cannot be applied from the packet and focused anchor searches.
-Do not expand beyond this patch slice unless one of the exact edits requires it.
-If a listed file is missing, continue with the remaining exact edits; create a missing file only when an exact edit requires it.
+Use concrete files from the relevant file list. If a listed item is a directory, do not read the whole directory; choose the one file required by the patch request.
+Do not read an entire large file before the first edit unless the patch request cannot be applied from the packet and focused anchor searches.
+Do not expand beyond this patch request unless the supervisor request requires it.
+If a listed file is missing, continue with the remaining request; create a missing file only when the request requires it.
 {checks_note}
 {completion_gate_note}
 
@@ -397,7 +399,7 @@ Final response format:
 Changed files: <comma-separated list>
 "#,
         hard_rules_note = hard_rules_note,
-        exact_edits = numbered_list(&exact_edits),
+        exact_edits_note = exact_edits_note,
         completion_gate_note = completion_gate_note,
     )
 }

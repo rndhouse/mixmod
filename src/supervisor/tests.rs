@@ -13,8 +13,8 @@ use super::live::{
 };
 use super::normalize::parse_feedback_json;
 use super::repair::{
-    revision_repair_preserves_focus, supervisor_feedback_needs_revision_slice_repair,
-    supervisor_feedback_repair_rejection_reason, worker_brief_needs_small_slice_repair,
+    revision_repair_preserves_focus, supervisor_feedback_needs_patch_request_repair,
+    supervisor_feedback_repair_rejection_reason, worker_brief_needs_patch_request_repair,
     worker_brief_repair_rejection_reason,
 };
 use super::turns::{
@@ -23,7 +23,7 @@ use super::turns::{
 };
 use super::*;
 
-fn small_slice_guidance() -> WorkerSupervisorGuidance {
+fn patch_request_guidance() -> WorkerSupervisorGuidance {
     WorkerSupervisorGuidance {
         model: "qwen".to_string(),
         target_patch_lines: Some(100),
@@ -35,7 +35,7 @@ fn small_slice_guidance() -> WorkerSupervisorGuidance {
 }
 
 #[test]
-fn broad_qwen_worker_brief_needs_small_slice_repair() {
+fn broad_qwen_worker_brief_needs_patch_request_repair() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
@@ -43,14 +43,14 @@ fn broad_qwen_worker_brief_needs_small_slice_repair() {
         "message_to_worker": "Implement the feature."
     });
 
-    assert!(worker_brief_needs_small_slice_repair(
+    assert!(worker_brief_needs_patch_request_repair(
         &brief,
-        &small_slice_guidance()
+        &patch_request_guidance()
     ));
 }
 
 #[test]
-fn complex_unknown_worker_brief_does_not_need_small_slice_repair() {
+fn complex_unknown_worker_brief_does_not_need_patch_request_repair() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
@@ -62,14 +62,14 @@ fn complex_unknown_worker_brief_does_not_need_small_slice_repair() {
         ]
     });
 
-    assert!(!worker_brief_needs_small_slice_repair(
+    assert!(!worker_brief_needs_patch_request_repair(
         &brief,
         &WorkerSupervisorGuidance::default()
     ));
 }
 
 #[test]
-fn broad_small_slice_worker_brief_still_needs_repair() {
+fn broad_patch_request_worker_brief_still_needs_repair() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
@@ -82,14 +82,14 @@ fn broad_small_slice_worker_brief_still_needs_repair() {
         ]
     });
 
-    assert!(worker_brief_needs_small_slice_repair(
+    assert!(worker_brief_needs_patch_request_repair(
         &brief,
-        &small_slice_guidance()
+        &patch_request_guidance()
     ));
 }
 
 #[test]
-fn small_slice_worker_brief_does_not_need_repair() {
+fn patch_request_worker_brief_does_not_need_repair() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
@@ -97,9 +97,25 @@ fn small_slice_worker_brief_does_not_need_repair() {
         "exact_edits": ["Edit helper.py."]
     });
 
-    assert!(!worker_brief_needs_small_slice_repair(
+    assert!(!worker_brief_needs_patch_request_repair(
         &brief,
-        &small_slice_guidance()
+        &patch_request_guidance()
+    ));
+}
+
+#[test]
+fn patch_request_worker_brief_with_goal_does_not_need_exact_edits() {
+    let brief = json!({
+        "handoff": "guided",
+        "expect_patch": true,
+        "worker_turn_shape": "patch_request",
+        "turn_goal": "Fix the checkout total path.",
+        "files": ["checkout.py"]
+    });
+
+    assert!(!worker_brief_needs_patch_request_repair(
+        &brief,
+        &patch_request_guidance()
     ));
 }
 
@@ -387,9 +403,9 @@ fn object_style_initial_metadata_seed_does_not_need_repair() {
         )
         .unwrap();
 
-    assert!(!worker_brief_needs_small_slice_repair(
+    assert!(!worker_brief_needs_patch_request_repair(
         &parsed,
-        &small_slice_guidance()
+        &patch_request_guidance()
     ));
 }
 
@@ -404,14 +420,14 @@ fn initial_api_seed_with_flatten_option_names_does_not_need_repair() {
         ]
     });
 
-    assert!(!worker_brief_needs_small_slice_repair(
+    assert!(!worker_brief_needs_patch_request_repair(
         &brief,
-        &small_slice_guidance()
+        &patch_request_guidance()
     ));
 }
 
 #[test]
-fn broad_small_slice_revision_feedback_does_not_need_repair() {
+fn broad_patch_request_revision_feedback_does_not_need_repair() {
     let feedback = json!({
         "action": "revise",
         "worker_turn_shape": "patch_request",
@@ -420,42 +436,42 @@ fn broad_small_slice_revision_feedback_does_not_need_repair() {
         ]
     });
 
-    assert!(!supervisor_feedback_needs_revision_slice_repair(
+    assert!(!supervisor_feedback_needs_patch_request_repair(
         &feedback,
-        &small_slice_guidance()
+        &patch_request_guidance()
     ));
 }
 
 #[test]
-fn complex_non_small_revision_feedback_without_worker_profile_does_not_need_repair() {
+fn complex_non_patch_request_revision_feedback_without_worker_profile_does_not_need_repair() {
     let feedback = json!({
         "action": "revise",
         "message_to_worker": "Implement generated pack/unpack alias validation for nested metadata.",
         "focus_files": ["src/builder.py"]
     });
 
-    assert!(!supervisor_feedback_needs_revision_slice_repair(
+    assert!(!supervisor_feedback_needs_patch_request_repair(
         &feedback,
         &WorkerSupervisorGuidance::default()
     ));
 }
 
 #[test]
-fn non_small_revision_feedback_for_small_slice_worker_needs_repair() {
+fn non_patch_request_revision_feedback_for_patch_request_worker_needs_repair() {
     let feedback = json!({
         "action": "revise",
         "message_to_worker": "Implement generated pack/unpack alias validation for nested metadata.",
         "focus_files": ["src/builder.py"]
     });
 
-    assert!(supervisor_feedback_needs_revision_slice_repair(
+    assert!(supervisor_feedback_needs_patch_request_repair(
         &feedback,
-        &small_slice_guidance()
+        &patch_request_guidance()
     ));
 }
 
 #[test]
-fn atomic_small_slice_revision_feedback_does_not_need_repair() {
+fn atomic_patch_request_revision_feedback_does_not_need_repair() {
     let feedback = json!({
         "action": "revise",
         "worker_turn_shape": "patch_request",
@@ -464,9 +480,25 @@ fn atomic_small_slice_revision_feedback_does_not_need_repair() {
         ]
     });
 
-    assert!(!supervisor_feedback_needs_revision_slice_repair(
+    assert!(!supervisor_feedback_needs_patch_request_repair(
         &feedback,
-        &small_slice_guidance()
+        &patch_request_guidance()
+    ));
+}
+
+#[test]
+fn patch_request_revision_feedback_with_goal_does_not_need_exact_edits() {
+    let feedback = json!({
+        "action": "revise",
+        "worker_turn_shape": "patch_request",
+        "turn_goal": "Fix the checkout total path.",
+        "message_to_worker": "Apply the checkout total fix in checkout.py.",
+        "focus_files": ["checkout.py"]
+    });
+
+    assert!(!supervisor_feedback_needs_patch_request_repair(
+        &feedback,
+        &patch_request_guidance()
     ));
 }
 
@@ -480,9 +512,9 @@ fn anchored_revision_edit_with_negative_limits_does_not_need_repair() {
         ]
     });
 
-    assert!(!supervisor_feedback_needs_revision_slice_repair(
+    assert!(!supervisor_feedback_needs_patch_request_repair(
         &feedback,
-        &small_slice_guidance()
+        &patch_request_guidance()
     ));
 }
 
@@ -535,10 +567,10 @@ fn broad_worker_brief_repair_gets_structural_rejection_reason() {
         "message_to_worker": "Implement the feature."
     });
 
-    let reason = worker_brief_repair_rejection_reason(Some(&brief), &small_slice_guidance());
+    let reason = worker_brief_repair_rejection_reason(Some(&brief), &patch_request_guidance());
 
     assert!(reason.contains("patch_request shape"));
-    assert!(reason.contains("compact concrete source edit strings"));
+    assert!(reason.contains("bounded patch goal"));
 }
 
 #[test]
@@ -559,7 +591,7 @@ fn changed_focus_revision_repair_gets_structural_rejection_reason() {
     let reason = supervisor_feedback_repair_rejection_reason(
         &previous,
         Some(&repaired),
-        &small_slice_guidance(),
+        &patch_request_guidance(),
     );
 
     assert!(reason.contains("changed away from the previous single focus file"));
@@ -573,8 +605,8 @@ fn blocked_worker_brief_does_not_need_repair() {
         "message_to_worker": "Cannot proceed."
     });
 
-    assert!(!worker_brief_needs_small_slice_repair(
+    assert!(!worker_brief_needs_patch_request_repair(
         &brief,
-        &small_slice_guidance()
+        &patch_request_guidance()
     ));
 }

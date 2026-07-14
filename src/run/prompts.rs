@@ -198,7 +198,7 @@ fn build_patch_request_revision_noop_followup_instruction(
     revision: &RevisionNoopContext,
 ) -> String {
     let files = string_list_or_none(&revision_focus_files(task, revision));
-    let first_edit = revision
+    let request_detail = revision
         .revision_handoff
         .exact_edits
         .first()
@@ -206,7 +206,7 @@ fn build_patch_request_revision_noop_followup_instruction(
         .filter(|edit| !edit.trim().is_empty())
         .unwrap_or_else(|| {
             if revision.message_to_worker.trim().is_empty() {
-                "Apply the supervisor-requested source edit."
+                "Apply the supervisor-requested source patch."
             } else {
                 revision.message_to_worker.trim()
             }
@@ -216,7 +216,7 @@ fn build_patch_request_revision_noop_followup_instruction(
         .turn_goal
         .as_deref()
         .filter(|goal| !goal.trim().is_empty())
-        .unwrap_or(first_edit);
+        .unwrap_or(request_detail);
     let completion_gate = revision
         .revision_handoff
         .completion_gate
@@ -260,18 +260,18 @@ Mixmod-managed state lives outside this repository. Do not inspect Mixmod state 
 
 Your previous revision turn made no new repository delta. That turn is incomplete.
 
-Continue in the existing worktree and follow the supervisor's requested patch slice now.
+Continue in the existing worktree and follow the supervisor's requested patch request now.
 {hard_rules_note}
 
-Patch slice goal: {turn_goal}
+Patch request goal: {turn_goal}
 
-Supervisor-requested edit:
-1. {first_edit}
+Supervisor request:
+{request_detail}
 
 Focus files:
 {files}
 
-Do not expand beyond this one edit. Do not implement neighboring behavior, validation, aliases, serialization/deserialization variants, or tests unless that exact edit explicitly requires it.
+Do not expand beyond this request. Do not implement neighboring behavior, validation, aliases, serialization/deserialization variants, or tests unless the supervisor request explicitly requires it.
 {completion_gate_note}
 
 Final response format:
@@ -433,8 +433,8 @@ mod tests {
         let instruction =
             build_revision_noop_followup_instruction(DelegationMode::Patch, &task, &revision);
 
-        assert!(instruction.contains("follow the supervisor's requested patch slice now"));
-        assert!(instruction.contains("Supervisor-requested edit:"));
+        assert!(instruction.contains("follow the supervisor's requested patch request now"));
+        assert!(instruction.contains("Supervisor request:"));
         assert!(instruction.contains("Edit builder.py around the packer loop only."));
         assert!(instruction.contains("Do not run tests before editing."));
         assert!(instruction.contains("Supervisor completion gate:"));

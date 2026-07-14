@@ -160,18 +160,14 @@ fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
     .unwrap();
 
     assert!(prompt.contains("Preserve the previous feedback's intended target behavior"));
-    assert!(prompt.contains("do not rewind to an earlier completed slice"));
+    assert!(prompt.contains("do not rewind to an earlier completed request"));
     assert!(prompt.contains("Treat useful accumulated worktree.patch changes as context to keep"));
-    assert!(
-        prompt.contains("Write the repaired exact edit from the current accumulated patch state")
-    );
+    assert!(prompt.contains("Write the repaired request from the current accumulated patch state"));
     assert!(prompt.contains("Do not say to continue from an earlier file-only slice"));
     assert!(prompt.contains("edit_packet or source_snippets"));
     assert!(prompt.contains("local transformation near one anchor"));
     assert!(prompt.contains("If previous feedback named one focus file"));
-    assert!(
-        prompt.contains("exact_edits must be an array of one or two command-style string items")
-    );
+    assert!(prompt.contains("exact_edits is optional"));
     assert!(prompt.contains("Do not invent a different file/symbol pair"));
     assert!(prompt.contains("Artifact index:"));
     assert!(prompt.contains("worktree.patch"));
@@ -226,7 +222,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("large effective context"));
     assert!(brief_prompt.contains("Worker patch-size guidance"));
     assert!(brief_prompt.contains("worker_turn_shape=planning_probe"));
-    assert!(brief_prompt.contains("propose the next slice"));
+    assert!(brief_prompt.contains("propose the next request"));
     assert!(brief_prompt.contains("one to three focused files"));
     assert!(brief_prompt.contains("expected around 100 changed lines"));
     assert!(brief_prompt.contains("soft maximum around 250 changed lines"));
@@ -246,9 +242,9 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("repo-level evidence"));
     assert!(brief_prompt.contains("obey the worker shape contract"));
-    assert!(brief_prompt.contains("largest coherent slice"));
+    assert!(brief_prompt.contains("largest coherent request"));
     assert!(brief_prompt.contains("Handoff requirements:"));
-    assert!(brief_prompt.contains("do not duplicate it in message_to_worker"));
+    assert!(brief_prompt.contains("exact_edits is optional"));
     assert!(brief_prompt.contains("only anchors or evidence"));
 }
 

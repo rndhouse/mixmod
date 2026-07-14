@@ -67,7 +67,7 @@ fn nonterminal_supervisor_control_with_patch_waits_for_review() {
 }
 
 #[test]
-fn live_supervisor_no_delta_control_becomes_small_patch_revision() {
+fn live_supervisor_no_delta_control_becomes_patch_request_revision() {
     let temp = TempDir::new().unwrap();
     let run_dir = temp.path().join("run");
     fs::create_dir_all(&run_dir).unwrap();
