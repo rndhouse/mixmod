@@ -183,6 +183,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             worker_backend,
             supervisor_init,
             stop_after_first_worker,
+            stop_after_first_review,
             no_require_local,
             prompt,
         } => {
@@ -200,6 +201,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     model_overrides,
                     supervisor_init,
                     stop_after_first_worker,
+                    stop_after_first_review,
                     no_require_local,
                 },
             )
@@ -300,6 +302,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     worker_backend,
                     supervisor_init,
                     stop_after_first_worker,
+                    stop_after_first_review,
                 } => {
                     ensure_project_state(&root, false)?;
                     experiment_run_default(
@@ -311,6 +314,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                                 .with_worker_backend(worker_backend),
                             supervisor_init,
                             stop_after_first_worker,
+                            stop_after_first_review,
                         },
                     )
                 }
@@ -322,6 +326,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     worker_backend,
                     supervisor_init,
                     stop_after_first_worker,
+                    stop_after_first_review,
                 } => {
                     ensure_project_state(&root, false)?;
                     experiment_run_default(
@@ -333,6 +338,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                                 .with_worker_backend(worker_backend),
                             supervisor_init,
                             stop_after_first_worker,
+                            stop_after_first_review,
                         },
                     )
                 }

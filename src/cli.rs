@@ -48,6 +48,9 @@ pub enum Commands {
         /// Stop after the first worker attempt and leave artifacts for inspection.
         #[arg(long)]
         stop_after_first_worker: bool,
+        /// Stop after the first supervisor review and leave artifacts for inspection.
+        #[arg(long, conflicts_with = "stop_after_first_worker")]
+        stop_after_first_review: bool,
         /// Do not require local worker inference verification for this run.
         #[arg(long)]
         no_require_local: bool,
@@ -190,6 +193,9 @@ pub enum ExperimentCommand {
         /// Stop after the first worker attempt and leave artifacts for inspection.
         #[arg(long)]
         stop_after_first_worker: bool,
+        /// Stop after the first supervisor review and leave artifacts for inspection.
+        #[arg(long, conflicts_with = "stop_after_first_worker")]
+        stop_after_first_review: bool,
     },
     /// Deprecated alias for `run-default`.
     #[command(hide = true)]
@@ -209,6 +215,9 @@ pub enum ExperimentCommand {
         /// Stop after the first worker attempt and leave artifacts for inspection.
         #[arg(long)]
         stop_after_first_worker: bool,
+        /// Stop after the first supervisor review and leave artifacts for inspection.
+        #[arg(long, conflicts_with = "stop_after_first_worker")]
+        stop_after_first_review: bool,
     },
     /// Recover a default-strategy run by restarting the configured worker.
     Recover {

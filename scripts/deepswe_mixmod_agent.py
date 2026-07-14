@@ -78,6 +78,7 @@ class MixmodAgent(BaseInstalledAgent):
         worker_backend: str = "opencode",
         supervisor_init: str = "compact",
         stop_after_first_worker: bool | str = False,
+        stop_after_first_review: bool | str = False,
         require_local: bool | str = True,
         mixmod_command: str = "mixmod",
         mixmod_install_command: str | None = None,
@@ -93,6 +94,11 @@ class MixmodAgent(BaseInstalledAgent):
         self.worker_backend = worker_backend
         self.supervisor_init = supervisor_init
         self.stop_after_first_worker = _truthy(stop_after_first_worker)
+        self.stop_after_first_review = _truthy(stop_after_first_review)
+        if self.stop_after_first_worker and self.stop_after_first_review:
+            raise ValueError(
+                "stop_after_first_worker and stop_after_first_review are mutually exclusive"
+            )
         self.require_local = _truthy(require_local)
         self.mixmod_command = mixmod_command
         self.mixmod_install_command = mixmod_install_command
@@ -226,6 +232,8 @@ class MixmodAgent(BaseInstalledAgent):
         )
         if self.stop_after_first_worker:
             run_default_args.append("--stop-after-first-worker")
+        if self.stop_after_first_review:
+            run_default_args.append("--stop-after-first-review")
         if not self.require_local:
             run_default_args.append("--no-require-local")
         quoted_run_default = " ".join(shlex.quote(arg) for arg in run_default_args)

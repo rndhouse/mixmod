@@ -227,6 +227,8 @@ def build_pier_command(
             "--agent-kwarg",
             f"stop_after_first_worker={str(args.stop_after_first_worker).lower()}",
             "--agent-kwarg",
+            f"stop_after_first_review={str(args.stop_after_first_review).lower()}",
+            "--agent-kwarg",
             f"require_local={str(args.require_local).lower()}",
             "--agent-kwarg",
             f"mixmod_timeout_sec={args.mixmod_timeout_seconds}",
@@ -283,6 +285,7 @@ def main() -> int:
         default="compact",
     )
     parser.add_argument("--stop-after-first-worker", action="store_true")
+    parser.add_argument("--stop-after-first-review", action="store_true")
     parser.add_argument("--no-require-local", dest="require_local", action="store_false")
     parser.add_argument(
         "--worker-base-url",
@@ -308,6 +311,10 @@ def main() -> int:
     parser.add_argument("--no-host-network", dest="host_network", action="store_false")
     parser.set_defaults(require_local=True, host_network=None)
     args = parser.parse_args()
+    if args.stop_after_first_worker and args.stop_after_first_review:
+        parser.error(
+            "--stop-after-first-worker and --stop-after-first-review are mutually exclusive"
+        )
 
     root = args.root.resolve()
     args.deep_swe = args.deep_swe.expanduser().resolve()
@@ -348,6 +355,7 @@ def main() -> int:
         "worker_backend": "opencode",
         "supervisor_init": args.supervisor_init,
         "stop_after_first_worker": args.stop_after_first_worker,
+        "stop_after_first_review": args.stop_after_first_review,
         "require_local": args.require_local,
         "worker_base_url": args.worker_base_url,
         "host_network": args.host_network,

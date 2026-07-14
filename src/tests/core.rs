@@ -228,6 +228,7 @@ fn exec_command_is_public_cli_surface() {
             worker_backend,
             supervisor_init,
             stop_after_first_worker,
+            stop_after_first_review,
             no_require_local,
             prompt,
         } => {
@@ -238,6 +239,7 @@ fn exec_command_is_public_cli_surface() {
             assert!(worker_backend.is_none());
             assert!(supervisor_init.is_none());
             assert!(!stop_after_first_worker);
+            assert!(!stop_after_first_review);
             assert!(!no_require_local);
             assert_eq!(prompt, vec!["Fix", "checkout", "totals"]);
         }
@@ -282,6 +284,17 @@ fn exec_command_is_public_cli_surface() {
         ])
         .is_err()
     );
+    assert!(
+        Cli::try_parse_from([
+            "mixmod",
+            "exec",
+            "--task",
+            "task.json",
+            "--stop-after-first-worker",
+            "--stop-after-first-review",
+        ])
+        .is_err()
+    );
 }
 
 #[test]
@@ -297,7 +310,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         "gpt-5.4:medium",
         "--supervisor-init",
         "investigate",
-        "--stop-after-first-worker",
+        "--stop-after-first-review",
         "Fix checkout totals.",
     ])
     .unwrap();
@@ -309,6 +322,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             worker_backend,
             supervisor_init,
             stop_after_first_worker,
+            stop_after_first_review,
             no_require_local,
             prompt,
             ..
@@ -317,7 +331,8 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             assert_eq!(worker_backend, Some(WorkerBackend::Codex));
             assert_eq!(worker_model, Some("gpt-5.4:medium".to_string()));
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
-            assert!(stop_after_first_worker);
+            assert!(!stop_after_first_worker);
+            assert!(stop_after_first_review);
             assert!(!no_require_local);
             assert_eq!(prompt, vec!["Fix checkout totals."]);
         }
@@ -340,7 +355,7 @@ fn experiment_run_default_accepts_model_override_flags() {
         "openrouter/qwen/qwen3.6-flash",
         "--supervisor-init",
         "investigate",
-        "--stop-after-first-worker",
+        "--stop-after-first-review",
     ])
     .unwrap();
 
@@ -355,6 +370,7 @@ fn experiment_run_default_accepts_model_override_flags() {
                     worker_backend,
                     supervisor_init,
                     stop_after_first_worker,
+                    stop_after_first_review,
                 },
         } => {
             assert_eq!(name, "deepswe");
@@ -366,7 +382,8 @@ fn experiment_run_default_accepts_model_override_flags() {
                 Some("openrouter/qwen/qwen3.6-flash".to_string())
             );
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
-            assert!(stop_after_first_worker);
+            assert!(!stop_after_first_worker);
+            assert!(stop_after_first_review);
         }
         _ => panic!("expected experiment run-default command"),
     }

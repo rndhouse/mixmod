@@ -12,6 +12,8 @@ pub(crate) struct DefaultStrategyOptions {
     pub(crate) supervisor_init: Option<SupervisorInitMode>,
     /// Stop after the proposal worker run and leave artifacts for inspection.
     pub(crate) stop_after_first_worker: bool,
+    /// Stop after the first supervisor review and leave artifacts for inspection.
+    pub(crate) stop_after_first_review: bool,
     /// Disable local-inference verification for this run.
     pub(crate) no_require_local: bool,
 }
@@ -123,7 +125,8 @@ impl DefaultStrategyRun<'_> {
             false,
             WorkerRunOptions {
                 resume_session_id: options.resume_session,
-                allow_auto_followups: !options.stop_after_first_worker,
+                allow_auto_followups: !(options.stop_after_first_worker
+                    || options.stop_after_first_review),
                 supervisor_advisor: live_supervisor_advisor(&live_supervisor),
             },
         )?;
@@ -175,6 +178,10 @@ impl DefaultStrategyRun<'_> {
                     decision
                 };
                 append_jsonl(&feedback_path, &decision.feedback)?;
+
+                if options.stop_after_first_review && decision_index == 1 {
+                    break decision;
+                }
 
                 match decision.verdict.as_str() {
                     "approve" | "stop" => break decision,
@@ -271,6 +278,8 @@ impl DefaultStrategyRun<'_> {
         let stopped_by_codex = approval_action == "stop";
         let final_status = if options.stop_after_first_worker {
             "stopped_after_first_worker"
+        } else if options.stop_after_first_review {
+            "stopped_after_first_review"
         } else if approved {
             "approved_by_codex"
         } else if stopped_by_codex {
@@ -330,6 +339,7 @@ impl DefaultStrategyRun<'_> {
             "patch_checkpoints": patch_checkpoint_metrics,
             "revision_attempts": opencode_calls.saturating_sub(1),
             "stop_after_first_worker": options.stop_after_first_worker,
+            "stop_after_first_review": options.stop_after_first_review,
             "worker_brief": WORKER_BRIEF_JSON,
             "worker_task": display_path(root, &worker_task),
             "worker_brief_output_tokens": worker_brief.output_tokens,
