@@ -131,54 +131,6 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
 }
 
 #[test]
-fn supervisor_feedback_repair_prompt_preserves_accumulated_work() {
-    let temp = TempDir::new().unwrap();
-    let root = temp.path();
-    let artifact = root.join("worktree.patch");
-    atomic_write(
-        &artifact,
-        br#"diff --git a/mashumaro/helper.py b/mashumaro/helper.py
---- a/mashumaro/helper.py
-+++ b/mashumaro/helper.py
-@@ -1,1 +1,3 @@
-+flatten_prefix
-+flatten_rename
-"#,
-    )
-    .unwrap();
-    let previous = json!({
-        "action": "revise",
-        "focus_files": ["mashumaro/core/meta/code/builder.py"],
-        "exact_edits": [
-            "In mashumaro/core/meta/code/builder.py, implement serialization-only flatten support."
-        ]
-    });
-
-    let prompt = supervisor_feedback_repair_prompt(
-        root,
-        &[artifact],
-        &WorkerSupervisorGuidance::default(),
-        &previous,
-    )
-    .unwrap();
-
-    assert!(prompt.contains("Preserve the previous feedback's intended target behavior"));
-    assert!(prompt.contains("do not rewind to an earlier completed request"));
-    assert!(prompt.contains("Treat useful accumulated worktree.patch changes as context to keep"));
-    assert!(prompt.contains("Write the repaired request from the current accumulated patch state"));
-    assert!(prompt.contains("Do not say to continue from an earlier file-only slice"));
-    assert!(prompt.contains("edit_packet/source_snippets"));
-    assert!(prompt.contains("add an anchor only when it prevents worker wandering"));
-    assert!(prompt.contains("If previous feedback named one focus file"));
-    assert!(prompt.contains("exact_edits is optional"));
-    assert!(prompt.contains("Do not invent a different file/symbol pair"));
-    assert!(prompt.contains("Artifact index:"));
-    assert!(prompt.contains("worktree.patch"));
-    assert!(!prompt.contains("flatten_prefix"));
-    assert!(!prompt.contains("flatten_rename"));
-}
-
-#[test]
 fn supervisor_prompts_include_selected_worker_model_guidance() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -188,6 +140,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
             .unwrap();
 
     assert!(feedback_prompt.contains("Supervisor-only worker-model guidance"));
+    assert!(feedback_prompt.contains("Mixmod will not repair or reshape the revision"));
     assert!(feedback_prompt.contains("Do not copy the list to the worker"));
     assert!(feedback_prompt.contains("Use relevant bullets as constraints"));
     assert!(feedback_prompt.contains("handoff shape"));
@@ -219,6 +172,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Choose the cheapest reliable next worker handoff"));
     assert!(brief_prompt.contains("Worker shape contract:"));
     assert!(brief_prompt.contains("Profile-selected shape"));
+    assert!(brief_prompt.contains("Mixmod will not run an automatic repair turn"));
+    assert!(brief_prompt.contains("Mixmod will not repair or reshape a broad handoff"));
     assert!(brief_prompt.contains("use worker_turn_shape=\"patch_request\""));
     assert!(brief_prompt.contains("Do not emit worker_turn_shape=\"bounded_feature_slice\""));
     assert!(brief_prompt.contains("reasoning before editing"));

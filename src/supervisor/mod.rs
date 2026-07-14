@@ -2,7 +2,6 @@ mod codex;
 mod live;
 mod normalize;
 mod prompts;
-mod repair;
 #[cfg(test)]
 mod tests;
 mod turns;
@@ -15,8 +14,7 @@ pub(crate) use normalize::normalize_feedback_value;
 pub(crate) use normalize::normalize_worker_mode;
 #[cfg(test)]
 pub(crate) use prompts::{
-    supervisor_feedback_prompt, supervisor_feedback_repair_prompt, supervisor_live_control_prompt,
-    supervisor_worker_brief_prompt,
+    supervisor_feedback_prompt, supervisor_live_control_prompt, supervisor_worker_brief_prompt,
 };
 pub(crate) use turns::{run_supervisor_brief_turn, run_supervisor_feedback_turn};
 pub(crate) use types::{

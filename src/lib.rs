@@ -136,8 +136,7 @@ pub(crate) use supervisor::{
 };
 #[cfg(test)]
 pub(crate) use supervisor::{
-    normalize_feedback_value, supervisor_feedback_prompt, supervisor_feedback_repair_prompt,
-    supervisor_worker_brief_prompt,
+    normalize_feedback_value, supervisor_feedback_prompt, supervisor_worker_brief_prompt,
 };
 pub(crate) use tool_events::{build_opencode_events_jsonl, build_tool_events_jsonl};
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};

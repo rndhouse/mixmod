@@ -42,6 +42,7 @@ Choose the cheapest reliable next worker handoff:
 - Use "guided" or "focused" for normal implementation work.
 - Use worker_turn_shape="planning_probe" with expect_patch=false only when a short worker investigation can save supervisor output or avoid a bad implementation handoff. Ask for a compact proposal, not edits.
 - For expected-patch implementation handoffs, obey the worker shape contract before choosing field detail.
+- Mixmod will not repair or reshape a broad handoff to fit the worker profile. The worker sees your parsed JSON as written.
 - Choose the largest coherent request this worker is likely to complete cleanly. Do not make requests tiny by default; broaden when the worker can bear it, narrow when ambiguity or context risk is high.
 - If the route is clear, hand off concrete source edits instead of spending GPT output explaining the whole solution.
 - For generated outputs, keep the request bounded to intentional repo outputs. Ask the worker to leave no transient generator/debug/build sidecars and to report broad unrelated generator churn instead of carrying it forward.
@@ -71,124 +72,6 @@ Task JSON:
 
 Candidate repo files:
 {candidate_files}
-"#,
-        work_dir = work_dir.display(),
-        worktree_policy = worktree_policy,
-    ))
-}
-
-pub(crate) fn supervisor_worker_brief_repair_prompt(
-    work_dir: &Path,
-    task_path: &Path,
-    worker_guidance: &WorkerSupervisorGuidance,
-    previous_brief: &Value,
-) -> Result<String> {
-    let task_value = read_json_file(task_path)?;
-    let visible_task = agent_visible_task_value(&task_value);
-    let task = serde_json::to_string_pretty(&visible_task)
-        .context("failed to serialize agent-visible task for worker brief repair prompt")?;
-    let previous = serde_json::to_string_pretty(previous_brief)
-        .context("failed to serialize previous worker brief for repair prompt")?;
-    let worker_guidance = render_worker_guidance(worker_guidance);
-    let worktree_policy = supervisor_worktree_policy();
-    Ok(format!(
-        r#"You are revising your Mixmod supervisor handoff before the worker sees it.
-{worktree_policy}
-Do not run tests. Emit minified JSON only; no markdown and no explanation.
-Your previous handoff did not fit the selected worker profile because it either omitted worker_turn_shape=patch_request, lacked a bounded patch goal, or bundled too much work.
-Mixmod is not designing a replacement request for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
-{worker_guidance}
-Return a corrected expected-patch handoff with:
-- "handoff":"guided"
-- "expect_patch":true
-- "worker_turn_shape":"patch_request"
-- one turn_goal for the first patch request only
-- concrete repo file paths for the focused source behavior, usually <=3
-- exact_edits is optional; include one or two command-style string items only when that saves supervisor output or corrects worker drift
-- source exact_edits only when included, plus no test edit in exact_edits
-- edit_packet/source_snippets are optional; include them only when already-known file/symbol/anchor context is likely to save worker exploration
-- no checks unless listed in deferred_checks
-- defer_checks_until_patch_exists:true
-- completion_gate only if you intentionally want a worker-visible completion gate
-- forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
-Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one request. If the previous handoff bundled pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
-Do not inspect or write extra source context just to fill edit_packet. Include a literal anchor only when you already have it and it is worth the supervisor output.
-For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
-Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
-If file details are uncertain, pick the smallest public API source seed patch; do not ask the worker to investigate broadly.
-Working repo: {work_dir}
-
-Task JSON:
-```json
-{task}
-```
-
-Rejected previous handoff:
-```json
-{previous}
-```
-"#,
-        work_dir = work_dir.display(),
-        worktree_policy = worktree_policy,
-    ))
-}
-
-pub(crate) fn supervisor_worker_brief_repair_retry_prompt(
-    work_dir: &Path,
-    task_path: &Path,
-    worker_guidance: &WorkerSupervisorGuidance,
-    previous_brief: &Value,
-    rejected_repair: &Value,
-    rejection_reason: &str,
-) -> Result<String> {
-    let task_value = read_json_file(task_path)?;
-    let visible_task = agent_visible_task_value(&task_value);
-    let task = serde_json::to_string_pretty(&visible_task)
-        .context("failed to serialize agent-visible task for worker brief repair retry prompt")?;
-    let previous = serde_json::to_string_pretty(previous_brief)
-        .context("failed to serialize previous worker brief for repair retry prompt")?;
-    let rejected = serde_json::to_string_pretty(rejected_repair)
-        .context("failed to serialize rejected worker brief repair")?;
-    let worker_guidance = render_worker_guidance(worker_guidance);
-    let worktree_policy = supervisor_worktree_policy();
-    Ok(format!(
-        r#"You are retrying your Mixmod supervisor handoff revision.
-{worktree_policy}
-Do not run tests. Emit minified JSON only; no markdown and no explanation.
-The previous repair still did not fit the selected worker profile: {rejection_reason}
-Mixmod is not designing a replacement request for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
-{worker_guidance}
-Return one corrected expected-patch handoff with:
-- "handoff":"guided"
-- "expect_patch":true
-- "worker_turn_shape":"patch_request"
-- one turn_goal for the first patch request only
-- concrete repo file paths for the focused source behavior, usually <=3
-- exact_edits is optional; include one or two command-style string items only when that saves supervisor output or corrects worker drift
-- edit_packet/source_snippets are optional; include them only when already-known file/symbol/anchor context is likely to save worker exploration
-- no required checks; put checks in deferred_checks
-- defer_checks_until_patch_exists:true
-- completion_gate only if you intentionally want a worker-visible completion gate
-- forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
-Choose one source behavior sized to the worker patch-size budget. Do not bundle validation, aliases, prefix, rename, serialization, deserialization, and tests into one request.
-Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the task or previous handoff, and omit anchors you cannot justify from provided context.
-For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
-Working repo: {work_dir}
-
-Task JSON:
-```json
-{task}
-```
-
-Original broad handoff:
-```json
-{previous}
-```
-
-Rejected repair:
-```json
-{rejected}
-```
 "#,
         work_dir = work_dir.display(),
         worktree_policy = worktree_policy,
@@ -228,7 +111,7 @@ fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) 
         .iter()
         .any(|item| item.contains("worker_turn_shape=patch_request"))
     {
-        return r#"Profile-selected shape: for expected-patch implementation handoffs, use worker_turn_shape="patch_request". Do not emit worker_turn_shape="bounded_feature_slice" or "default" for expected-patch work. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
+        return r#"Profile-selected shape: for expected-patch implementation handoffs, use worker_turn_shape="patch_request". This is your responsibility before emitting JSON; Mixmod will not run an automatic repair turn. Do not emit worker_turn_shape="bounded_feature_slice" or "default" for expected-patch work. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
     }
     "No worker-specific default shape is selected. Choose one shape deliberately: planning_probe for no-patch investigation, patch_request for a focused edit, bounded_feature_slice for a coherent larger feature chunk, or default only when the task is already simple."
 }
@@ -262,6 +145,7 @@ Inspect the listed artifact files directly before deciding. Do not rely on this 
 Treat supervisor input tokens as scarce. Inspect only the artifacts needed for the next decision and stop reading once approve, revise, or stop is clear.
 For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on prior accumulated edits.
 {worker_guidance}
+If you choose revise, shape the worker request yourself before emitting JSON. Mixmod will not repair or reshape the revision to fit the worker profile.
 Return only JSON matching this schema:
 {{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
@@ -346,123 +230,6 @@ Live worker snapshot:
 "#,
         work_dir = work_dir.display(),
         worktree_policy = worktree_policy
-    ))
-}
-
-pub(crate) fn supervisor_feedback_repair_prompt(
-    work_dir: &Path,
-    artifact_paths: &[PathBuf],
-    worker_guidance: &WorkerSupervisorGuidance,
-    previous_feedback: &Value,
-) -> Result<String> {
-    let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
-    let previous = serde_json::to_string_pretty(previous_feedback)
-        .context("failed to serialize previous supervisor feedback for repair prompt")?;
-    let worker_guidance = render_worker_guidance(worker_guidance);
-    let worktree_policy = supervisor_worktree_policy();
-    Ok(format!(
-        r#"You are revising your Mixmod supervisor revision decision before the worker sees it.
-{worktree_policy}
-Do not run tests. Emit minified JSON only; no markdown and no explanation.
-Your previous revision decision did not fit the selected worker profile. The selected worker needs a bounded patch request rather than the previous feedback shape.
-Mixmod is not designing a replacement request for you. You are responsible for adapting the decision to the worker-model guidance below.
-Inspect the listed artifact files directly when you need evidence. This prompt lists artifact paths and roles, not artifact contents.
-{worker_guidance}
-Return a corrected revise decision with:
-- "action":"revise"
-- "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
-- "patch_decision":"revise_current" unless the previous feedback required revise_previous
-- "worker_turn_shape":"patch_request"
-- exact_edits is optional; include one or two command-style source edit strings only when that saves supervisor output or corrects worker drift
-- focused source files in focus_files, usually <=3, plus at most one already-written focused test file
-- edit_packet/source_snippets only when artifacts already show a relevant anchor or current accumulated patch state and including it is worth the supervisor output
-- no required_checks; put checks in deferred_checks
-- defer_checks_until_patch_exists:true
-- completion_gate only if you intentionally want a worker-visible completion gate
-- forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
-The patch request must describe one coherent source behavior sized to the worker patch-size budget. If the previous request bundles pairs such as pack/unpack, serialize/deserialize, parse/emit, validate/convert, or prefix/rename, choose only the first coherent source behavior needed to create useful progress.
-Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong. Repair the size/shape of that requested next patch; do not rewind to an earlier completed request.
-Treat useful accumulated worktree.patch changes as context to keep. Do not ask the worker to remove already-useful required task options or fields merely because an earlier request was narrower.
-Write the repaired request from the current accumulated patch state: preserve useful existing edits, then ask for one next delta. Do not say to continue from an earlier file-only slice when worktree.patch already contains useful changes in another focused source file.
-If previous feedback named one focus file, keep that source target unless artifacts prove another focused source file is needed for the same behavior.
-For large functions or code-generation paths, prefer a local transformation over a whole behavior path; add an anchor only when it prevents worker wandering without much supervisor output.
-For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
-Do not inspect or write extra source context just to fill edit_packet. Include a literal anchor only when artifacts already provide it or it clearly saves supervisor output.
-Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
-Do not include a test edit in exact_edits. Tests belong in deferred_checks or a later revision.
-Working repo: {work_dir}
-
-Previous feedback:
-```json
-{previous}
-```
-
-Artifact index:
-{artifact_index}
-"#,
-        work_dir = work_dir.display(),
-        worktree_policy = worktree_policy,
-    ))
-}
-
-pub(crate) fn supervisor_feedback_repair_retry_prompt(
-    work_dir: &Path,
-    artifact_paths: &[PathBuf],
-    worker_guidance: &WorkerSupervisorGuidance,
-    previous_feedback: &Value,
-    rejected_repair: &Value,
-    rejection_reason: &str,
-) -> Result<String> {
-    let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
-    let previous = serde_json::to_string_pretty(previous_feedback)
-        .context("failed to serialize previous supervisor feedback for repair retry prompt")?;
-    let rejected = serde_json::to_string_pretty(rejected_repair)
-        .context("failed to serialize rejected supervisor feedback repair")?;
-    let worker_guidance = render_worker_guidance(worker_guidance);
-    let worktree_policy = supervisor_worktree_policy();
-    Ok(format!(
-        r#"You are retrying your Mixmod supervisor revision decision.
-{worktree_policy}
-Do not run tests. Emit minified JSON only; no markdown and no explanation.
-The previous repair still did not fit the selected worker profile: {rejection_reason}
-Mixmod is not designing a replacement request for you. You are responsible for adapting the decision to the worker-model guidance below.
-Inspect the listed artifact files directly when you need evidence. This prompt lists artifact paths and roles, not artifact contents.
-{worker_guidance}
-Return one corrected revise decision with:
-- "action":"revise"
-- "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
-- "patch_decision":"revise_current" unless the previous feedback required revise_previous
-- "worker_turn_shape":"patch_request"
-- exact_edits is optional; include one or two command-style source edit strings only when that saves supervisor output or corrects worker drift
-- focused source files in focus_files, usually <=3, plus at most one already-written focused test file
-- edit_packet/source_snippets only when artifacts already show a relevant anchor or current accumulated patch state and including it is worth the supervisor output
-- no required_checks; put checks in deferred_checks
-- defer_checks_until_patch_exists:true
-- completion_gate only if you intentionally want a worker-visible completion gate
-- forbidden_actions only for task-specific limits beyond the normal noninteractive worker behavior
-Repair the size/shape of the previous requested next patch. Preserve the previous feedback's intended target behavior and source file unless the artifacts prove that target is wrong.
-Do not rewind to an earlier completed request. Do not ask the worker to remove already-useful required task options or fields merely because an earlier request was narrower.
-Write the repaired request from the current accumulated patch state: preserve useful existing edits, then ask for one next delta.
-Do not invent a different file/symbol pair. If unsure, choose the smallest already-evidenced source file from the previous feedback/artifacts, and omit anchors you cannot justify from provided context.
-For large functions or code-generation paths, prefer a local transformation over a whole behavior path; add an anchor only when it prevents worker wandering without much supervisor output.
-For large functions or code-generation paths, include preservation constraints in forbidden_actions: "rewrite the whole function", "delete or reindent unrelated branches", and "edit outside the focused block".
-Working repo: {work_dir}
-
-Previous feedback:
-```json
-{previous}
-```
-
-Rejected repair:
-```json
-{rejected}
-```
-
-Artifact index:
-{artifact_index}
-"#,
-        work_dir = work_dir.display(),
-        worktree_policy = worktree_policy,
     ))
 }
 
