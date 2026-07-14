@@ -8,6 +8,7 @@ use super::prompts::{
 
 const WORKER_SELF_REVIEW_TOKEN_PEAK_LIMIT: u64 = 24_000;
 const WORKER_SELF_REVIEW_CHANGED_LINE_LIMIT: usize = 500;
+const WORKER_SELF_REVIEW_PATCH: &str = "worker-session.patch";
 
 #[derive(Debug)]
 pub(super) struct EmptyPatchFollowup {
@@ -327,6 +328,7 @@ pub(super) struct WorkerSelfReviewRequest<'a> {
     pub(super) mode: DelegationMode,
     pub(super) task: &'a TaskSpec,
     pub(super) task_path: &'a Path,
+    pub(super) review_patch: &'a str,
     pub(super) out_dir: &'a Path,
     pub(super) runner: &'a dyn AgentHarness,
     pub(super) require_local: bool,
@@ -342,6 +344,7 @@ pub(super) fn run_worker_self_review(
         mode,
         task,
         task_path,
+        review_patch,
         out_dir,
         runner,
         require_local,
@@ -359,13 +362,19 @@ pub(super) fn run_worker_self_review(
             review_dir.display()
         )
     })?;
+    let review_patch_path = review_dir.join(WORKER_SELF_REVIEW_PATCH);
+    atomic_write(&review_patch_path, review_patch.as_bytes())?;
+    let review_files = patch_stats(review_patch).files;
+    let review_patch_display = display_path(root, &review_patch_path);
     let review_task = json!({
         "title": format!("Worker self-review cleanup: {}", task.title),
         "expect_patch": true,
-        "instructions": "Review the current worker diff for obvious cleanup only before supervisor review.",
-        "files": &task.files,
+        "instructions": "Review only the current worker-session patch for obvious cleanup before supervisor review.",
+        "files": &review_files,
         "tests": Vec::<String>::new(),
         "constraints": [
+            format!("Use {} as the review boundary.", review_patch_display),
+            "Do not review or modify unrelated worktree changes.",
             "Do not add new feature scope.",
             "Do not rewrite the solution.",
             "Do not commit."
@@ -375,13 +384,15 @@ pub(super) fn run_worker_self_review(
         ],
         "context": {
             "source_task": task_path.to_string_lossy(),
-            "worker_self_review": true
+            "worker_self_review": true,
+            "worker_session_patch": review_patch_display
         }
     });
     let review_task_path = review_dir.join(TASK_JSON);
     write_pretty_json(&review_task_path, &review_task, "worker self-review task")?;
 
-    let instruction = build_worker_self_review_instruction(mode, task);
+    let instruction =
+        build_worker_self_review_instruction(mode, task, &review_files, &review_patch_display);
     let instruction_path = review_dir.join(OPENCODE_INSTRUCTIONS_MD);
     atomic_write(&instruction_path, instruction.as_bytes())?;
     let review_request = AgentRequest {

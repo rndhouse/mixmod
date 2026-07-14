@@ -151,6 +151,7 @@ fn recovery_can_be_disabled_for_first_worker_inspection() {
         .current_dir(root)
         .output()
         .unwrap();
+    fs::write(root.join("README.md"), "pre-existing user edit\n").unwrap();
 
     let task = root.join("example.task.json");
     atomic_write(
@@ -159,7 +160,7 @@ fn recovery_can_be_disabled_for_first_worker_inspection() {
   "title": "Generate file",
   "instructions": "Create a small generated file.",
   "expect_patch": true,
-  "files": ["src/generated.rs"],
+  "files": ["README.md", "src/generated.rs"],
   "tests": []
 }"#,
     )
@@ -251,6 +252,11 @@ fn worker_self_review_is_optional_and_reuses_worker_session() {
     let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
     assert!(patch.contains("src/generated.rs"));
     assert!(!patch.contains("temporary debug marker"));
+    assert!(!patch.contains("README.md"));
+    let review_patch =
+        fs::read_to_string(run_dir.join("worker-self-review/worker-session.patch")).unwrap();
+    assert!(review_patch.contains("src/generated.rs"));
+    assert!(!review_patch.contains("README.md"));
     let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();
     assert_eq!(get_bool(&metrics, "worker_self_review_enabled"), Some(true));
     assert_eq!(

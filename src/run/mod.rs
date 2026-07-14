@@ -485,6 +485,7 @@ impl MixmodRun<'_> {
                 mode,
                 task: &task_spec,
                 task_path: &task_path,
+                review_patch: &patch,
                 out_dir: &out_dir,
                 runner,
                 require_local,
@@ -539,10 +540,15 @@ impl MixmodRun<'_> {
                         .with_artifacts(vec![
                             format!("worker-self-review/{TASK_JSON}"),
                             format!("worker-self-review/{OPENCODE_INSTRUCTIONS_MD}"),
+                            "worker-self-review/worker-session.patch".to_string(),
                         ])
                         .with_details(intervention_details([
                             ("patch_changed", json!(worker_self_review.patch_changed)),
                             ("patch_bytes", json!(patch.len() as u64)),
+                            (
+                                "review_patch_bytes",
+                                json!(patch_before_self_review.len() as u64),
+                            ),
                         ])),
                     );
                 }
@@ -569,6 +575,7 @@ impl MixmodRun<'_> {
                         .with_artifacts(vec![
                             format!("worker-self-review/{TASK_JSON}"),
                             format!("worker-self-review/{OPENCODE_INSTRUCTIONS_MD}"),
+                            "worker-self-review/worker-session.patch".to_string(),
                         ])
                         .with_details(intervention_details([("error", json!(error.to_string()))])),
                     );

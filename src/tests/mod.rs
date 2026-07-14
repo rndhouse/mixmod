@@ -220,6 +220,13 @@ impl AgentHarness for PatchThenSelfReviewRunner {
                     .instruction
                     .contains("not a new implementation slice")
             );
+            assert!(request.instruction.contains("worker-session.patch"));
+            assert!(request.instruction.contains("src/generated.rs"));
+            assert!(!request.instruction.contains("README.md"));
+            let review_patch =
+                fs::read_to_string(request.out_dir.join("worker-session.patch")).unwrap();
+            assert!(review_patch.contains("src/generated.rs"));
+            assert!(!review_patch.contains("README.md"));
             atomic_write(
                 &request.root.join("src/generated.rs"),
                 b"pub fn generated() -> &'static str {\n    \"ok\"\n}\n",
