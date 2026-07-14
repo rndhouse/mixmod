@@ -44,12 +44,12 @@ pub(crate) fn write_revision_task(
     );
     let expect_patch = decision.revision_handoff.expect_patch.unwrap_or(true);
     let planning_probe = decision.revision_handoff.is_planning_probe();
-    let small_patch_slice = decision.revision_handoff.is_small_patch_slice();
+    let patch_request = decision.revision_handoff.is_patch_request();
     let bounded_feature_slice = decision.revision_handoff.is_bounded_feature_slice();
     let defer_checks_until_patch_exists = decision
         .revision_handoff
         .defer_checks_until_patch_exists
-        .unwrap_or(small_patch_slice);
+        .unwrap_or(patch_request);
     let explicit_completion_gate = decision
         .revision_handoff
         .completion_gate
@@ -58,7 +58,7 @@ pub(crate) fn write_revision_task(
         .filter(|gate| !gate.is_empty());
     let acceptance = if !expect_patch {
         Vec::new()
-    } else if small_patch_slice {
+    } else if patch_request {
         explicit_completion_gate
             .map(|gate| vec![gate.to_string()])
             .unwrap_or_default()
@@ -71,7 +71,7 @@ pub(crate) fn write_revision_task(
     let mut constraints = get_string_array(&task_value, "constraints");
     constraints.push("Keep the revision focused.".to_string());
     constraints.push("Do not paste long logs.".to_string());
-    if small_patch_slice {
+    if patch_request {
         constraints
             .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
     } else if planning_probe {
@@ -111,8 +111,8 @@ pub(crate) fn write_revision_task(
             &focus_note,
             patch_decision_note,
         )
-    } else if small_patch_slice {
-        small_patch_slice_revision_instructions(SmallPatchSliceRevisionInput {
+    } else if patch_request {
+        patch_request_revision_instructions(PatchRequestRevisionInput {
             work_dir,
             original: &task_value,
             decision,
@@ -150,7 +150,7 @@ pub(crate) fn write_revision_task(
         expect_patch,
         worker_mode: &decision.worker_mode,
         files: focus_files,
-        tests: if !expect_patch || (small_patch_slice && defer_checks_until_patch_exists) {
+        tests: if !expect_patch || (patch_request && defer_checks_until_patch_exists) {
             Vec::new()
         } else {
             get_string_array(&task_value, "tests")
@@ -276,7 +276,7 @@ Risks: <one short risk or none>
     )
 }
 
-struct SmallPatchSliceRevisionInput<'a> {
+struct PatchRequestRevisionInput<'a> {
     work_dir: &'a Path,
     original: &'a Value,
     decision: &'a SupervisorFeedbackTurn,
@@ -286,8 +286,8 @@ struct SmallPatchSliceRevisionInput<'a> {
     patch_decision_note: &'a str,
 }
 
-fn small_patch_slice_revision_instructions(input: SmallPatchSliceRevisionInput<'_>) -> String {
-    let SmallPatchSliceRevisionInput {
+fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> String {
+    let PatchRequestRevisionInput {
         work_dir,
         original,
         decision,

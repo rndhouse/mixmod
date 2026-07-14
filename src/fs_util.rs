@@ -151,7 +151,7 @@ fn revision_handoff_from_supervisor_control(
 ) -> RevisionHandoff {
     let worker_turn_shape = get_str(control, "worker_turn_shape")
         .map(ToOwned::to_owned)
-        .or_else(|| no_delta_recovery.then(|| "small_patch_slice".to_string()));
+        .or_else(|| no_delta_recovery.then(|| "patch_request".to_string()));
     let mut exact_edits = get_string_array(control, "exact_edits");
     if exact_edits.is_empty() && no_delta_recovery && !hint.trim().is_empty() {
         exact_edits.push(hint.trim().to_string());

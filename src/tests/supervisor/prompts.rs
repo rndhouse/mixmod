@@ -41,7 +41,7 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("Put only repo source/test paths in focus_files"));
     assert!(prompt.contains("exact_edits"));
     assert!(!prompt.contains("Context-pressure context"));
-    assert!(!prompt.contains("Small-patch slice context"));
+    assert!(!prompt.contains("Patch request context"));
     assert!(!prompt.contains("Patch checkpoint context"));
 }
 
@@ -54,11 +54,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     let loop_summary = root.join(SUPERVISION_LOOP_SUMMARY_JSON);
     let tool_events = root.join(TOOL_EVENTS_JSONL);
     let patch_comparison = root.join(PATCH_COMPARISON);
-    atomic_write(
-        &worker_brief,
-        br#"{"worker_turn_shape":"small_patch_slice"}"#,
-    )
-    .unwrap();
+    atomic_write(&worker_brief, br#"{"worker_turn_shape":"patch_request"}"#).unwrap();
     atomic_write(
         &metrics,
         br#"{"context_overflow_count":1,"worker_session_token_peak":27000,"interrupted_by_supervisor":true,"supervisor_control_events":[{"action":"interrupt_context_focus"}]}"#,
@@ -66,7 +62,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     .unwrap();
     atomic_write(
         &loop_summary,
-        br#"{"small_patch_slice_nonempty_delta_streak":2,"turns":[{"worker_turn_shape":"small_patch_slice","context_overflow_count":1,"worker_session_token_peak":27000}]}"#,
+        br#"{"patch_request_nonempty_delta_streak":2,"turns":[{"worker_turn_shape":"patch_request","context_overflow_count":1,"worker_session_token_peak":27000}]}"#,
     )
     .unwrap();
     atomic_write(&tool_events, b"").unwrap();
@@ -87,7 +83,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     .unwrap();
 
     assert!(prompt.contains("Use tool-events.jsonl as command/tool-call evidence"));
-    assert!(prompt.contains("Small-patch slice context"));
+    assert!(prompt.contains("Patch request context"));
     assert!(prompt.contains("Context-pressure context"));
     assert!(prompt.contains("Live-control context"));
     assert!(prompt.contains("Slice-sizing context"));
@@ -224,7 +220,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Choose the cheapest reliable next worker handoff"));
     assert!(brief_prompt.contains("Worker shape contract:"));
     assert!(brief_prompt.contains("Profile-selected shape"));
-    assert!(brief_prompt.contains("use worker_turn_shape=\"small_patch_slice\""));
+    assert!(brief_prompt.contains("use worker_turn_shape=\"patch_request\""));
     assert!(brief_prompt.contains("Do not emit worker_turn_shape=\"bounded_feature_slice\""));
     assert!(brief_prompt.contains("reasoning before editing"));
     assert!(brief_prompt.contains("large effective context"));
@@ -234,7 +230,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("one to three focused files"));
     assert!(brief_prompt.contains("expected around 100 changed lines"));
     assert!(brief_prompt.contains("soft maximum around 250 changed lines"));
-    assert!(brief_prompt.contains("worker_turn_shape=small_patch_slice"));
+    assert!(brief_prompt.contains("worker_turn_shape=patch_request"));
     assert!(brief_prompt.contains("largest coherent source behavior"));
     assert!(brief_prompt.contains("human-authored source edits"));
     assert!(brief_prompt.contains("generated artifacts"));

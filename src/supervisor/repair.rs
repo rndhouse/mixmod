@@ -12,7 +12,7 @@ pub(super) fn worker_brief_needs_small_slice_repair(
     if worker_guidance_prefers_bounded_feature_slice(worker_guidance) {
         return false;
     }
-    if !worker_guidance_prefers_small_patch_slice(worker_guidance) {
+    if !worker_guidance_prefers_patch_request(worker_guidance) {
         return false;
     }
     let typed = WorkerBrief::from_value(brief);
@@ -24,14 +24,14 @@ pub(super) fn worker_brief_needs_small_slice_repair(
     if !expect_patch && typed.worker_turn_shape.as_deref() == Some("planning_probe") {
         return false;
     }
-    let small_patch_slice = typed
+    let patch_request = typed
         .worker_turn_shape
         .as_deref()
-        .is_some_and(|shape| shape.trim() == "small_patch_slice");
+        .is_some_and(|shape| shape.trim() == "patch_request");
     if !expect_patch {
         return false;
     }
-    if !small_patch_slice {
+    if !patch_request {
         return true;
     }
     if typed.exact_edits.len() > 3 {
@@ -53,7 +53,7 @@ pub(super) fn supervisor_feedback_needs_revision_slice_repair(
     if worker_guidance_prefers_bounded_feature_slice(worker_guidance) {
         return false;
     }
-    if !worker_guidance_prefers_small_patch_slice(worker_guidance) {
+    if !worker_guidance_prefers_patch_request(worker_guidance) {
         return false;
     }
     let typed = SupervisorFeedback::from_value(feedback);
@@ -63,7 +63,7 @@ pub(super) fn supervisor_feedback_needs_revision_slice_repair(
         return false;
     }
     let handoff = RevisionHandoff::from_feedback(&typed);
-    if !handoff.is_small_patch_slice() {
+    if !handoff.is_patch_request() {
         return true;
     }
     !handoff
@@ -72,9 +72,9 @@ pub(super) fn supervisor_feedback_needs_revision_slice_repair(
         .any(|edit| !edit.trim().is_empty())
 }
 
-fn worker_guidance_prefers_small_patch_slice(worker_guidance: &WorkerSupervisorGuidance) -> bool {
+fn worker_guidance_prefers_patch_request(worker_guidance: &WorkerSupervisorGuidance) -> bool {
     worker_guidance.guidance.iter().any(|item| {
-        item.contains("worker_turn_shape=small_patch_slice")
+        item.contains("worker_turn_shape=patch_request")
             || item.contains("one immediate source edit")
     })
 }
@@ -126,7 +126,7 @@ pub(super) fn worker_brief_repair_rejection_reason(
     match repaired_brief {
         None => "The repaired handoff was not parseable JSON.".to_string(),
         Some(brief) if worker_brief_needs_small_slice_repair(brief, worker_guidance) => {
-            "The repaired handoff still does not satisfy the expected small_patch_slice shape: use compact concrete source edit strings in exact_edits.".to_string()
+            "The repaired handoff still does not satisfy the expected patch_request shape: use compact concrete source edit strings in exact_edits.".to_string()
         }
         Some(_) => "The repaired handoff was rejected by structural repair checks.".to_string(),
     }
@@ -153,7 +153,7 @@ pub(super) fn supervisor_feedback_repair_rejection_reason(
         Some(feedback)
             if supervisor_feedback_needs_revision_slice_repair(feedback, worker_guidance) =>
         {
-            "The repaired revision still does not satisfy the expected small_patch_slice shape: use compact concrete source edit strings in exact_edits.".to_string()
+            "The repaired revision still does not satisfy the expected patch_request shape: use compact concrete source edit strings in exact_edits.".to_string()
         }
         Some(feedback) if !revision_repair_preserves_focus(previous_feedback, feedback) => {
             "The repaired revision changed away from the previous single focus file; preserve that target unless the artifacts prove it is wrong.".to_string()

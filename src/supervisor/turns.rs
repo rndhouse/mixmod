@@ -122,7 +122,7 @@ pub(crate) fn run_supervisor_brief_turn(
         let retry_ran = retry_record.is_some();
         repair_record = Some(json!({
             "label": "worker-brief-repair",
-            "trigger": "expected-patch handoff for selected worker was missing small_patch_slice shape",
+            "trigger": "expected-patch handoff for selected worker was missing patch_request shape",
             "accepted": repair_accepted,
             "retry": retry_record,
             "codex_exit_status": repair.exit_status,
@@ -441,7 +441,7 @@ pub(crate) fn run_supervisor_feedback_turn(
         let retry_ran = retry_record.is_some();
         repair_record = Some(json!({
             "label": format!("{label}-repair"),
-            "trigger": "revision feedback was missing expected small_patch_slice handoff shape",
+            "trigger": "revision feedback was missing expected patch_request handoff shape",
             "accepted": repair_accepted,
             "retry": retry_record,
             "codex_exit_status": repair.exit_status,

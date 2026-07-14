@@ -516,7 +516,7 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("worker_turn_shape=small_patch_slice"))
+            .any(|item| item.contains("worker_turn_shape=patch_request"))
     );
     assert!(
         guidance

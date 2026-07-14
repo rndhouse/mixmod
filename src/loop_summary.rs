@@ -24,22 +24,22 @@ pub(crate) fn write_supervision_loop_summary(
         .iter()
         .filter(|turn| get_bool(turn, "completed").unwrap_or(false))
         .count();
-    let small_patch_slice_turn_count = turns
+    let patch_request_turn_count = turns
         .iter()
-        .filter(|turn| get_str(turn, "worker_turn_shape") == Some("small_patch_slice"))
+        .filter(|turn| get_str(turn, "worker_turn_shape") == Some("patch_request"))
         .count();
-    let small_patch_slice_nonempty_delta_count = turns
+    let patch_request_nonempty_delta_count = turns
         .iter()
         .filter(|turn| {
-            get_str(turn, "worker_turn_shape") == Some("small_patch_slice")
+            get_str(turn, "worker_turn_shape") == Some("patch_request")
                 && get_u64(turn, "latest_delta_bytes").unwrap_or(0) > 0
         })
         .count();
-    let small_patch_slice_nonempty_delta_streak = turns
+    let patch_request_nonempty_delta_streak = turns
         .iter()
         .rev()
         .take_while(|turn| {
-            get_str(turn, "worker_turn_shape") == Some("small_patch_slice")
+            get_str(turn, "worker_turn_shape") == Some("patch_request")
                 && get_u64(turn, "latest_delta_bytes").unwrap_or(0) > 0
                 && get_u64(turn, "context_overflow_count").unwrap_or(0) == 0
         })
@@ -63,9 +63,9 @@ pub(crate) fn write_supervision_loop_summary(
         "purpose": "Observed worker-loop telemetry for supervisor review; Mixmod does not choose the next plan from this artifact.",
         "worker_turn_count": turns.len(),
         "completed_worker_turn_count": completed_worker_turn_count,
-        "small_patch_slice_turn_count": small_patch_slice_turn_count,
-        "small_patch_slice_nonempty_delta_count": small_patch_slice_nonempty_delta_count,
-        "small_patch_slice_nonempty_delta_streak": small_patch_slice_nonempty_delta_streak,
+        "patch_request_turn_count": patch_request_turn_count,
+        "patch_request_nonempty_delta_count": patch_request_nonempty_delta_count,
+        "patch_request_nonempty_delta_streak": patch_request_nonempty_delta_streak,
         "context_overflow_total": context_overflow_total,
         "supervisor_control_count": supervisor_control_count,
         "worker_session_token_peak_max": worker_session_token_peak_max,
@@ -248,7 +248,7 @@ mod tests {
         write_pretty_json(
             &default_dir.join(WORKER_BRIEF_JSON),
             &json!({
-                "worker_turn_shape": "small_patch_slice",
+                "worker_turn_shape": "patch_request",
                 "turn_goal": "Seed option parsing",
                 "files": ["src/lib.rs"]
             }),
@@ -260,7 +260,7 @@ mod tests {
             &json!({
                 "context": {
                     "revision": {
-                        "worker_turn_shape": "small_patch_slice",
+                        "worker_turn_shape": "patch_request",
                         "turn_goal": "Wire option into runtime",
                         "worker_mode": "continue",
                         "patch_decision": "revise_current",
@@ -284,7 +284,7 @@ mod tests {
 
         assert_eq!(get_u64(&summary, "worker_turn_count"), Some(2));
         assert_eq!(
-            get_u64(&summary, "small_patch_slice_nonempty_delta_streak"),
+            get_u64(&summary, "patch_request_nonempty_delta_streak"),
             Some(2)
         );
         assert_eq!(
@@ -335,7 +335,7 @@ mod tests {
         write_pretty_json(
             &default_dir.join(WORKER_BRIEF_JSON),
             &json!({
-                "worker_turn_shape": "small_patch_slice",
+                "worker_turn_shape": "patch_request",
                 "turn_goal": "Seed API",
                 "files": ["src/lib.rs"]
             }),
@@ -347,7 +347,7 @@ mod tests {
             &json!({
                 "context": {
                     "revision": {
-                        "worker_turn_shape": "small_patch_slice",
+                        "worker_turn_shape": "patch_request",
                         "turn_goal": "Patch runtime branch",
                         "worker_mode": "context_focus",
                         "patch_decision": "revise_current",

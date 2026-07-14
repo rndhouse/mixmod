@@ -248,7 +248,7 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
 }
 
 #[test]
-fn small_patch_slice_revision_task_preserves_explicit_supervisor_gate() {
+fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("task.json");
@@ -272,7 +272,7 @@ fn small_patch_slice_revision_task_preserves_explicit_supervisor_gate() {
         hint: "Add the nested item discount branch and one focused assertion.".to_string(),
         revision_handoff: RevisionHandoff {
             expect_patch: Some(true),
-            worker_turn_shape: Some("small_patch_slice".to_string()),
+            worker_turn_shape: Some("patch_request".to_string()),
             turn_goal: Some("nested item discount branch".to_string()),
             exact_edits: vec![
                 "In checkout.py, add the branch that applies item discounts inside nested checkout items.".to_string(),
@@ -325,7 +325,7 @@ fn small_patch_slice_revision_task_preserves_explicit_supervisor_gate() {
     assert!(!instructions.contains("After editing, run exactly: git diff --stat"));
     assert_eq!(
         get_str(&revision["context"]["revision"], "worker_turn_shape"),
-        Some("small_patch_slice")
+        Some("patch_request")
     );
     assert_eq!(
         get_string_array(&revision["context"]["revision"], "exact_edits"),

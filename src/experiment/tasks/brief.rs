@@ -36,16 +36,15 @@ pub(crate) fn write_worker_brief_task(
     let expect_patch = typed_brief.expect_patch.unwrap_or(handoff != "blocked");
     let worker_turn_shape = get_str(brief, "worker_turn_shape").unwrap_or("");
     let planning_probe = !expect_patch && worker_turn_shape.trim() == "planning_probe";
-    let small_patch_slice = expect_patch && worker_turn_shape.trim() == "small_patch_slice";
+    let patch_request = expect_patch && worker_turn_shape.trim() == "patch_request";
     let bounded_feature_slice = expect_patch && worker_turn_shape.trim() == "bounded_feature_slice";
     let defer_checks_until_patch_exists =
-        get_bool(brief, "defer_checks_until_patch_exists").unwrap_or(small_patch_slice);
+        get_bool(brief, "defer_checks_until_patch_exists").unwrap_or(patch_request);
     let original_required_tests = non_empty_or(
         merged_string_arrays(brief, &["tests", "required_tests"]),
         get_string_array(&original, "tests"),
     );
-    let required_tests = if !expect_patch || (small_patch_slice && defer_checks_until_patch_exists)
-    {
+    let required_tests = if !expect_patch || (patch_request && defer_checks_until_patch_exists) {
         Vec::new()
     } else {
         original_required_tests.clone()
@@ -67,7 +66,7 @@ pub(crate) fn write_worker_brief_task(
             .map(|constraint| format!("Supervisor constraint: {constraint}")),
     );
     constraints.extend(avoid.iter().map(|item| format!("Avoid: {item}")));
-    if small_patch_slice {
+    if patch_request {
         constraints
             .push("Do not ask questions; make a reasonable assumption and edit.".to_string());
     } else if bounded_feature_slice {
@@ -114,7 +113,7 @@ pub(crate) fn write_worker_brief_task(
         .filter(|gate| !gate.is_empty());
     let acceptance = if planning_probe {
         Vec::new()
-    } else if small_patch_slice {
+    } else if patch_request {
         explicit_completion_gate
             .map(|gate| vec![gate.to_string()])
             .unwrap_or_default()
@@ -123,8 +122,8 @@ pub(crate) fn write_worker_brief_task(
     };
     let instructions = if planning_probe {
         planning_probe_instructions(&original, brief, &target_files, &codex_message)
-    } else if small_patch_slice {
-        small_patch_slice_instructions(
+    } else if patch_request {
+        patch_request_instructions(
             work_dir,
             &original,
             brief,
@@ -231,7 +230,7 @@ Risks: <one short risk or none>
     )
 }
 
-fn small_patch_slice_instructions(
+fn patch_request_instructions(
     work_dir: &Path,
     original: &Value,
     brief: &Value,

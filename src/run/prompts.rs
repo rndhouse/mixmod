@@ -8,7 +8,7 @@ pub(crate) fn build_opencode_instruction(
     _task_path: &Path,
     _out_dir: &Path,
 ) -> Result<String> {
-    let small_patch_slice = is_small_patch_slice_task(task);
+    let patch_request = is_patch_request_task(task);
     let files = if task.files.is_empty() {
         "- none specified".to_string()
     } else {
@@ -46,7 +46,7 @@ pub(crate) fn build_opencode_instruction(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let completion_self_check = if small_patch_slice {
+    let completion_self_check = if patch_request {
         r#"Before finalizing, do a completion self-check:
 - Did you follow the supervisor's current instruction?
 - If any requested edit or check remains incomplete, say exactly what remains incomplete.
@@ -60,7 +60,7 @@ Do not claim success if requested work remains incomplete."#
 
 Do not claim success if intended edits or intended checks are incomplete."#
     };
-    let output_contract = if small_patch_slice {
+    let output_contract = if patch_request {
         r#"Keep the final stdout response compact and include:
 - Changed files
 - Risks or blocker, if any
@@ -141,8 +141,8 @@ pub(super) fn build_revision_noop_followup_instruction(
     task: &TaskSpec,
     revision: &RevisionNoopContext,
 ) -> String {
-    if revision.revision_handoff.is_small_patch_slice() {
-        return build_small_patch_slice_revision_noop_followup_instruction(mode, task, revision);
+    if revision.revision_handoff.is_patch_request() {
+        return build_patch_request_revision_noop_followup_instruction(mode, task, revision);
     }
     let files = string_list_or_none(&revision_focus_files(task, revision));
     let checks = string_list_or_none(&revision.required_checks);
@@ -192,7 +192,7 @@ Keep the final response compact.
     )
 }
 
-fn build_small_patch_slice_revision_noop_followup_instruction(
+fn build_patch_request_revision_noop_followup_instruction(
     mode: DelegationMode,
     task: &TaskSpec,
     revision: &RevisionNoopContext,
@@ -360,7 +360,7 @@ fn expected_patch_for_instruction(mode: DelegationMode, task: &TaskSpec) -> bool
         .unwrap_or(true)
 }
 
-fn is_small_patch_slice_task(task: &TaskSpec) -> bool {
+fn is_patch_request_task(task: &TaskSpec) -> bool {
     task.context
         .get("worker_brief")
         .and_then(|brief| get_str(brief, "worker_turn_shape"))
@@ -369,7 +369,7 @@ fn is_small_patch_slice_task(task: &TaskSpec) -> bool {
                 .get("revision")
                 .and_then(|revision| get_str(revision, "worker_turn_shape"))
         })
-        .is_some_and(|shape| shape.trim() == "small_patch_slice")
+        .is_some_and(|shape| shape.trim() == "patch_request")
 }
 
 fn string_list_or_none(items: &[String]) -> String {
@@ -401,7 +401,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn revision_noop_followup_keeps_small_patch_slice_shape() {
+    fn revision_noop_followup_keeps_patch_request_shape() {
         let task = TaskSpec {
             title: "Flatten task".to_string(),
             files: vec!["builder.py".to_string(), "test_builder.py".to_string()],
@@ -412,7 +412,7 @@ mod tests {
             message_to_worker: "Make one builder edit.".to_string(),
             revision_handoff: RevisionHandoff {
                 expect_patch: Some(true),
-                worker_turn_shape: Some("small_patch_slice".to_string()),
+                worker_turn_shape: Some("patch_request".to_string()),
                 turn_goal: Some("first builder edit".to_string()),
                 exact_edits: vec![
                     "Edit builder.py around the packer loop only.".to_string(),

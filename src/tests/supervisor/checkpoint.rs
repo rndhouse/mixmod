@@ -161,7 +161,7 @@ fn revise_previous_checkpoint_restores_previous_worktree_patch() {
 }
 
 #[test]
-fn checkpoint_records_small_patch_slice_delta_observations() {
+fn checkpoint_records_patch_request_delta_observations() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let previous = root.join("previous");
@@ -195,7 +195,7 @@ fn checkpoint_records_small_patch_slice_delta_observations() {
         patch_decision: "revise_current".to_string(),
         hint: "Add one builder branch.".to_string(),
         revision_handoff: RevisionHandoff {
-            worker_turn_shape: Some("small_patch_slice".to_string()),
+            worker_turn_shape: Some("patch_request".to_string()),
             ..RevisionHandoff::default()
         },
         focus_files: vec!["src/builder.py".to_string()],
@@ -219,7 +219,7 @@ fn checkpoint_records_small_patch_slice_delta_observations() {
         comparison
             .observations
             .iter()
-            .any(|observation| observation.contains("small patch slice latest delta removed lines"))
+            .any(|observation| observation.contains("patch request latest delta removed lines"))
     );
     assert!(
         comparison

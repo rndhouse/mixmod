@@ -100,7 +100,7 @@ fn live_supervisor_no_delta_control_becomes_small_patch_revision() {
     assert_eq!(decision.verdict, "revise");
     assert_eq!(decision.worker_mode, "context_focus");
     assert_eq!(decision.patch_decision, "revise_current");
-    assert!(decision.revision_handoff.is_small_patch_slice());
+    assert!(decision.revision_handoff.is_patch_request());
     assert_eq!(
         decision.revision_handoff.exact_edits,
         vec!["In builder.py near `packers = {}`, make one source edit before tests."]

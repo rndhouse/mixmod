@@ -64,14 +64,14 @@ fn opencode_instruction_honors_no_patch_tasks() {
 }
 
 #[test]
-fn small_patch_slice_opencode_instruction_uses_patch_only_output_contract() {
+fn patch_request_opencode_instruction_uses_patch_only_output_contract() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("worker-task.json");
     atomic_write(
         &task,
         br#"{
-  "title": "Small patch slice",
+  "title": "Patch request",
   "instructions": "Noninteractive coding task.\n\nMake exactly this first small patch:\n1. Update helper.py.",
   "expect_patch": true,
   "files": ["helper.py"],
@@ -80,7 +80,7 @@ fn small_patch_slice_opencode_instruction_uses_patch_only_output_contract() {
   "context": {
     "expect_patch": true,
     "worker_brief": {
-      "worker_turn_shape": "small_patch_slice"
+      "worker_turn_shape": "patch_request"
     }
   }
 }"#,
@@ -104,14 +104,14 @@ fn small_patch_slice_opencode_instruction_uses_patch_only_output_contract() {
 }
 
 #[test]
-fn revision_small_patch_slice_opencode_instruction_uses_patch_only_output_contract() {
+fn revision_patch_request_opencode_instruction_uses_patch_only_output_contract() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("revision-task.json");
     atomic_write(
         &task,
         br#"{
-  "title": "Revision small patch slice",
+  "title": "Revision patch request",
   "instructions": "Noninteractive coding revision.\n\nMake exactly this next small patch:\n1. Update builder.py.",
   "expect_patch": true,
   "files": ["builder.py"],
@@ -120,7 +120,7 @@ fn revision_small_patch_slice_opencode_instruction_uses_patch_only_output_contra
   "context": {
     "expect_patch": true,
     "revision": {
-      "worker_turn_shape": "small_patch_slice",
+      "worker_turn_shape": "patch_request",
       "message_to_worker": "Add the next narrow source edit.",
       "worker_mode": "continue",
       "patch_decision": "revise_current",

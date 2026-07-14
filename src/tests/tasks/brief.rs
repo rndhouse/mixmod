@@ -91,7 +91,7 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("message_to_worker is only the short command"));
     assert!(prompt.contains("worker_turn_shape"));
     assert!(prompt.contains("planning_probe"));
-    assert!(prompt.contains("small_patch_slice"));
+    assert!(prompt.contains("patch_request"));
     assert!(prompt.contains("bounded_feature_slice"));
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("completion_gate"));
@@ -186,7 +186,7 @@ fn worker_task_surfaces_supervisor_investigation_notes() {
 }
 
 #[test]
-fn small_patch_slice_worker_task_preserves_explicit_supervisor_gate() {
+fn patch_request_worker_task_preserves_explicit_supervisor_gate() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("task.json");
@@ -205,7 +205,7 @@ fn small_patch_slice_worker_task_preserves_explicit_supervisor_gate() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "turn_goal": "Create the first metadata plumbing patch.",
         "files": ["mashumaro/helper.py", "tests/test_helper.py"],
         "exact_edits": [
@@ -260,7 +260,7 @@ fn small_patch_slice_worker_task_preserves_explicit_supervisor_gate() {
 }
 
 #[test]
-fn small_patch_slice_worker_task_includes_anchor_source_packet() {
+fn patch_request_worker_task_includes_anchor_source_packet() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fs::create_dir_all(root.join("mashumaro")).unwrap();
@@ -284,7 +284,7 @@ fn small_patch_slice_worker_task_includes_anchor_source_packet() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "turn_goal": "Add the first flatten option to field_options.",
         "files": ["mashumaro/helper.py"],
         "exact_edits": [

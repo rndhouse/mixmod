@@ -29,8 +29,7 @@ fn small_slice_guidance() -> WorkerSupervisorGuidance {
         target_patch_lines: Some(100),
         max_patch_lines: Some(250),
         guidance: vec![
-            "For broad expected-patch tasks, prefer worker_turn_shape=small_patch_slice."
-                .to_string(),
+            "For broad expected-patch tasks, prefer worker_turn_shape=patch_request.".to_string(),
         ],
     }
 }
@@ -74,7 +73,7 @@ fn broad_small_slice_worker_brief_still_needs_repair() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "exact_edits": [
             "In builder.py add flatten option helpers for flatten_prefix and flatten_rename validation.",
             "In builder.py add pack support.",
@@ -94,7 +93,7 @@ fn small_slice_worker_brief_does_not_need_repair() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "exact_edits": ["Edit helper.py."]
     });
 
@@ -263,7 +262,7 @@ fn parse_feedback_json_normalizes_object_exact_edits() {
         r#"{
                 "handoff":"guided",
                 "expect_patch":true,
-                "worker_turn_shape":"small_patch_slice",
+                "worker_turn_shape":"patch_request",
                 "exact_edits":[
                     {
                         "file":"src/lib.rs",
@@ -374,7 +373,7 @@ fn object_style_initial_metadata_seed_does_not_need_repair() {
             r#"{
                 "handoff":"guided",
                 "expect_patch":true,
-                "worker_turn_shape":"small_patch_slice",
+                "worker_turn_shape":"patch_request",
                 "turn_goal":"add public field metadata options",
                 "files":["src/helper.py"],
                 "exact_edits":[
@@ -399,7 +398,7 @@ fn initial_api_seed_with_flatten_option_names_does_not_need_repair() {
     let brief = json!({
         "handoff": "guided",
         "expect_patch": true,
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "exact_edits": [
             "In mashumaro/helper.py, update symbol field_options near the line containing \"def field_options\" to accept flatten=False, flatten_prefix=None, and flatten_rename=None, then include exactly those three values in the returned metadata/options structure following the existing field_options style."
         ]
@@ -415,7 +414,7 @@ fn initial_api_seed_with_flatten_option_names_does_not_need_repair() {
 fn broad_small_slice_revision_feedback_does_not_need_repair() {
     let feedback = json!({
         "action": "revise",
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "exact_edits": [
             "In builder.py, near the field loop, support flatten by adding pack and unpack behavior for nested dataclasses."
         ]
@@ -459,7 +458,7 @@ fn non_small_revision_feedback_for_small_slice_worker_needs_repair() {
 fn atomic_small_slice_revision_feedback_does_not_need_repair() {
     let feedback = json!({
         "action": "revise",
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "exact_edits": [
             "In builder.py, near the line containing `for field in fields`, collect flatten=True field names into flattened_fields."
         ]
@@ -475,7 +474,7 @@ fn atomic_small_slice_revision_feedback_does_not_need_repair() {
 fn anchored_revision_edit_with_negative_limits_does_not_need_repair() {
     let feedback = json!({
         "action": "revise",
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "exact_edits": [
             "In mashumaro/core/meta/code/builder.py, in symbol _add_pack_method_lines near the line containing \"packers = {}\", handle only metadata.get(\"flatten\") in the packing/kwargs-building branch: for a flattened field, update kwargs with the packed child dict instead of assigning kwargs[fname]; do not add unpacking, validation, prefix, rename, alias-collision, or test edits in this turn."
         ]
@@ -538,7 +537,7 @@ fn broad_worker_brief_repair_gets_structural_rejection_reason() {
 
     let reason = worker_brief_repair_rejection_reason(Some(&brief), &small_slice_guidance());
 
-    assert!(reason.contains("small_patch_slice shape"));
+    assert!(reason.contains("patch_request shape"));
     assert!(reason.contains("compact concrete source edit strings"));
 }
 
@@ -546,13 +545,13 @@ fn broad_worker_brief_repair_gets_structural_rejection_reason() {
 fn changed_focus_revision_repair_gets_structural_rejection_reason() {
     let previous = json!({
         "action": "revise",
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "focus_files": ["src/builder.rs"],
         "exact_edits": ["In src/builder.rs, make one serialization edit."]
     });
     let repaired = json!({
         "action": "revise",
-        "worker_turn_shape": "small_patch_slice",
+        "worker_turn_shape": "patch_request",
         "focus_files": ["src/helper.rs"],
         "exact_edits": ["In src/helper.rs, make one helper edit."]
     });

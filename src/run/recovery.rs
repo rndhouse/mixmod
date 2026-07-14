@@ -142,8 +142,8 @@ pub(super) fn run_revision_noop_followup(
             followup_dir.display()
         )
     })?;
-    let small_patch_slice = revision.revision_handoff.is_small_patch_slice();
-    let acceptance = if small_patch_slice {
+    let patch_request = revision.revision_handoff.is_patch_request();
+    let acceptance = if patch_request {
         revision
             .revision_handoff
             .completion_gate
@@ -163,7 +163,7 @@ pub(super) fn run_revision_noop_followup(
         "expect_patch": true,
         "instructions": "The previous revision worker turn exited successfully, but Mixmod captured no new delta against the existing candidate patch.",
         "files": revision_focus_files(task, revision),
-        "tests": if small_patch_slice { Vec::<String>::new() } else { revision.required_checks.clone() },
+        "tests": if patch_request { Vec::<String>::new() } else { revision.required_checks.clone() },
         "constraints": [
             "Do not only inspect files.",
             "Apply the exact supervisor revision or report BLOCKED."

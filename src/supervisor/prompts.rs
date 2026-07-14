@@ -60,7 +60,7 @@ Handoff requirements:
 - Omit optional fields unless they reduce worker confusion or supervisor output.
 
 JSON shape:
-{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|small_patch_slice|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["concrete edit"],"edit_packet":["optional anchor"],"source_snippets":["optional source"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"completion_gate":"optional gate","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["concrete edit"],"edit_packet":["optional anchor"],"source_snippets":["optional source"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"completion_gate":"optional gate","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -94,13 +94,13 @@ pub(crate) fn supervisor_worker_brief_repair_prompt(
         r#"You are revising your Mixmod supervisor handoff before the worker sees it.
 {worktree_policy}
 Do not run tests. Emit minified JSON only; no markdown and no explanation.
-Your previous handoff did not fit the selected worker profile because it either omitted worker_turn_shape=small_patch_slice or used a small_patch_slice that still bundled too much work.
+Your previous handoff did not fit the selected worker profile because it either omitted worker_turn_shape=patch_request or used a patch_request that still bundled too much work.
 Mixmod is not designing a replacement slice for you. You are responsible for adapting the worker instruction to the worker-model guidance below.
 {worker_guidance}
 Return a corrected expected-patch handoff with:
 - "handoff":"guided"
 - "expect_patch":true
-- "worker_turn_shape":"small_patch_slice"
+- "worker_turn_shape":"patch_request"
 - one turn_goal for the first patch slice only
 - concrete repo file paths for the focused source behavior, usually <=3
 - exact_edits must be an array of one or two command-style string items; do not use objects
@@ -160,7 +160,7 @@ Mixmod is not designing a replacement slice for you. You are responsible for ada
 Return one corrected expected-patch handoff with:
 - "handoff":"guided"
 - "expect_patch":true
-- "worker_turn_shape":"small_patch_slice"
+- "worker_turn_shape":"patch_request"
 - one turn_goal for the first patch slice only
 - concrete repo file paths for the focused source behavior, usually <=3
 - exact_edits as an array of one or two command-style string items; do not use objects
@@ -220,16 +220,16 @@ fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) 
         .iter()
         .any(|item| item.contains("worker_turn_shape=bounded_feature_slice"))
     {
-        return r#"Profile-selected shape: for expected-patch implementation handoffs, prefer worker_turn_shape="bounded_feature_slice". Use small_patch_slice only when ambiguity, context risk, or prior worker evidence calls for a smaller source slice. Use planning_probe with expect_patch=false only for bounded investigation."#;
+        return r#"Profile-selected shape: for expected-patch implementation handoffs, prefer worker_turn_shape="bounded_feature_slice". Use patch_request only when ambiguity, context risk, or prior worker evidence calls for a smaller source slice. Use planning_probe with expect_patch=false only for bounded investigation."#;
     }
     if worker_guidance
         .guidance
         .iter()
-        .any(|item| item.contains("worker_turn_shape=small_patch_slice"))
+        .any(|item| item.contains("worker_turn_shape=patch_request"))
     {
-        return r#"Profile-selected shape: for expected-patch implementation handoffs, use worker_turn_shape="small_patch_slice". Do not emit worker_turn_shape="bounded_feature_slice" or "default" for expected-patch work. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
+        return r#"Profile-selected shape: for expected-patch implementation handoffs, use worker_turn_shape="patch_request". Do not emit worker_turn_shape="bounded_feature_slice" or "default" for expected-patch work. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
     }
-    "No worker-specific default shape is selected. Choose one shape deliberately: planning_probe for no-patch investigation, small_patch_slice for a focused edit, bounded_feature_slice for a coherent larger feature chunk, or default only when the task is already simple."
+    "No worker-specific default shape is selected. Choose one shape deliberately: planning_probe for no-patch investigation, patch_request for a focused edit, bounded_feature_slice for a coherent larger feature chunk, or default only when the task is already simple."
 }
 
 fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
@@ -262,7 +262,7 @@ Treat supervisor input tokens as scarce. Inspect only the artifacts needed for t
 For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on prior accumulated edits.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch slice. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}
@@ -318,7 +318,7 @@ pub(crate) fn supervisor_live_control_prompt(
 Do not run tests. Do not ask the user for approval.
 {worker_guidance}
 Return only JSON matching this schema:
-{{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"patch_request|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Treat applicable worker-model guidance as context for shaping message_to_worker if you choose to interrupt.
 Available actions:
 - wait: let the worker continue.
@@ -328,7 +328,7 @@ Available actions:
 Base the action on the live evidence. Do not assume an intervention is required because a risk signal is present.
 Use new_delta_bytes, stdout_log_path, stderr_log_path, tool_events_path, context_overflow_count, worker_session_token_peak, worker_backend_telemetry, elapsed time, and last output age only as evidence for worker progress, confusion, or blockage.
 If you need detailed stdout, stderr, or tool-call history, inspect stdout_log_path, stderr_log_path, or tool_events_path yourself. Do not pass those artifact paths to the worker.
-If you interrupt, keep message_to_worker bounded to worker_instruction_excerpt, the live evidence, and the selected worker guidance. For small_patch_slice workers, keep any interrupt patch-first: focused repo files, one concrete source behavior, deferred checks, and no broad feature instruction.
+If you interrupt, keep message_to_worker bounded to worker_instruction_excerpt, the live evidence, and the selected worker guidance. For patch_request workers, keep any interrupt patch-first: focused repo files, one concrete source behavior, deferred checks, and no broad feature instruction.
 If the current worker_instruction_excerpt is a planning_probe and you choose interrupt_context_focus, restate enough of the original task goal, focused files, and planning questions in message_to_worker for a fresh worker session to answer without prior context.
 Do not solve the task yourself by editing source. Your job is process control: decide whether to keep waiting, interrupt, or abort the worker turn.
 The worker can read and edit only the working repo. It cannot read Mixmod task, state, log, or artifact paths.
@@ -371,7 +371,7 @@ Return a corrected revise decision with:
 - "action":"revise"
 - "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
-- "worker_turn_shape":"small_patch_slice"
+- "worker_turn_shape":"patch_request"
 - exact_edits must be an array of one or two command-style string items; do not use objects
 - source exact_edits only
 - focused source files in focus_files, usually <=3, plus at most one already-written focused test file
@@ -432,7 +432,7 @@ Return one corrected revise decision with:
 - "action":"revise"
 - "worker_mode":"continue" unless the previous feedback required context_focus because prior context is harmful
 - "patch_decision":"revise_current" unless the previous feedback required revise_previous
-- "worker_turn_shape":"small_patch_slice"
+- "worker_turn_shape":"patch_request"
 - exact_edits as an array of one or two command-style string items; do not use objects
 - focused source files in focus_files, usually <=3, plus at most one already-written focused test file
 - edit_packet or source_snippets when artifacts show the relevant source anchor or current accumulated patch state
@@ -480,9 +480,9 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
     let signals = supervisor_feedback_prompt_signals(artifact_paths);
     let mut sections = vec![supervisor_feedback_core_context(&signals)];
 
-    if signals.worker_turn_shape.as_deref() == Some("small_patch_slice") {
+    if signals.worker_turn_shape.as_deref() == Some("patch_request") {
         sections.push(
-            r#"Small-patch slice context:
+            r#"Patch request context:
 - Treat a first non-empty delta as progress, not proof of completion.
 - If more work is needed, make the next revision one source behavior with an immediately executable exact_edits item.
 - Write from the current accumulated worktree.patch and preserve useful existing edits.
@@ -525,7 +525,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Slice-sizing context:
 - Multiple recent small-patch turns produced non-empty deltas without context overflow.
-- If the accumulated patch is coherent but incomplete, the next small_patch_slice may cover one larger anchored source behavior.
+- If the accumulated patch is coherent but incomplete, the next patch_request may cover one larger anchored source behavior.
 - Keep the selected worker profile's preferred shape unless the profile explicitly supports broadening."#
                 .to_string(),
         );
@@ -633,7 +633,7 @@ impl SupervisorFeedbackPromptSignals {
         self.supervisor_control_seen |=
             get_u64(&summary, "supervisor_control_count").unwrap_or(0) > 0;
         self.small_patch_progress_streak |=
-            get_u64(&summary, "small_patch_slice_nonempty_delta_streak").unwrap_or(0) >= 2;
+            get_u64(&summary, "patch_request_nonempty_delta_streak").unwrap_or(0) >= 2;
 
         if let Some(turns) = summary.get("turns").and_then(Value::as_array)
             && let Some(last) = turns.last()

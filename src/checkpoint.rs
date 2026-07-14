@@ -342,22 +342,22 @@ pub(crate) fn write_patch_checkpoint_comparison_from_patch(
                 .to_string(),
         );
     }
-    if decision.revision_handoff.is_small_patch_slice() {
+    if decision.revision_handoff.is_patch_request() {
         if latest_delta_stats.removed_lines > 25 {
             observations.push(format!(
-                "small patch slice latest delta removed lines: {}",
+                "patch request latest delta removed lines: {}",
                 latest_delta_stats.removed_lines
             ));
         }
         if latest_delta_stats.changed_line_count > 80 {
             observations.push(format!(
-                "small patch slice latest delta changed line count: {}",
+                "patch request latest delta changed line count: {}",
                 latest_delta_stats.changed_line_count
             ));
         }
         if latest_delta_stats.files.len() > 2 {
             observations.push(format!(
-                "small patch slice latest delta changed files: {}",
+                "patch request latest delta changed files: {}",
                 latest_delta_stats.files.join(", ")
             ));
         }

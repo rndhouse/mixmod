@@ -54,13 +54,13 @@ impl RevisionHandoff {
         }
     }
 
-    pub(crate) fn is_small_patch_slice(&self) -> bool {
+    pub(crate) fn is_patch_request(&self) -> bool {
         if self.expect_patch == Some(false) {
             return false;
         }
         self.worker_turn_shape
             .as_deref()
-            .is_some_and(|shape| shape.trim() == "small_patch_slice")
+            .is_some_and(|shape| shape.trim() == "patch_request")
     }
 
     pub(crate) fn is_bounded_feature_slice(&self) -> bool {
