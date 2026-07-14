@@ -29,6 +29,18 @@ fn init_manages_only_central_state_files() {
 }
 
 #[test]
+fn init_config_does_not_include_worker_model_profile_blocks() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    init_project(root).unwrap();
+
+    let config = fs::read_to_string(state_layout(root).config()).unwrap();
+    assert!(!config.contains("worker_model_profiles"));
+    assert!(!config.contains("supervisor_guidance"));
+}
+
+#[test]
 fn codex_app_server_uses_mixmod_scoped_codex_home() {
     assert_eq!(
         codex_home_for_work_dir(Path::new("/tmp/work")),

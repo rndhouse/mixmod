@@ -731,11 +731,36 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
     let guidance = config.worker_supervisor_guidance();
 
     assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
+}
 
-    config.worker_model_profiles.clear();
+#[test]
+fn stale_config_worker_profile_blocks_are_ignored() {
+    let config: MixmodConfig = toml::from_str(
+        r#"
+[opencode]
+provider = "llama.cpp"
+model = "qwen-3.6-27b"
+
+[[worker_model_profiles]]
+model = "qwen-3.6-27b"
+target_patch_lines = 999
+max_patch_lines = 999
+supervisor_guidance = ["bad config guidance"]
+"#,
+    )
+    .unwrap();
+
     let guidance = config.worker_supervisor_guidance();
 
-    assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
+    assert_eq!(guidance.model, DEFAULT_OPENCODE_MODEL);
+    assert_eq!(guidance.target_patch_lines, Some(100));
+    assert_eq!(guidance.max_patch_lines, Some(250));
+    assert!(
+        !guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("bad config guidance"))
+    );
 }
 
 #[test]

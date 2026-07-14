@@ -186,46 +186,6 @@ backend_command = "curl -fsS http://127.0.0.1:8080/v1/models"
 [opencode.model_aliases]
 "{default_model}" = ["{default_model}", "{local_model}", "{opencode_provider}/{local_model}"]
 
-[[worker_model_profiles]]
-model = "{default_model}"
-aliases = ["{default_model}", "{local_model}", "{opencode_provider}/{local_model}"]
-target_patch_lines = 100
-max_patch_lines = 250
-supervisor_guidance = [
-  "This worker is cheap and useful for focused source edits, narrow repo inspection, compact command checks, and proposal turns; avoid broad autonomous design work.",
-  "It can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.",
-  "It can struggle with large effective context before explicit overflow; avoid asking it to reread many files, and use worker_mode=context_focus after context overflow, stale context, or repeated no-delta turns.",
-  "Treat the files list as a likely read queue for this worker: it often opens every listed path before editing, so do not list large or generated files unless full-file reading is intended and context-safe.",
-  "For broad expected-patch tasks, prefer worker_turn_shape=patch_request: choose the largest coherent source behavior it is likely to complete cleanly, usually one to three focused files, a bounded goal, deferred checks, and optional exact_edits or anchors/snippets only when precision saves supervisor output.",
-  "When route or file choice is unclear, use worker_turn_shape=planning_probe with expect_patch=false: ask it to inspect one to three focused authored-source files or targeted command outputs and propose the next request; do not let it decide task completion.",
-  "After multiple clean patch_request turns with useful deltas and no context pressure, broaden the next patch_request within the same shape; after messy, broad, or stalled turns, shrink the next slice.",
-  "Prefer human-authored source edits. Keep generated artifacts, vendored files, lockfiles, snapshots, and build outputs out of the worker-owned patch until there is a deliberate generated-output step.",
-  "For generated-code tasks, separate authored-source edits from generated-output updates: first request only the human-authored source patch, then use a later turn to run the generator or inspect generated output after a source diff exists.",
-  "If generated output must be produced, ask for a command-run or regeneration step, not manual full-file inspection or manual editing of the generated file.",
-  "It may produce directionally useful but messy parser, grammar, generated-code, or broad integration patches; inspect changed-file lists and patch stats before opening large diffs.",
-  "It may miss end-to-end integration across slices. Before approval, check that helpers, options, parser/generated code, callers, state mutation, and error propagation are wired where the task requires.",
-  "Do not trust compile success, non-empty diff, or the worker's summary as proof of task completion; require task-derived behavior evidence plus likely negative or edge-case coverage when behavior changed.",
-  "For option or behavior families with a base path plus modifiers, start with the base behavior and add one modifier family later unless prior worker turns show it can safely combine more.",
-  "For large functions or code-generation paths, describe the smallest local transformation; include a literal anchor only when it prevents worker wandering without much supervisor output.",
-  "When tests cannot start because dependencies are missing, keep the worker focused on repo-level evidence and allowed commands instead of global environment repair.",
-]
-
-[[worker_model_profiles]]
-model = "openrouter/z-ai/glm-5.2"
-aliases = ["openrouter/z-ai/glm-5.2", "z-ai/glm-5.2"]
-target_patch_lines = 300
-max_patch_lines = 800
-supervisor_guidance = [
-  "This worker is capable, but may over-investigate when the handoff contains an apparent implementation constraint conflict or an unresolved toolchain choice.",
-  "For generated-code, parser/compiler, toolchain, or similar trap-prone tasks, resolve the implementation route in the supervisor handoff before invoking the worker; do not ask the worker to discover whether the obvious route is viable.",
-  "When the supervisor has selected a route, tell the worker to trust that route unless a direct compile, test, or command result proves it impossible.",
-  "For broad expected-patch tasks, prefer worker_turn_shape=bounded_feature_slice with one concrete implementation path, one to three focused files, and the first reversible source edit named explicitly.",
-  "Make the initial handoff patch-first: include the chosen strategy, the exact next behavior slice, the files to touch, and deferred checks; avoid leaving design forks for the worker to resolve before editing.",
-  "If the worker starts toolchain archaeology, scratch-file probing, broad repo reading, or test-before-edit behavior without a diff, use live control to restate the chosen implementation route and request an immediate focused source edit.",
-  "For revisions, anchor the next instruction to the current accumulated patch, preserve useful existing edits, and name the next missing behavior instead of restarting discovery.",
-  "Before approval, check that the accumulated patch implements the requested end-to-end behavior, not just the first structural field or helper, and require focused behavior evidence for the main path plus likely invalid or edge case.",
-]
-
 [supervisor]
 model = "{supervisor_model}"
 # Codex config key: model_reasoning_effort. Allowed: minimal, low, medium, high, xhigh.

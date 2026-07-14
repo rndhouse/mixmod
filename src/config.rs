@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     DEFAULT_OPENCODE_LOCAL_MODEL, DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_PROVIDER,
     DEFAULT_SUPERVISOR_MODEL, DEFAULT_SUPERVISOR_REASONING_EFFORT, MIXMOD_OPENCODE_AGENT,
-    WorkerModelProfile, WorkerSupervisorGuidance, default_worker_model_profiles,
+    WorkerSupervisorGuidance, default_worker_model_profiles,
 };
 
 const REASONING_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
@@ -46,9 +46,6 @@ pub struct MixmodConfig {
     pub codex_worker: SupervisorConfig,
     /// Supervisor model configuration.
     pub supervisor: SupervisorConfig,
-    /// Historical guidance profiles keyed by worker model.
-    #[serde(default = "default_worker_model_profiles")]
-    pub worker_model_profiles: Vec<WorkerModelProfile>,
 }
 
 impl Default for MixmodConfig {
@@ -59,7 +56,6 @@ impl Default for MixmodConfig {
             opencode: OpenCodeConfig::default(),
             codex_worker: SupervisorConfig::default(),
             supervisor: SupervisorConfig::default(),
-            worker_model_profiles: default_worker_model_profiles(),
         }
     }
 }
@@ -68,16 +64,9 @@ impl MixmodConfig {
     /// Return supervisor-only guidance for the currently selected worker.
     pub(crate) fn worker_supervisor_guidance(&self) -> WorkerSupervisorGuidance {
         match self.worker.backend {
-            WorkerBackend::OpenCode => self
-                .worker_model_profiles
-                .iter()
+            WorkerBackend::OpenCode => default_worker_model_profiles()
+                .into_iter()
                 .find(|profile| profile.matches_opencode_worker(&self.opencode))
-                .cloned()
-                .or_else(|| {
-                    default_worker_model_profiles()
-                        .into_iter()
-                        .find(|profile| profile.matches_opencode_worker(&self.opencode))
-                })
                 .map(|profile| WorkerSupervisorGuidance {
                     model: profile.model,
                     target_patch_lines: profile.target_patch_lines,

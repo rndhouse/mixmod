@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
 
-use serde::{Deserialize, Serialize};
-
 use crate::OpenCodeConfig;
 
 mod glm;
@@ -9,19 +7,18 @@ mod minimaxm3;
 mod qwen;
 
 /// Historical pitfalls for one worker model.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(default)]
-pub struct WorkerModelProfile {
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct WorkerModelProfile {
     /// Canonical worker model label.
-    pub model: String,
+    pub(crate) model: String,
     /// Additional model/provider labels that should select this profile.
-    pub aliases: Vec<String>,
+    pub(crate) aliases: Vec<String>,
     /// Expected changed-line target for one worker turn.
-    pub target_patch_lines: Option<u64>,
+    pub(crate) target_patch_lines: Option<u64>,
     /// Expected changed-line ceiling for one worker turn.
-    pub max_patch_lines: Option<u64>,
+    pub(crate) max_patch_lines: Option<u64>,
     /// Supervisor-only guidance for adapting worker instructions.
-    pub supervisor_guidance: Vec<String>,
+    pub(crate) supervisor_guidance: Vec<String>,
 }
 
 impl WorkerModelProfile {

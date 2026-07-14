@@ -140,7 +140,6 @@ pub(crate) use supervisor::{
     supervisor_worker_brief_prompt,
 };
 pub(crate) use tool_events::{build_opencode_events_jsonl, build_tool_events_jsonl};
-pub use worker::WorkerModelProfile;
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
 pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};
 
