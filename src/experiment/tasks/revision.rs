@@ -7,7 +7,10 @@ use crate::*;
 
 use super::edit_packet::{NO_EDIT_PACKET, patch_request_edit_packet_from_decision};
 use super::focus::split_worker_focus_files;
-use super::format::{bullet_list, hard_rule_from_forbidden_action, non_empty_or, numbered_list};
+use super::format::{
+    bullet_list, file_list_or_none, hard_rule_from_forbidden_action, non_empty_or, numbered_list,
+    optional_bullet_section, optional_numbered_section, optional_text_section,
+};
 use super::types::{RevisionTask, RevisionTaskContext, RevisionTaskDetails};
 
 pub(crate) fn write_revision_task(
@@ -234,15 +237,7 @@ fn planning_probe_revision_instructions(
             "Name files, symbols, anchors, expected changed-line range, and the main risk for each slice.".to_string(),
         ],
     );
-    let file_list = if focus_files.is_empty() {
-        "- none specified".to_string()
-    } else {
-        focus_files
-            .iter()
-            .map(|file| format!("- {file}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let file_list = file_list_or_none(focus_files);
 
     format!(
         r#"Noninteractive planning probe. This is a no-patch revision turn for the supervisor. No user will answer questions.
@@ -330,15 +325,7 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
         }
     }
 
-    let file_list = if focus_files.is_empty() {
-        "- none specified".to_string()
-    } else {
-        focus_files
-            .iter()
-            .map(|file| format!("- {file}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let file_list = file_list_or_none(focus_files);
     let edit_packet =
         patch_request_edit_packet_from_decision(work_dir, focus_files, &exact_edits, decision);
     let checks = non_empty_or(
@@ -350,25 +337,10 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
     } else {
         format!("\nSupervisor-provided checks:\n{}", bullet_list(&checks))
     };
-    let hard_rules_note = if hard_rules.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nSupervisor worker limits:\n{}\n",
-            bullet_list(&hard_rules)
-        )
-    };
-    let completion_gate_note = completion_gate
-        .map(|gate| format!("\nSupervisor completion gate:\n{gate}\n"))
-        .unwrap_or_default();
-    let exact_edits_note = if exact_edits.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nSupervisor-provided edit details:\n{}\n",
-            numbered_list(&exact_edits)
-        )
-    };
+    let hard_rules_note = optional_bullet_section("Supervisor worker limits", &hard_rules);
+    let completion_gate_note = optional_text_section("Supervisor completion gate", completion_gate);
+    let exact_edits_note =
+        optional_numbered_section("Supervisor-provided edit details", &exact_edits);
     let edit_packet_note = if edit_packet == NO_EDIT_PACKET {
         String::new()
     } else {
@@ -462,15 +434,7 @@ fn bounded_feature_slice_revision_instructions(
     } else {
         numbered_list(&checks)
     };
-    let file_list = if focus_files.is_empty() {
-        "- none specified".to_string()
-    } else {
-        focus_files
-            .iter()
-            .map(|file| format!("- {file}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let file_list = file_list_or_none(focus_files);
 
     format!(
         r#"Noninteractive coding revision. This is the full instruction. No user will answer questions.

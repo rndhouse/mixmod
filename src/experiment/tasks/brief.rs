@@ -7,7 +7,9 @@ use crate::*;
 
 use super::edit_packet::{NO_EDIT_PACKET, patch_request_edit_packet_from_value};
 use super::format::{
-    append_handoff_list, bullet_list, hard_rule_from_forbidden_action, non_empty_or, numbered_list,
+    append_handoff_list, bullet_list, file_list_or_none, hard_rule_from_forbidden_action,
+    non_empty_or, numbered_list, optional_bullet_section, optional_numbered_section,
+    optional_text_section,
 };
 use super::types::{WorkerBriefTask, WorkerBriefTaskContext};
 
@@ -191,15 +193,7 @@ fn planning_probe_instructions(
     } else {
         format!("\nSupervisor-provided clues:\n{}\n", bullet_list(&evidence))
     };
-    let file_list = if target_files.is_empty() {
-        "- none specified".to_string()
-    } else {
-        target_files
-            .iter()
-            .map(|file| format!("- {file}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let file_list = file_list_or_none(target_files);
 
     format!(
         r#"Noninteractive planning probe. This is a no-patch turn for the supervisor. No user will answer questions.
@@ -257,15 +251,7 @@ fn patch_request_instructions(
         }
     }
 
-    let file_list = if target_files.is_empty() {
-        "- none specified".to_string()
-    } else {
-        target_files
-            .iter()
-            .map(|file| format!("- {file}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let file_list = file_list_or_none(target_files);
     let edit_packet = patch_request_edit_packet_from_value(
         work_dir,
         target_files,
@@ -273,25 +259,10 @@ fn patch_request_instructions(
         brief,
         &["edit_packet", "source_snippets", "anchors", "evidence"],
     );
-    let hard_rules_note = if hard_rules.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nSupervisor worker limits:\n{}\n",
-            bullet_list(&hard_rules)
-        )
-    };
-    let completion_gate_note = completion_gate
-        .map(|gate| format!("\nSupervisor completion gate:\n{gate}\n"))
-        .unwrap_or_default();
-    let exact_edits_note = if exact_edits.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nSupervisor-provided edit details:\n{}\n",
-            numbered_list(&exact_edits)
-        )
-    };
+    let hard_rules_note = optional_bullet_section("Supervisor worker limits", &hard_rules);
+    let completion_gate_note = optional_text_section("Supervisor completion gate", completion_gate);
+    let exact_edits_note =
+        optional_numbered_section("Supervisor-provided edit details", &exact_edits);
     let edit_packet_note = if edit_packet == NO_EDIT_PACKET {
         String::new()
     } else {
@@ -369,15 +340,7 @@ fn bounded_feature_slice_instructions(
     } else {
         numbered_list(&checks)
     };
-    let file_list = if target_files.is_empty() {
-        "- none specified".to_string()
-    } else {
-        target_files
-            .iter()
-            .map(|file| format!("- {file}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let file_list = file_list_or_none(target_files);
 
     format!(
         r#"Noninteractive coding task. This is the full instruction. No user will answer questions.
