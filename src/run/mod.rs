@@ -118,6 +118,64 @@ fn write_opencode_logs(logs_dir: &Path, stdout: &[u8], stderr: &[u8]) -> Result<
     Ok(())
 }
 
+struct CapturedRunPatch {
+    worktree_patch: String,
+    patch: String,
+}
+
+fn capture_run_patch(
+    root: &Path,
+    before_diff: Option<&str>,
+    notes: &mut Vec<String>,
+    context: Option<&str>,
+) -> CapturedRunPatch {
+    let worktree_patch = match git_diff_with_untracked(root) {
+        Ok(after_diff) => after_diff,
+        Err(error) => {
+            if let Some(context) = context {
+                notes.push(format!(
+                    "Unable to capture git diff after {context}: {error}"
+                ));
+            } else {
+                notes.push(format!("Unable to capture git diff: {error}"));
+            }
+            String::new()
+        }
+    };
+    let patch = diff_without_unchanged_blocks(&worktree_patch, before_diff.unwrap_or_default());
+    CapturedRunPatch {
+        worktree_patch,
+        patch,
+    }
+}
+
+fn write_patch_artifacts(
+    out_dir: &Path,
+    captured_patch: &CapturedRunPatch,
+    output: &AgentOutput,
+    notes: &mut Vec<String>,
+) -> Result<()> {
+    atomic_write(
+        &out_dir.join(CHANGES_PATCH),
+        captured_patch.patch.as_bytes(),
+    )?;
+    atomic_write(
+        &out_dir.join(WORKTREE_PATCH),
+        captured_patch.worktree_patch.as_bytes(),
+    )?;
+    if output.timed_out || output.idle_timed_out {
+        atomic_write(
+            &out_dir.join(PARTIAL_PATCH),
+            captured_patch.patch.as_bytes(),
+        )?;
+        notes.push(
+            "The worker did not finish normally; partial.patch preserves the worktree diff captured after termination."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 struct MixmodRun<'a> {
     root: &'a Path,
     mode: DelegationMode,
@@ -230,33 +288,23 @@ impl MixmodRun<'_> {
             notes.push("No pre-existing git diff was detected before the worker ran.".to_string());
         } else {
             notes.push(
-            "A pre-existing git diff was present before the worker ran; changes.patch may include unrelated local changes."
-                .to_string(),
-        );
+                "A pre-existing git diff was present before the worker ran; changes.patch subtracts unchanged pre-existing diff blocks."
+                    .to_string(),
+            );
         }
         notes.push(
             "worktree.patch contains the accumulated current repository diff for supervisor review."
                 .to_string(),
         );
 
-        let mut worktree_patch = match git_diff_with_untracked(root) {
-            Ok(after_diff) => after_diff,
-            Err(error) => {
-                notes.push(format!("Unable to capture git diff: {error}"));
-                String::new()
-            }
-        };
-        let mut patch = diff_without_unchanged_blocks(
-            &worktree_patch,
-            before_diff.as_deref().unwrap_or_default(),
-        );
+        let mut captured_patch = capture_run_patch(root, before_diff.as_deref(), &mut notes, None);
         if allow_auto_followups
             && should_run_revision_noop_followup(
                 mode,
                 expect_patch,
                 revision_context.as_ref(),
                 &output,
-                &patch,
+                &captured_patch.patch,
             )
         {
             let revision_context = revision_context
@@ -294,20 +342,13 @@ impl MixmodRun<'_> {
                     );
                     end_timestamp = Utc::now();
                     wall_clock_ms = start.elapsed().as_millis();
-                    worktree_patch = match git_diff_with_untracked(root) {
-                        Ok(after_diff) => after_diff,
-                        Err(error) => {
-                            notes.push(format!(
-                                "Unable to capture git diff after revision no-op follow-up: {error}"
-                            ));
-                            String::new()
-                        }
-                    };
-                    patch = diff_without_unchanged_blocks(
-                        &worktree_patch,
-                        before_diff.as_deref().unwrap_or_default(),
+                    captured_patch = capture_run_patch(
+                        root,
+                        before_diff.as_deref(),
+                        &mut notes,
+                        Some("revision no-op follow-up"),
                     );
-                    revision_noop_followup.patch_created = !patch.trim().is_empty();
+                    revision_noop_followup.patch_created = !captured_patch.patch.trim().is_empty();
                     intervention_log.record(
                         InterventionEvent::new(
                             InterventionKind::RevisionNoopFollowup,
@@ -330,7 +371,7 @@ impl MixmodRun<'_> {
                         ])
                         .with_details(intervention_details([
                             ("patch_created", json!(revision_noop_followup.patch_created)),
-                            ("patch_bytes", json!(patch.len() as u64)),
+                            ("patch_bytes", json!(captured_patch.patch.len() as u64)),
                             ("worker_mode", json!(revision_context.worker_mode)),
                             ("patch_decision", json!(revision_context.patch_decision)),
                         ])),
@@ -366,7 +407,7 @@ impl MixmodRun<'_> {
             }
             write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
         } else if allow_auto_followups
-            && should_run_empty_patch_followup(mode, expect_patch, &output, &patch)
+            && should_run_empty_patch_followup(mode, expect_patch, &output, &captured_patch.patch)
         {
             empty_patch_followup.triggered = true;
             empty_patch_followup.reason = Some(
@@ -399,20 +440,13 @@ impl MixmodRun<'_> {
                     );
                     end_timestamp = Utc::now();
                     wall_clock_ms = start.elapsed().as_millis();
-                    worktree_patch = match git_diff_with_untracked(root) {
-                        Ok(after_diff) => after_diff,
-                        Err(error) => {
-                            notes.push(format!(
-                                "Unable to capture git diff after empty-patch follow-up: {error}"
-                            ));
-                            String::new()
-                        }
-                    };
-                    patch = diff_without_unchanged_blocks(
-                        &worktree_patch,
-                        before_diff.as_deref().unwrap_or_default(),
+                    captured_patch = capture_run_patch(
+                        root,
+                        before_diff.as_deref(),
+                        &mut notes,
+                        Some("empty-patch follow-up"),
                     );
-                    empty_patch_followup.patch_created = !patch.trim().is_empty();
+                    empty_patch_followup.patch_created = !captured_patch.patch.trim().is_empty();
                     intervention_log.record(
                         InterventionEvent::new(
                             InterventionKind::EmptyPatchFollowup,
@@ -435,7 +469,7 @@ impl MixmodRun<'_> {
                         ])
                         .with_details(intervention_details([
                             ("patch_created", json!(empty_patch_followup.patch_created)),
-                            ("patch_bytes", json!(patch.len() as u64)),
+                            ("patch_bytes", json!(captured_patch.patch.len() as u64)),
                         ])),
                     );
                 }
@@ -475,10 +509,10 @@ impl MixmodRun<'_> {
             mode,
             expect_patch,
             &output,
-            &patch,
+            &captured_patch.patch,
         );
         if worker_self_review.reason.is_none() {
-            let patch_before_self_review = patch.clone();
+            let patch_before_self_review = captured_patch.patch.clone();
             worker_self_review.triggered = true;
             worker_self_review.reason = Some(
                 "patch-mode worker run produced a diff eligible for same-session self-review"
@@ -489,7 +523,7 @@ impl MixmodRun<'_> {
                 mode,
                 task: &task_spec,
                 task_path: &task_path,
-                review_patch: &patch,
+                review_patch: &captured_patch.patch,
                 out_dir: &out_dir,
                 runner,
                 require_local,
@@ -511,20 +545,14 @@ impl MixmodRun<'_> {
                     );
                     end_timestamp = Utc::now();
                     wall_clock_ms = start.elapsed().as_millis();
-                    worktree_patch = match git_diff_with_untracked(root) {
-                        Ok(after_diff) => after_diff,
-                        Err(error) => {
-                            notes.push(format!(
-                                "Unable to capture git diff after worker self-review: {error}"
-                            ));
-                            String::new()
-                        }
-                    };
-                    patch = diff_without_unchanged_blocks(
-                        &worktree_patch,
-                        before_diff.as_deref().unwrap_or_default(),
+                    captured_patch = capture_run_patch(
+                        root,
+                        before_diff.as_deref(),
+                        &mut notes,
+                        Some("worker self-review"),
                     );
-                    worker_self_review.patch_changed = patch != patch_before_self_review;
+                    worker_self_review.patch_changed =
+                        captured_patch.patch != patch_before_self_review;
                     intervention_log.record(
                         InterventionEvent::new(
                             InterventionKind::WorkerSelfReview,
@@ -548,7 +576,7 @@ impl MixmodRun<'_> {
                         ])
                         .with_details(intervention_details([
                             ("patch_changed", json!(worker_self_review.patch_changed)),
-                            ("patch_bytes", json!(patch.len() as u64)),
+                            ("patch_bytes", json!(captured_patch.patch.len() as u64)),
                             (
                                 "review_patch_bytes",
                                 json!(patch_before_self_review.len() as u64),
@@ -587,17 +615,9 @@ impl MixmodRun<'_> {
             }
             write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
         }
-        atomic_write(&out_dir.join(CHANGES_PATCH), patch.as_bytes())?;
-        atomic_write(&out_dir.join(WORKTREE_PATCH), worktree_patch.as_bytes())?;
-        if output.timed_out || output.idle_timed_out {
-            atomic_write(&out_dir.join(PARTIAL_PATCH), patch.as_bytes())?;
-            notes.push(
-            "The worker did not finish normally; partial.patch preserves the worktree diff captured after termination."
-                .to_string(),
-        );
-        }
-        let stats = patch_stats(&patch);
-        let worktree_stats = patch_stats(&worktree_patch);
+        write_patch_artifacts(&out_dir, &captured_patch, &output, &mut notes)?;
+        let stats = patch_stats(&captured_patch.patch);
+        let worktree_stats = patch_stats(&captured_patch.worktree_patch);
 
         let (reasoning_trace, reasoning_trace_event_count) =
             build_reasoning_trace_jsonl(&output.stdout)?;
@@ -632,7 +652,7 @@ impl MixmodRun<'_> {
             || (output.success
                 && mode == DelegationMode::Patch
                 && expect_patch
-                && patch.trim().is_empty());
+                && captured_patch.patch.trim().is_empty());
         let status = if needs_supervisor {
             "needs_supervisor"
         } else if output.success {
@@ -697,7 +717,7 @@ impl MixmodRun<'_> {
             empty_patch_followup_reason: empty_patch_followup.reason.clone(),
             empty_patch_followup_run_dir: empty_patch_followup.run_dir.clone(),
             revision_delta_expected: revision_noop_followup.delta_expected,
-            revision_delta_bytes: patch.len() as u64,
+            revision_delta_bytes: captured_patch.patch.len() as u64,
             revision_noop_followup_triggered: revision_noop_followup.triggered,
             revision_noop_followup_performed: revision_noop_followup.performed,
             revision_noop_followup_patch_created: revision_noop_followup.patch_created,
