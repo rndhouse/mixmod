@@ -28,13 +28,17 @@ const COMMAND_SUMMARY_BYTES: usize = 1_100;
 const DIRECT_SUMMARY_MAX_EXACT_STDOUT_BYTES: u64 = 800;
 const DIRECT_SUMMARY_MAX_EXACT_STDERR_BYTES: u64 = 240;
 const ASK_SUMMARY_BYTES: usize = 1_200;
-const COMMAND_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/command.stdout.txt,logs/command.stderr.txt,command-result.json,search-summary.json,logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,worktree.patch} if answer is insufficient";
+const COMMAND_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/command.stdout.txt,logs/command.stderr.txt,command-result.json,search-summary.json,selection-ranked.json,logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,worktree.patch} if answer is insufficient";
 const ASK_TOOL_ARTIFACT_HINT: &str = "inspect artifacts_dir/{logs/opencode.stdout.txt,logs/opencode.stderr.txt,tool-events.jsonl,reasoning-trace.jsonl,worktree.patch} if answer is insufficient";
 const SEARCH_SUMMARY_MAX_FILES: usize = 80;
 const SEARCH_SUMMARY_HITS_PER_FILE: usize = 3;
 const SEARCH_SUMMARY_HIT_CHARS: usize = 240;
 const WORKER_SUMMARY_MIN_BYTES: u64 = 4_000;
 const WORKER_SEARCH_SUMMARY_MIN_BYTES: u64 = 1_500;
+const SELECTION_PAGE_SIZE_DEFAULT: usize = 8;
+const SELECTION_PAGE_SIZE_MAX: usize = 25;
+const SELECTION_MAX_ENTRIES: usize = 80;
+const SELECTION_ARTIFACT_JSON: &str = "selection-ranked.json";
 
 /// Run a supervisor-requested prompt through the configured low-cost worker.
 pub(crate) fn run_worker_ask_tool(root: &Path, prompt: &str) -> Result<()> {
@@ -51,14 +55,33 @@ pub(crate) fn run_worker_command_tool(
     root: &Path,
     command: &str,
     need: Option<&str>,
+    select: bool,
+    page_size: usize,
 ) -> Result<()> {
     let command = command.trim();
     if command.is_empty() {
         anyhow::bail!("worker command must not be empty");
     }
     let need = required_command_need(need)?;
-    let payload = SupervisorToolProxyPayload::from_command(command, Some(&need), root);
+    let payload = SupervisorToolProxyPayload::from_command(command, Some(&need), root)
+        .with_selection(select, page_size);
     run_supervisor_tool_proxy_payload(&payload, root)
+}
+
+/// Print a compact page from a saved ranked-selection artifact.
+pub(crate) fn run_worker_selection_page_tool(
+    root: &Path,
+    selection_path: &Path,
+    page: usize,
+    page_size: usize,
+) -> Result<()> {
+    let selection_path = absolutize(root, selection_path);
+    let selection = read_ranked_selection(&selection_path)?;
+    print!(
+        "{}",
+        render_selection_page(root, &selection_path, &selection, page, page_size)?
+    );
+    Ok(())
 }
 
 /// Handle Codex `PreToolUse` input for the supervisor-scoped proxy hook.
@@ -178,18 +201,24 @@ fn run_supervisor_command_tool_proxy(
 
     let command_delta = diff_without_unchanged_blocks(&after_command_diff, &before_diff);
     let command_delta_stats = patch_stats(&command_delta);
-    let summary = deterministic_command_summary(payload, out_dir, &command_result)?
-        .map(Ok)
-        .unwrap_or_else(|| {
-            run_command_summary_worker(
-                payload,
-                root,
-                out_dir,
-                &config,
-                &command_result,
-                &after_command_diff,
-            )
-        })?;
+    let summary = if let Some(selection) =
+        command_selection_result(payload, root, out_dir, &config, &command_result)?
+    {
+        selection
+    } else if let Some(deterministic) =
+        deterministic_command_summary(payload, out_dir, &command_result)?
+    {
+        deterministic
+    } else {
+        run_command_summary_worker(
+            payload,
+            root,
+            out_dir,
+            &config,
+            &command_result,
+            &after_command_diff,
+        )?
+    };
     let final_patch = git_diff_with_untracked(root).unwrap_or(after_command_diff);
     atomic_write(&out_dir.join(WORKTREE_PATCH), final_patch.as_bytes())?;
 
@@ -267,6 +296,9 @@ fn render_command_tool_result(
     writeln!(output, "command_result: command-result.json").expect("write to string");
     if out_dir.join("search-summary.json").exists() {
         writeln!(output, "search_summary: search-summary.json").expect("write to string");
+    }
+    if out_dir.join(SELECTION_ARTIFACT_JSON).exists() {
+        writeln!(output, "selection_artifact: {SELECTION_ARTIFACT_JSON}").expect("write to string");
     }
     if let Some(exit_status) = metrics.get("opencode_exit_status").and_then(Value::as_u64) {
         writeln!(output, "summary_worker_exit_status: {exit_status}").expect("write to string");
@@ -400,6 +432,38 @@ struct ReadableCommandArtifacts {
     search_summary_path: Option<PathBuf>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct RankedSelection {
+    kind: String,
+    version: u8,
+    source: String,
+    created_at: String,
+    command: String,
+    need: Option<String>,
+    entries: Vec<RankedSelectionEntry>,
+    artifacts: RankedSelectionArtifacts,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct RankedSelectionArtifacts {
+    stdout: String,
+    stderr: String,
+    command_result: String,
+    search_summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct RankedSelectionEntry {
+    rank: usize,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    lines: Option<String>,
+    reason: String,
+    #[serde(default)]
+    score: Option<f64>,
+}
+
 fn run_command_directly(
     root: &Path,
     out_dir: &Path,
@@ -501,6 +565,149 @@ fn command_timeout_seconds(config: &MixmodConfig) -> u64 {
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(config.opencode.worker_timeout_seconds)
+}
+
+fn command_selection_result(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    config: &MixmodConfig,
+    command_result: &CommandToolResult,
+) -> Result<Option<CommandSummaryResult>> {
+    if !payload.select {
+        return Ok(None);
+    }
+
+    let stdout = read_text_lossy(&command_result.stdout_path);
+    let Some(search_summary) = write_search_summary_artifact(payload, out_dir, &stdout)? else {
+        return Ok(None);
+    };
+    if search_summary_output_lines(&search_summary) <= payload.selection_page_size() {
+        let entries = deterministic_selection_entries(&search_summary);
+        return write_selection_command_result(
+            payload,
+            root,
+            out_dir,
+            command_result,
+            "mixmod_deterministic_selection",
+            entries,
+            false,
+            None,
+            crate::PatchStats::default(),
+        )
+        .map(Some);
+    }
+
+    let before_selection_diff = git_diff_with_untracked(root).unwrap_or_default();
+    let selection_task_path = out_dir.join("command-selection-task.json");
+    let selection_task = command_selection_task(payload, root, out_dir, command_result)?;
+    write_pretty_json(
+        &selection_task_path,
+        &selection_task,
+        "command selection task",
+    )?;
+
+    let mut selection_config = config.clone();
+    apply_command_summary_limits(&mut selection_config);
+    let runner = ShellOpenCodeRunner::new(selection_config.clone());
+    let worker_error = run_mixmod_task_with_worker_options(
+        root,
+        DelegationMode::Explore,
+        &selection_task_path,
+        out_dir,
+        &runner,
+        selection_config.opencode.require_local,
+        WorkerRunOptions {
+            allow_auto_followups: false,
+            ..WorkerRunOptions::default()
+        },
+    )
+    .err()
+    .map(|error| error.to_string());
+
+    let worker_text = extract_last_text(&out_dir.join("logs/opencode.stdout.txt"));
+    let (selection_source, entries) = worker_text
+        .as_deref()
+        .and_then(parse_worker_selection_entries)
+        .filter(|entries| !entries.is_empty())
+        .map(|entries| ("local_worker_selection", entries))
+        .unwrap_or_else(|| {
+            (
+                "mixmod_deterministic_selection",
+                deterministic_selection_entries(&search_summary),
+            )
+        });
+    let after_selection_diff = git_diff_with_untracked(root).unwrap_or_default();
+    let selection_delta =
+        diff_without_unchanged_blocks(&after_selection_diff, &before_selection_diff);
+    let selection_delta_stats = patch_stats(&selection_delta);
+    write_selection_command_result(
+        payload,
+        root,
+        out_dir,
+        command_result,
+        selection_source,
+        entries,
+        true,
+        worker_error,
+        selection_delta_stats,
+    )
+    .map(Some)
+}
+
+fn write_selection_command_result(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    command_result: &CommandToolResult,
+    selection_source: &str,
+    entries: Vec<RankedSelectionEntry>,
+    opencode_call: bool,
+    worker_error: Option<String>,
+    summary_delta_stats: crate::PatchStats,
+) -> Result<CommandSummaryResult> {
+    let selection = ranked_selection(payload, selection_source, entries);
+    let selection_path = out_dir.join(SELECTION_ARTIFACT_JSON);
+    write_pretty_json(&selection_path, &selection, "ranked command selection")?;
+    let page_text = render_selection_page(
+        root,
+        &selection_path,
+        &selection,
+        1,
+        payload.selection_page_size(),
+    )?;
+    let metrics = json!({
+        "kind": "mixmod-command-proxy",
+        "status": tool_proxy_command_status(command_result),
+        "summary_source": selection_source,
+        "summary_kind": "ranked_selection",
+        "opencode_call": opencode_call,
+        "local_inference_verified": false,
+        "command_exit_status": command_result.exit_status,
+        "command_timed_out": command_result.timed_out,
+        "duration_ms": command_result.duration_ms,
+        "stdout_bytes": command_result.stdout_bytes,
+        "stderr_bytes": command_result.stderr_bytes,
+        "search_summary_artifact": "search-summary.json",
+        "selection_artifact": SELECTION_ARTIFACT_JSON,
+        "selection_entries": selection.entries.len(),
+        "selection_page_size": payload.selection_page_size(),
+        "worker_error": worker_error,
+    });
+    write_pretty_json(
+        &out_dir.join(METRICS_JSON),
+        &metrics,
+        "selection command proxy metrics",
+    )?;
+    atomic_write(
+        &out_dir.join(REPORT_MD),
+        selection_command_report(payload, command_result, selection_source, &page_text).as_bytes(),
+    )?;
+    Ok(CommandSummaryResult {
+        text: page_text,
+        metrics: Some(metrics),
+        summary_delta_stats: Some(summary_delta_stats),
+    })
 }
 
 fn run_command_summary_worker(
@@ -952,6 +1159,94 @@ fn artifact_only_command_report(
     )
 }
 
+fn selection_command_report(
+    payload: &SupervisorToolProxyPayload,
+    command_result: &CommandToolResult,
+    selection_source: &str,
+    text: &str,
+) -> String {
+    format!(
+        "# Mixmod Command Proxy Report\n\n\
+         - Status: {}\n\
+         - Summary source: {selection_source}\n\
+         - Summary kind: ranked_selection\n\
+         - Command: `{}`\n\
+         - Exit status: {}\n\
+         - Timed out: {}\n\
+         - Stdout bytes: {}\n\
+         - Stderr bytes: {}\n\n\
+         ## Answer\n\n{}\n",
+        tool_proxy_command_status(command_result),
+        payload.command.trim().replace('`', "\\`"),
+        command_result
+            .exit_status
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        command_result.timed_out,
+        command_result.stdout_bytes,
+        command_result.stderr_bytes,
+        text
+    )
+}
+
+fn command_selection_task(
+    payload: &SupervisorToolProxyPayload,
+    root: &Path,
+    out_dir: &Path,
+    command_result: &CommandToolResult,
+) -> Result<Value> {
+    let stdout = read_text_lossy(&command_result.stdout_path);
+    let search_summary = write_search_summary_artifact(payload, out_dir, &stdout)?;
+    let readable_artifacts =
+        prepare_readable_command_artifacts(root, out_dir, search_summary.is_some())?;
+    let artifact_section = command_artifact_section(&readable_artifacts);
+    let need = command_summary_need(payload, search_summary.as_ref(), command_result);
+    Ok(json!({
+        "title": format!("Rank command search results: {}", payload.command.trim()),
+        "instructions": format!(
+            "A GPT supervisor requested a deterministic shell command and asked Mixmod to rank/filter the search result. Mixmod already ran the command. Do not run shell commands, inspect repository files, edit files, or commit. Read only the listed command artifacts when needed, then rank the most relevant results for the supervisor information need.\n\nSupervisor information need:\n{need}\n\nCommand:\n```bash\n{command}\n```\n\nExit status: {exit_status}\nTimed out: {timed_out}\nDuration ms: {duration_ms}\nStdout bytes: {stdout_bytes}\nStderr bytes: {stderr_bytes}\n\n{artifact_section}\n\nReturn exactly one JSON object and no markdown. Schema:\n{{\"entries\":[{{\"path\":\"repo/relative/file.ext\",\"lines\":\"12-34\",\"reason\":\"why this result is relevant\",\"score\":0.0}}]}}\n\nRank the most useful entries first. Use line ranges when available from the search hit. Keep reasons short. Include at most {max_entries} entries. If no result is relevant, return {{\"entries\":[]}}.",
+            need = need,
+            command = payload.command.trim(),
+            exit_status = command_result
+                .exit_status
+                .map(|status| status.to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+            timed_out = command_result.timed_out,
+            duration_ms = command_result.duration_ms,
+            stdout_bytes = command_result.stdout_bytes,
+            stderr_bytes = command_result.stderr_bytes,
+            artifact_section = artifact_section,
+            max_entries = SELECTION_MAX_ENTRIES,
+        ),
+        "expect_patch": false,
+        "tests": [],
+        "constraints": [
+            "Do not run shell commands.",
+            "Do not inspect repository files.",
+            "Do not edit files.",
+            "Do not commit changes.",
+            "Read only the listed command artifact files when needed.",
+            "Return exactly one JSON object and no markdown.",
+            "Rank entries by relevance to the supervisor information need.",
+            "Keep reasons short and auditable.",
+        ],
+        "context": {
+            "worker_role": "command_result_ranker",
+            "expect_patch": false,
+            "delegated_from": "mixmod_cli_tool",
+            "original_command": payload.command.trim(),
+            "supervisor_need": need,
+            "command_exit_status": command_result.exit_status,
+            "command_timed_out": command_result.timed_out,
+            "stdout_artifact": readable_artifacts.stdout_path,
+            "stderr_artifact": readable_artifacts.stderr_path,
+            "command_result_artifact": readable_artifacts.result_path,
+            "search_summary_artifact": readable_artifacts.search_summary_path,
+            "max_entries": SELECTION_MAX_ENTRIES,
+        }
+    }))
+}
+
 fn command_summary_task(
     payload: &SupervisorToolProxyPayload,
     root: &Path,
@@ -1025,6 +1320,269 @@ fn command_summary_need(
         return "Summarize the command failure compactly: exit status, likely cause, and first relevant error line. Do not paste raw output.".to_string();
     }
     "Return the useful command result compactly. Do not paste raw stdout or stderr.".to_string()
+}
+
+fn ranked_selection(
+    payload: &SupervisorToolProxyPayload,
+    source: &str,
+    mut entries: Vec<RankedSelectionEntry>,
+) -> RankedSelection {
+    for (index, entry) in entries.iter_mut().enumerate() {
+        entry.rank = index + 1;
+        entry.reason = compact_chars(&entry.reason, 140);
+        if let Some(path) = &mut entry.path {
+            *path = compact_chars(path, 220);
+        }
+        if let Some(lines) = &mut entry.lines {
+            *lines = compact_chars(lines, 80);
+        }
+    }
+    entries.truncate(SELECTION_MAX_ENTRIES);
+    RankedSelection {
+        kind: "mixmod-ranked-selection".to_string(),
+        version: 1,
+        source: source.to_string(),
+        created_at: Utc::now().to_rfc3339(),
+        command: payload.command.trim().to_string(),
+        need: payload.need_text().map(ToOwned::to_owned),
+        entries,
+        artifacts: RankedSelectionArtifacts {
+            stdout: "logs/command.stdout.txt".to_string(),
+            stderr: "logs/command.stderr.txt".to_string(),
+            command_result: "command-result.json".to_string(),
+            search_summary: Some("search-summary.json".to_string()),
+        },
+    }
+}
+
+fn read_ranked_selection(path: &Path) -> Result<RankedSelection> {
+    serde_json::from_value(read_json_file(path)?)
+        .with_context(|| format!("failed to parse selection artifact {}", path.display()))
+}
+
+fn render_selection_page(
+    root: &Path,
+    selection_path: &Path,
+    selection: &RankedSelection,
+    page: usize,
+    page_size: usize,
+) -> Result<String> {
+    if page == 0 {
+        anyhow::bail!("selection page must be one-based");
+    }
+    let page_size = normalize_selection_page_size(page_size);
+    let total = selection.entries.len();
+    let start = (page - 1).saturating_mul(page_size);
+    let end = (start + page_size).min(total);
+    let has_more = end < total;
+    let mut output = String::new();
+    writeln!(output, "selection_source: {}", selection.source).expect("write to string");
+    writeln!(output, "selection_artifact: {}", selection_path.display()).expect("write to string");
+    writeln!(output, "selection_entries_total: {total}").expect("write to string");
+    writeln!(output, "page: {page}").expect("write to string");
+    writeln!(output, "page_size: {page_size}").expect("write to string");
+    writeln!(output, "has_more: {has_more}").expect("write to string");
+    if has_more {
+        writeln!(
+            output,
+            "next_page: {} tool selection-page --selection {} --page {} --page-size {}",
+            env::current_exe()
+                .map(|path| shell_quote_path(&path))
+                .unwrap_or_else(|_| "mixmod".to_string()),
+            shell_quote_path(selection_path),
+            page + 1,
+            page_size
+        )
+        .expect("write to string");
+    }
+    writeln!(output, "entries:").expect("write to string");
+    if start >= total {
+        writeln!(output, "- <no entries on this page>").expect("write to string");
+        return Ok(output);
+    }
+    for entry in selection.entries[start..end].iter() {
+        let target = entry
+            .path
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("<stdout>");
+        let lines = entry
+            .lines
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| format!(":{value}"))
+            .unwrap_or_default();
+        writeln!(
+            output,
+            "{}. {}{} - {}",
+            entry.rank,
+            compact_chars(target, 120),
+            lines,
+            compact_chars(&entry.reason, 120)
+        )
+        .expect("write to string");
+    }
+    writeln!(
+        output,
+        "artifacts_dir: {}",
+        selection_path
+            .parent()
+            .map(|path| display_path(root, path))
+            .unwrap_or_else(|| ".".to_string())
+    )
+    .expect("write to string");
+    Ok(output)
+}
+
+fn normalize_selection_page_size(page_size: usize) -> usize {
+    page_size.clamp(1, SELECTION_PAGE_SIZE_MAX)
+}
+
+fn parse_worker_selection_entries(text: &str) -> Option<Vec<RankedSelectionEntry>> {
+    let value = parse_json_value_from_text(text)?;
+    let entries_value = value
+        .get("entries")
+        .or_else(|| value.get("selected"))
+        .unwrap_or(&value);
+    let entries = entries_value.as_array()?;
+    let mut parsed = Vec::new();
+    for (index, entry) in entries.iter().enumerate().take(SELECTION_MAX_ENTRIES) {
+        let path = string_field(entry, &["path", "file", "filename"]);
+        let lines = string_field(entry, &["lines", "line_range", "range"]);
+        let reason = string_field(entry, &["reason", "why", "summary"])
+            .unwrap_or_else(|| "selected by local worker".to_string());
+        let score = entry.get("score").and_then(Value::as_f64);
+        parsed.push(RankedSelectionEntry {
+            rank: entry
+                .get("rank")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(index + 1),
+            path,
+            lines,
+            reason,
+            score,
+        });
+    }
+    Some(parsed)
+}
+
+fn parse_json_value_from_text(text: &str) -> Option<Value> {
+    let trimmed = text.trim();
+    if let Ok(value) = serde_json::from_str(trimmed) {
+        return Some(value);
+    }
+    let unfenced = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .and_then(|value| value.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    if let Ok(value) = serde_json::from_str(unfenced) {
+        return Some(value);
+    }
+    let start = unfenced.find('{')?;
+    let end = unfenced.rfind('}')?;
+    if start > end {
+        return None;
+    }
+    serde_json::from_str(&unfenced[start..=end]).ok()
+}
+
+fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key))
+        .and_then(|value| match value {
+            Value::String(text) => Some(text.trim().to_string()),
+            Value::Number(number) => Some(number.to_string()),
+            _ => None,
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn deterministic_selection_entries(search_summary: &Value) -> Vec<RankedSelectionEntry> {
+    match search_summary.get("kind").and_then(Value::as_str) {
+        Some("line_search") => deterministic_line_selection_entries(search_summary),
+        Some("path_search") => deterministic_path_selection_entries(search_summary),
+        _ => Vec::new(),
+    }
+}
+
+fn search_summary_output_lines(search_summary: &Value) -> usize {
+    search_summary
+        .get("total_output_lines")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(0)
+}
+
+fn deterministic_line_selection_entries(search_summary: &Value) -> Vec<RankedSelectionEntry> {
+    search_summary
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(SELECTION_MAX_ENTRIES)
+        .enumerate()
+        .map(|(index, file)| {
+            let path = string_field(file, &["path"]);
+            let hits = file
+                .get("hits")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let line_refs = line_refs_from_hits(&hits);
+            let first_hit = hits.first().and_then(Value::as_str).unwrap_or("");
+            let match_count = file.get("match_count").and_then(Value::as_u64).unwrap_or(0);
+            RankedSelectionEntry {
+                rank: index + 1,
+                path,
+                lines: line_refs,
+                reason: format!(
+                    "search hit count={match_count}; first hit: {}",
+                    compact_chars(first_hit, 100)
+                ),
+                score: None,
+            }
+        })
+        .collect()
+}
+
+fn deterministic_path_selection_entries(search_summary: &Value) -> Vec<RankedSelectionEntry> {
+    search_summary
+        .get("paths")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .take(SELECTION_MAX_ENTRIES)
+        .enumerate()
+        .map(|(index, path)| RankedSelectionEntry {
+            rank: index + 1,
+            path: Some(path.to_string()),
+            lines: None,
+            reason: "path search hit".to_string(),
+            score: None,
+        })
+        .collect()
+}
+
+fn line_refs_from_hits(hits: &[Value]) -> Option<String> {
+    let mut refs = Vec::new();
+    for hit in hits.iter().filter_map(Value::as_str) {
+        let Some((line, _rest)) = hit.split_once(':') else {
+            continue;
+        };
+        let line = line.trim();
+        if !line.is_empty() && line.chars().all(|ch| ch.is_ascii_digit()) {
+            refs.push(line.to_string());
+        }
+    }
+    if refs.is_empty() {
+        None
+    } else {
+        Some(refs.join(","))
+    }
 }
 
 fn read_text_lossy(path: &Path) -> String {
@@ -1236,6 +1794,16 @@ fn parse_search_hit(line: &str) -> (String, String) {
     let first = parts.next().unwrap_or("").trim();
     let second = parts.next().unwrap_or("").trim();
     let third = parts.next().unwrap_or("").trim();
+    if !first.is_empty() && first.chars().all(|ch| ch.is_ascii_digit()) && !second.is_empty() {
+        return (
+            "<stdout>".to_string(),
+            format!(
+                "{}: {}",
+                first,
+                compact_chars(&line[first.len() + 1..], SEARCH_SUMMARY_HIT_CHARS)
+            ),
+        );
+    }
     if !first.is_empty() && !second.is_empty() && second.chars().all(|ch| ch.is_ascii_digit()) {
         return (
             first.to_string(),
@@ -1420,6 +1988,10 @@ struct SupervisorToolProxyPayload {
     #[serde(default)]
     need: Option<String>,
     #[serde(default)]
+    select: bool,
+    #[serde(default)]
+    page_size: Option<usize>,
+    #[serde(default)]
     prompt: Option<String>,
     cwd: Option<String>,
     session_id: Option<String>,
@@ -1447,6 +2019,8 @@ impl SupervisorToolProxyPayload {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned),
+            select: false,
+            page_size: None,
             prompt: None,
             cwd: Some(root.to_string_lossy().to_string()),
             session_id: None,
@@ -1463,6 +2037,8 @@ impl SupervisorToolProxyPayload {
             kind: SupervisorToolProxyKind::Ask,
             command: String::new(),
             need: None,
+            select: false,
+            page_size: None,
             prompt: Some(prompt.to_string()),
             cwd: Some(root.to_string_lossy().to_string()),
             session_id: None,
@@ -1486,6 +2062,18 @@ impl SupervisorToolProxyPayload {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
+    }
+
+    fn with_selection(mut self, select: bool, page_size: usize) -> Self {
+        self.select = select;
+        if select {
+            self.page_size = Some(normalize_selection_page_size(page_size));
+        }
+        self
+    }
+
+    fn selection_page_size(&self) -> usize {
+        normalize_selection_page_size(self.page_size.unwrap_or(SELECTION_PAGE_SIZE_DEFAULT))
     }
 }
 
@@ -1567,7 +2155,9 @@ fn tool_proxy_task(payload: &SupervisorToolProxyPayload) -> Value {
                     "delegated_from": "mixmod_cli_tool",
                     "command_execution": "mixmod_deterministic_shell",
                     "original_command": command,
-                    "supervisor_need": need
+                    "supervisor_need": need,
+                    "select": payload.select,
+                    "page_size": payload.selection_page_size()
                 }
             })
         }
@@ -2124,6 +2714,18 @@ tests/lib.rs:5:assert!(target_symbol());
     }
 
     #[test]
+    fn single_file_rg_hits_keep_line_number_out_of_path() {
+        let summary = line_search_summary("436:struct RankedSelection {\n");
+        let files = summary["files"].as_array().expect("files array");
+
+        assert_eq!(files[0]["path"], json!("<stdout>"));
+        assert_eq!(files[0]["hits"][0], json!("436: struct RankedSelection {"));
+        let entries = deterministic_selection_entries(&summary);
+        assert_eq!(entries[0].path.as_deref(), Some("<stdout>"));
+        assert_eq!(entries[0].lines.as_deref(), Some("436"));
+    }
+
+    #[test]
     fn small_search_with_need_uses_deterministic_summary() {
         let temp = tempfile::tempdir().unwrap();
         let out_dir = temp.path().join("tool-run");
@@ -2227,6 +2829,52 @@ tests/lib.rs:5:assert!(target_symbol());
         assert!(!should_run_command_summary_worker(
             &payload, &out_dir, &result
         ));
+    }
+
+    #[test]
+    fn worker_selection_json_is_ranked_and_paged() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = SupervisorToolProxyPayload::from_command(
+            "rg -n target src tests",
+            Some("Rank likely implementation hits."),
+            temp.path(),
+        )
+        .with_selection(true, 1);
+        let entries = parse_worker_selection_entries(
+            r#"```json
+{"entries":[
+  {"path":"src/lib.rs","lines":"10-20","reason":"main implementation path","score":0.94},
+  {"path":"tests/lib.rs","lines":"5","reason":"focused regression test","score":0.72}
+]}
+```"#,
+        )
+        .expect("worker JSON should parse");
+        let selection = ranked_selection(&payload, "local_worker_selection", entries);
+        let selection_path = temp.path().join(SELECTION_ARTIFACT_JSON);
+
+        let page_one = render_selection_page(temp.path(), &selection_path, &selection, 1, 1)
+            .expect("selection page should render");
+        assert!(page_one.contains("selection_source: local_worker_selection"));
+        assert!(page_one.contains("has_more: true"));
+        assert!(page_one.contains("next_page:"));
+        assert!(page_one.contains("1. src/lib.rs:10-20 - main implementation path"));
+        assert!(!page_one.contains("tests/lib.rs"));
+
+        let page_two = render_selection_page(temp.path(), &selection_path, &selection, 2, 1)
+            .expect("second selection page should render");
+        assert!(page_two.contains("has_more: false"));
+        assert!(page_two.contains("2. tests/lib.rs:5 - focused regression test"));
+    }
+
+    #[test]
+    fn deterministic_path_selection_entries_follow_path_order() {
+        let summary = path_search_summary("src/lib.rs\ntests/lib.rs\n");
+        let entries = deterministic_selection_entries(&summary);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path.as_deref(), Some("src/lib.rs"));
+        assert_eq!(entries[0].reason, "path search hit");
+        assert_eq!(entries[1].path.as_deref(), Some("tests/lib.rs"));
     }
 
     #[test]

@@ -261,11 +261,19 @@ compact evidence you want back. Mixmod runs the exact command, captures
 stdout/stderr/result artifacts, and returns a compact answer. It may ask the
 cheap local worker to summarize large or semantic command outputs when that is
 likely to reduce GPT context. Search output is especially good to route this way.
+For broad searches, add `--select --page-size 8` so the local worker ranks the
+most relevant hits first; request later pages only if page 1 is insufficient.
 
 Primary helper command:
 
 ```bash
 {mixmod_tool_command} tool run-command --command "git status --short" --need "Return tracked change status only."
+```
+
+Broad search helper:
+
+```bash
+{mixmod_tool_command} tool run-command --command "rg -n target src tests" --need "Rank likely relevant implementation and test hits." --select --page-size 8
 ```
 
 `--need` is required. Use it to request the exact compact fact you need:
@@ -351,6 +359,16 @@ answer plus an artifact directory. The full stdout/stderr stay on disk. Mixmod
 may ask the cheap local worker to summarize large or semantic output,
 especially searches and failing checks. If the compact answer is insufficient,
 inspect the named artifact file.
+
+For broad searches, request ranked selection:
+
+```bash
+{mixmod_tool_command} tool run-command --command "rg -n target src tests" --need "Rank likely relevant implementation and test hits." --select --page-size 8
+```
+
+The first call returns page 1 and a `selection_artifact`. If more candidates are
+needed, use the returned `tool selection-page --selection ... --page N` command
+instead of rerunning the search or asking the worker to rank again.
 
 Prefer `tool ask` only for one bounded non-command request where a weak local
 model can save context: localize likely files or symbols, summarize one named
@@ -620,6 +638,7 @@ mod tests {
         assert!(prompt.contains("Economic rule"));
         assert!(prompt.contains("tool run-command"));
         assert!(prompt.contains("--need"));
+        assert!(prompt.contains("--select --page-size 8"));
         assert!(prompt.contains("tool ask"));
         assert!(prompt.contains("/state/worker-tool-guide.md"));
         assert!(prompt.contains("Local worker profile:"));
@@ -640,6 +659,7 @@ mod tests {
         );
         assert!(guide.contains("Mixmod Local Helper Guide"));
         assert!(guide.contains("Worker Profile"));
+        assert!(guide.contains("selection-page"));
         assert!(guide.contains("small_patch_slice"));
         assert!(guide.contains("qwen-3.6-27b"));
     }

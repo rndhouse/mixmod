@@ -297,11 +297,15 @@ fn exec_command_is_public_cli_surface() {
                 ToolCommand::RunCommand {
                     command,
                     need,
+                    select,
+                    page_size,
                     args,
                 },
         } => {
             assert_eq!(command.as_deref(), Some("git status --short"));
             assert_eq!(need.as_deref(), Some("tracked changes only"));
+            assert!(!select);
+            assert_eq!(page_size, 8);
             assert!(args.is_empty());
         }
         _ => panic!("expected tool run-command"),
@@ -324,11 +328,15 @@ fn exec_command_is_public_cli_surface() {
                 ToolCommand::RunCommand {
                     command,
                     need,
+                    select,
+                    page_size,
                     args,
                 },
         } => {
             assert!(command.is_none());
             assert_eq!(need.as_deref(), Some("tracked changes only"));
+            assert!(!select);
+            assert_eq!(page_size, 8);
             assert_eq!(args, vec!["git", "status", "--short"]);
         }
         _ => panic!("expected tool run-command"),
@@ -343,6 +351,68 @@ fn exec_command_is_public_cli_surface() {
         "--short",
     ])
     .expect_err("tool run-command should require --need");
+    let cli = Cli::try_parse_from([
+        "mixmod",
+        "tool",
+        "run-command",
+        "--command",
+        "rg -n target src tests",
+        "--need",
+        "rank likely hits",
+        "--select",
+        "--page-size",
+        "5",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Tool {
+            command:
+                ToolCommand::RunCommand {
+                    command,
+                    need,
+                    select,
+                    page_size,
+                    args,
+                },
+        } => {
+            assert_eq!(command.as_deref(), Some("rg -n target src tests"));
+            assert_eq!(need.as_deref(), Some("rank likely hits"));
+            assert!(select);
+            assert_eq!(page_size, 5);
+            assert!(args.is_empty());
+        }
+        _ => panic!("expected tool run-command with selection"),
+    }
+    let cli = Cli::try_parse_from([
+        "mixmod",
+        "tool",
+        "selection-page",
+        "--selection",
+        "/tmp/selection-ranked.json",
+        "--page",
+        "2",
+        "--page-size",
+        "4",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Tool {
+            command:
+                ToolCommand::SelectionPage {
+                    selection,
+                    page,
+                    page_size,
+                },
+        } => {
+            assert_eq!(
+                selection,
+                std::path::PathBuf::from("/tmp/selection-ranked.json")
+            );
+            assert_eq!(page, 2);
+            assert_eq!(page_size, 4);
+        }
+        _ => panic!("expected tool selection-page"),
+    }
     let cli = Cli::try_parse_from([
         "mixmod",
         "exec",

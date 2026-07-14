@@ -143,9 +143,28 @@ pub enum ToolCommand {
         /// Required statement of what the supervisor needs back.
         #[arg(long, value_name = "NEED", required = true)]
         need: Option<String>,
+        /// Ask the local worker to rank/filter broad search results.
+        #[arg(long)]
+        select: bool,
+        /// Number of ranked selection entries to return per page.
+        #[arg(long, value_name = "N", default_value_t = 8)]
+        page_size: usize,
         /// Command tokens after `--`, joined with spaces.
         #[arg(value_name = "COMMAND", num_args = 0.., trailing_var_arg = true)]
         args: Vec<String>,
+    },
+    /// Return a later page from a saved ranked selection artifact.
+    #[command(name = "selection-page")]
+    SelectionPage {
+        /// Path to the selection-ranked.json artifact.
+        #[arg(long, value_name = "PATH")]
+        selection: std::path::PathBuf,
+        /// One-based page number to return.
+        #[arg(long, value_name = "N", default_value_t = 1)]
+        page: usize,
+        /// Number of ranked selection entries to return per page.
+        #[arg(long, value_name = "N", default_value_t = 8)]
+        page_size: usize,
     },
 }
 

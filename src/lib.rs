@@ -141,7 +141,7 @@ pub(crate) use supervisor::{
 };
 pub(crate) use supervisor_tool_proxy::{
     CONFIG_SNAPSHOT_JSON, codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_ask_tool,
-    run_worker_command_tool,
+    run_worker_command_tool, run_worker_selection_page_tool,
 };
 pub(crate) use tool_events::{build_tool_events_jsonl, tool_output_paths_from_events};
 pub use worker::WorkerModelProfile;
@@ -297,11 +297,21 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             ToolCommand::RunCommand {
                 command,
                 need,
+                select,
+                page_size,
                 args,
             } => {
                 ensure_project_state(&root, false)?;
                 let command = resolve_tool_command(command, args)?;
-                run_worker_command_tool(&root, &command, need.as_deref())
+                run_worker_command_tool(&root, &command, need.as_deref(), select, page_size)
+            }
+            ToolCommand::SelectionPage {
+                selection,
+                page,
+                page_size,
+            } => {
+                ensure_project_state(&root, false)?;
+                run_worker_selection_page_tool(&root, &selection, page, page_size)
             }
         },
         Commands::CodexHook { command } => match command {
