@@ -192,6 +192,9 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(feedback_prompt.contains("Treat applicable bullets as binding"));
     assert!(feedback_prompt.contains("global environments"));
     assert!(feedback_prompt.contains("end-to-end semantics across slices"));
+    assert!(feedback_prompt.contains("directionally useful but messy patches"));
+    assert!(feedback_prompt.contains("generated scratch artifacts"));
+    assert!(feedback_prompt.contains("claims a partial slice is complete"));
     assert!(feedback_prompt.contains("task-derived probes or focused tests"));
     assert!(feedback_prompt.contains("entry point actually uses it"));
 
