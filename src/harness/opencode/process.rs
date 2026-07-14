@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Child, Stdio};
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -178,6 +178,11 @@ pub(super) fn join_pipe_logger(
         Ok(Err(error)) => notes.push(format!("OpenCode {label} log streaming failed: {error}")),
         Err(_) => notes.push(format!("OpenCode {label} log streaming thread panicked")),
     }
+}
+
+pub(super) fn kill_and_wait(child: &mut Child) -> Option<i32> {
+    let _ = child.kill();
+    child.wait().ok().and_then(|status| status.code())
 }
 
 pub(super) fn now_millis() -> u64 {

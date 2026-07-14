@@ -18,33 +18,13 @@ impl AgentHarness for FakeRunner {
             &request.root.join("src/generated.rs"),
             b"pub fn generated() -> &'static str {\n    \"ok\"\n}\n",
         )?;
-        Ok(AgentOutput {
-            backend: AgentBackend::OpenCode,
-            command_for_metrics: vec!["fake-opencode".to_string()],
-            segments: Vec::new(),
-            exit_status: Some(0),
-            success: true,
-            stdout: b"Summary: generated a file\nTests: not run\n".to_vec(),
-            stderr: Vec::new(),
-            provider: Some("fake-local".to_string()),
-            model: Some(DEFAULT_OPENCODE_LOCAL_MODEL.to_string()),
-            model_arg: Some(format!("fake-local/{DEFAULT_OPENCODE_LOCAL_MODEL}")),
-            session_label: Some(request.session_id.clone()),
-            session_id: Some(request.session_id.clone()),
-            resume_session_id: request.resume_session_id.clone(),
-            session_reused: request.resume_session_id.is_some(),
-            interrupted_by_supervisor: false,
-            supervisor_control_action: None,
-            supervisor_control_events: Vec::new(),
-            timed_out: false,
-            idle_timed_out: false,
-            heartbeat_count: 0,
-            require_local: false,
-            local_inference_verified: false,
-            gpu_activity_observed: false,
-            backend_activity_observed: false,
-            verification_notes: Vec::new(),
-        })
+        Ok(fake_successful_opencode_output(
+            request,
+            b"Summary: generated a file\nTests: not run\n".to_vec(),
+            request.session_id.clone(),
+            Vec::new(),
+            request.resume_session_id.clone(),
+        ))
     }
 }
 
@@ -85,33 +65,13 @@ impl AgentHarness for EmptyPatchThenPatchRunner {
                 Some("ses_empty_patch".to_string()),
             )
         };
-        Ok(AgentOutput {
-            backend: AgentBackend::OpenCode,
-            command_for_metrics: vec!["fake-opencode".to_string()],
-            segments: vec![json!({"call": call})],
-            exit_status: Some(0),
-            success: true,
+        Ok(fake_successful_opencode_output(
+            request,
             stdout,
-            stderr: Vec::new(),
-            provider: Some("fake-local".to_string()),
-            model: Some(DEFAULT_OPENCODE_LOCAL_MODEL.to_string()),
-            model_arg: Some(format!("fake-local/{DEFAULT_OPENCODE_LOCAL_MODEL}")),
-            session_label: Some(request.session_id.clone()),
-            session_id: Some("ses_empty_patch".to_string()),
+            "ses_empty_patch".to_string(),
+            vec![json!({"call": call})],
             resume_session_id,
-            session_reused: request.resume_session_id.is_some(),
-            interrupted_by_supervisor: false,
-            supervisor_control_action: None,
-            supervisor_control_events: Vec::new(),
-            timed_out: false,
-            idle_timed_out: false,
-            heartbeat_count: 0,
-            require_local: false,
-            local_inference_verified: false,
-            gpu_activity_observed: false,
-            backend_activity_observed: false,
-            verification_notes: Vec::new(),
-        })
+        ))
     }
 }
 
@@ -156,33 +116,13 @@ impl AgentHarness for RevisionNoopThenPatchRunner {
             b"Summary: applied the requested revision delta.\n".to_vec()
         };
 
-        Ok(AgentOutput {
-            backend: AgentBackend::OpenCode,
-            command_for_metrics: vec!["fake-opencode".to_string()],
-            segments: vec![json!({"call": call})],
-            exit_status: Some(0),
-            success: true,
+        Ok(fake_successful_opencode_output(
+            request,
             stdout,
-            stderr: Vec::new(),
-            provider: Some("fake-local".to_string()),
-            model: Some(DEFAULT_OPENCODE_LOCAL_MODEL.to_string()),
-            model_arg: Some(format!("fake-local/{DEFAULT_OPENCODE_LOCAL_MODEL}")),
-            session_label: Some(request.session_id.clone()),
-            session_id: Some("ses_revision".to_string()),
-            resume_session_id: request.resume_session_id.clone(),
-            session_reused: request.resume_session_id.is_some(),
-            interrupted_by_supervisor: false,
-            supervisor_control_action: None,
-            supervisor_control_events: Vec::new(),
-            timed_out: false,
-            idle_timed_out: false,
-            heartbeat_count: 0,
-            require_local: false,
-            local_inference_verified: false,
-            gpu_activity_observed: false,
-            backend_activity_observed: false,
-            verification_notes: Vec::new(),
-        })
+            "ses_revision".to_string(),
+            vec![json!({"call": call})],
+            request.resume_session_id.clone(),
+        ))
     }
 }
 
@@ -234,33 +174,13 @@ impl AgentHarness for PatchThenSelfReviewRunner {
             b"Cleanup changed files: src/generated.rs\nConcerns: none\n".to_vec()
         };
 
-        Ok(AgentOutput {
-            backend: AgentBackend::OpenCode,
-            command_for_metrics: vec!["fake-opencode".to_string()],
-            segments: vec![json!({"call": call})],
-            exit_status: Some(0),
-            success: true,
+        Ok(fake_successful_opencode_output(
+            request,
             stdout,
-            stderr: Vec::new(),
-            provider: Some("fake-local".to_string()),
-            model: Some(DEFAULT_OPENCODE_LOCAL_MODEL.to_string()),
-            model_arg: Some(format!("fake-local/{DEFAULT_OPENCODE_LOCAL_MODEL}")),
-            session_label: Some(request.session_id.clone()),
-            session_id: Some("ses_self_review".to_string()),
-            resume_session_id: request.resume_session_id.clone(),
-            session_reused: request.resume_session_id.is_some(),
-            interrupted_by_supervisor: false,
-            supervisor_control_action: None,
-            supervisor_control_events: Vec::new(),
-            timed_out: false,
-            idle_timed_out: false,
-            heartbeat_count: 0,
-            require_local: false,
-            local_inference_verified: false,
-            gpu_activity_observed: false,
-            backend_activity_observed: false,
-            verification_notes: Vec::new(),
-        })
+            "ses_self_review".to_string(),
+            vec![json!({"call": call})],
+            request.resume_session_id.clone(),
+        ))
     }
 }
 
@@ -310,6 +230,29 @@ fn minimal_opencode_output() -> AgentOutput {
         backend_activity_observed: false,
         verification_notes: Vec::new(),
     }
+}
+
+fn fake_successful_opencode_output(
+    request: &AgentRequest,
+    stdout: Vec<u8>,
+    session_id: String,
+    segments: Vec<Value>,
+    resume_session_id: Option<String>,
+) -> AgentOutput {
+    let mut output = minimal_opencode_output();
+    output.command_for_metrics = vec!["fake-opencode".to_string()];
+    output.segments = segments;
+    output.exit_status = Some(0);
+    output.success = true;
+    output.stdout = stdout;
+    output.provider = Some("fake-local".to_string());
+    output.model = Some(DEFAULT_OPENCODE_LOCAL_MODEL.to_string());
+    output.model_arg = Some(format!("fake-local/{DEFAULT_OPENCODE_LOCAL_MODEL}"));
+    output.session_label = Some(request.session_id.clone());
+    output.session_id = Some(session_id);
+    output.resume_session_id = resume_session_id;
+    output.session_reused = request.resume_session_id.is_some();
+    output
 }
 
 mod core;

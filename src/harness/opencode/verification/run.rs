@@ -26,7 +26,7 @@ use crate::harness::opencode::control::{
     normalize_supervisor_control_worker_mode, read_supervisor_control,
 };
 use crate::harness::opencode::process::{
-    SpawnOpenCodeProcess, join_pipe_logger, now_millis, run_optional_command_text,
+    SpawnOpenCodeProcess, join_pipe_logger, kill_and_wait, now_millis, run_optional_command_text,
     run_optional_logged_command, spawn_opencode_process,
 };
 
@@ -213,8 +213,7 @@ impl LocalVerificationRun<'_> {
                         "OpenCode exceeded worker timeout of {} seconds.",
                         worker_timeout_seconds
                     ));
-                    let _ = process.child.kill();
-                    break process.child.wait().ok().and_then(|status| status.code());
+                    break kill_and_wait(&mut process.child);
                 }
 
                 let last_output_age =
@@ -228,8 +227,7 @@ impl LocalVerificationRun<'_> {
                     "OpenCode exceeded idle timeout of {} seconds without stdout/stderr activity.",
                     idle_timeout_seconds
                 ));
-                    let _ = process.child.kill();
-                    break process.child.wait().ok().and_then(|status| status.code());
+                    break kill_and_wait(&mut process.child);
                 }
 
                 if last_heartbeat.elapsed() >= heartbeat_interval {
@@ -399,8 +397,7 @@ impl LocalVerificationRun<'_> {
                     notes.push(format!(
                         "Supervisor control requested `{action}` for OpenCode."
                     ));
-                    let _ = process.child.kill();
-                    let status = process.child.wait().ok().and_then(|status| status.code());
+                    let status = kill_and_wait(&mut process.child);
 
                     match action.as_str() {
                         "interrupt_continue" => {
