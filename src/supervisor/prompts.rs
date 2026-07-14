@@ -247,7 +247,8 @@ pub(crate) fn supervisor_feedback_prompt(
 {worktree_policy}
 Do not ask the user for approval.
 Inspect the listed artifact files directly before deciding. Do not rely on this prompt as artifact content; it only names where the review evidence lives.
-Inspect only the files you need for the decision, but always inspect task context and the accumulated worktree.patch before approving.
+Treat supervisor input tokens as scarce. Inspect only the artifacts needed for the next decision and stop reading once approve, revise, or stop is clear.
+For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on prior accumulated edits.
 {worker_guidance}
 Return only JSON matching this schema:
 {{"action":"approve|revise|stop","worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"small_patch_slice|bounded_feature_slice|default","turn_goal":"optional next slice goal","exact_edits":["optional concrete edit"],"edit_packet":["optional compact source context"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
@@ -545,10 +546,11 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
     };
     format!(
         r#"Core review contract:
-- Inspect task.json and worktree.patch before approving.
-- worktree.patch is the accumulated current diff; changes.patch is only the latest worker-turn delta.
+- Prefer latest-turn evidence first: receipt/report/metrics, tool-events.jsonl when useful, and changes.patch.
+- worktree.patch is the accumulated current diff; changes.patch is only the latest worker-turn delta. Avoid opening worktree.patch unless approval, rollback, or integration with prior edits depends on it.
 {tool_evidence}
-- Approve only when the accumulated patch appears to satisfy the original task and no worker action or check remains.
+- Minimize supervisor input tokens: do not inspect more artifacts, logs, or diff content once the next action is clear.
+- Approve only when the accumulated patch appears to satisfy the original task and no worker action or check remains. Before approving, inspect task.json and enough accumulated state to verify completion.
 - Treat a false approval as a terminal correctness failure. If evidence is missing for the main requested behavior or a likely edge case, choose revise for a targeted verification or repair turn.
 - On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
 - Revise when a useful worker path remains; message_to_worker must be concrete and worker-executable.

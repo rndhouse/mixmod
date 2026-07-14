@@ -21,7 +21,14 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("git status"));
     assert!(prompt.contains("Do not author task-solving source edits"));
     assert!(prompt.contains("Do not ask the user for approval."));
+    assert!(prompt.contains("Treat supervisor input tokens as scarce"));
+    assert!(prompt.contains("For ordinary worker-turn review"));
+    assert!(prompt.contains("start with task context, compact metadata, and changes.patch"));
+    assert!(prompt.contains("Prefer latest-turn evidence first"));
+    assert!(prompt.contains("Avoid opening worktree.patch unless approval"));
+    assert!(prompt.contains("do not inspect more artifacts, logs, or diff content"));
     assert!(prompt.contains("Approve only when the accumulated patch appears to satisfy"));
+    assert!(prompt.contains("Before approving, inspect task.json and enough accumulated state"));
     assert!(prompt.contains("false approval as a terminal correctness failure"));
     assert!(prompt.contains("main requested behavior or a likely edge case"));
     assert!(prompt.contains("Revise when a useful worker path remains"));
