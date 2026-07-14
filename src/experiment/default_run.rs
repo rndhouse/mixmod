@@ -169,18 +169,9 @@ impl DefaultExperimentRun<'_> {
                 let mut decision = if let Some(decision) = pending_supervisor_control.take() {
                     decision
                 } else {
-                    let label = if decision_index == 1 {
-                        "critique".to_string()
-                    } else {
-                        format!("critique-{decision_index}")
-                    };
-                    let mut artifact_paths =
-                        supervisor_review_artifact_paths(&default_dir, &final_out);
-                    let supervisor_control_path = final_out.join(SUPERVISOR_CONTROL_LOG);
-                    if supervisor_control_path.exists() {
-                        artifact_paths.push(supervisor_control_path);
-                    }
-                    append_patch_checkpoint_artifacts(&final_out, &mut artifact_paths)?;
+                    let label = default_review_label(decision_index);
+                    let artifact_paths =
+                        default_strategy_review_artifacts(&default_dir, &final_out)?;
                     let decision = {
                         let mut supervisor_session = supervisor_session
                             .lock()
@@ -209,29 +200,14 @@ impl DefaultExperimentRun<'_> {
                 if decision.verdict_kind().is_terminal() {
                     break decision;
                 } else {
-                    let mut worker_decision = decision.clone();
-                    let previous_patch_source = if worker_decision.patch_decision_kind()
-                        == PatchDecision::RevisePrevious
-                    {
-                        restore_previous_patch_checkpoint(&work_dir, &final_out)?;
-                        worker_decision.worker_mode = WorkerMode::ContextFocus.as_str().to_string();
-                        final_out.join(PREVIOUS_WORKTREE_PATCH)
-                    } else {
-                        final_out.join(WORKTREE_PATCH)
-                    };
+                    let (worker_decision, previous_patch_source) =
+                        prepare_default_revision_decision(&work_dir, &final_out, &decision)?;
                     worker_modes.push(worker_decision.worker_mode.clone());
-                    let resume_session_id = if worker_decision.worker_mode_kind()
-                        == WorkerMode::Continue
-                    {
-                        Some(active_opencode_session_id.clone().ok_or_else(|| {
-                                anyhow!(
-                                    "The supervisor requested worker_mode=continue, but Mixmod could not resolve the previous worker session id from {}",
-                                    final_out.join(METRICS_JSON).display()
-                                )
-                            })?)
-                    } else {
-                        None
-                    };
+                    let resume_session_id = default_revision_resume_session_id(
+                        &worker_decision,
+                        &active_opencode_session_id,
+                        &final_out,
+                    )?;
                     let revision_task = write_revision_task(
                         &work_dir,
                         &task_file,
@@ -298,37 +274,13 @@ impl DefaultExperimentRun<'_> {
         }
         let supervisor_usage = aggregate_supervisor_usage(&supervisor_samples);
         let worker_summary = WorkerMetricsSummary::from_metrics(&worker_metrics);
-        let approval_action = final_decision
-            .as_ref()
-            .map(|decision| decision.verdict.clone())
-            .unwrap_or_else(|| "not_requested".to_string());
-        let final_worker_mode = final_decision
-            .as_ref()
-            .map(|decision| decision.worker_mode.clone())
-            .unwrap_or_else(|| "not_requested".to_string());
-        let approved = approval_action == "approve";
-        let stopped_by_codex = approval_action == "stop";
-        let final_status = if options.stop_after_first_worker {
-            "stopped_after_first_worker"
-        } else if options.stop_after_first_review {
-            "stopped_after_first_review"
-        } else if approved {
-            "approved_by_codex"
-        } else if stopped_by_codex {
-            "stopped_by_codex"
-        } else {
-            "needs_review"
-        };
-        let supervisor_token_usage_source = if supervisor_usage.token_usage_comparable {
-            "codex_app_server_total_token_usage"
-        } else {
-            "incomplete_or_noncomparable"
-        };
-        let supervisor_token_usage_scope = if supervisor_usage.token_usage_comparable {
-            "cumulative"
-        } else {
-            "incomplete"
-        };
+        let outcome = default_strategy_outcome(
+            final_decision.as_ref(),
+            options.stop_after_first_worker,
+            options.stop_after_first_review,
+        );
+        let supervisor_token_usage =
+            supervisor_token_usage_labels(supervisor_usage.token_usage_comparable);
         let metrics = json!({
             "kind": "mixmod-default-strategy",
             "recorded_at": Utc::now().to_rfc3339(),
@@ -352,8 +304,8 @@ impl DefaultExperimentRun<'_> {
             "codex_app_server_thread_ids": supervisor_usage.thread_ids.clone(),
             "codex_app_server_turn_ids": supervisor_usage.turn_ids.clone(),
             "codex_app_server_thread_count": supervisor_usage.thread_count(),
-            "supervisor_token_usage_source": supervisor_token_usage_source,
-            "supervisor_token_usage_scope": supervisor_token_usage_scope,
+            "supervisor_token_usage_source": supervisor_token_usage.source,
+            "supervisor_token_usage_scope": supervisor_token_usage.scope,
             "supervisor_token_usage_comparable": supervisor_usage.token_usage_comparable,
             "supervisor_session_reused": supervisor_usage.session_reused(),
             "supervisor_resume_count": supervisor_usage.thread_reuse_count(),
@@ -361,8 +313,8 @@ impl DefaultExperimentRun<'_> {
             "did_codex_read_raw_logs": false,
             "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
             "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
-            "codex_loop_exit": approval_action,
-            "final_worker_mode": final_worker_mode,
+            "codex_loop_exit": outcome.final_verdict.clone(),
+            "final_worker_mode": outcome.final_worker_mode,
             "worker_modes": worker_modes,
             "patch_checkpoints": patch_checkpoint_metrics,
             "revision_attempts": opencode_calls.saturating_sub(1),
@@ -414,9 +366,9 @@ impl DefaultExperimentRun<'_> {
             "changed_files": stats.files,
             "changed_file_count": stats.files.len(),
             "changed_line_count": stats.changed_line_count,
-            "final_status": final_status,
-            "final_verdict": approval_action.clone(),
-            "final_codex_action": approval_action,
+            "final_status": outcome.final_status,
+            "final_verdict": outcome.final_verdict.clone(),
+            "final_codex_action": outcome.final_verdict,
             "terminal_reject": false,
             "needs_worker_revision": false,
             "notes": [
@@ -441,14 +393,6 @@ impl DefaultExperimentRun<'_> {
         );
         Ok(())
     }
-}
-
-fn live_supervisor_advisor(
-    advisor: &Option<Arc<LiveSupervisorAdvisor>>,
-) -> Option<Arc<dyn SupervisorAdvisor>> {
-    advisor
-        .as_ref()
-        .map(|advisor| Arc::clone(advisor) as Arc<dyn SupervisorAdvisor>)
 }
 
 fn ensure_local_run_verified(

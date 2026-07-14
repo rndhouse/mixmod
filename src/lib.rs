@@ -18,6 +18,7 @@ mod checkpoint;
 mod cli;
 mod config;
 mod default_strategy;
+mod default_strategy_support;
 mod diff;
 mod experiment;
 mod fs_util;
@@ -65,6 +66,11 @@ pub use config::{
     StrategyConfig, SupervisorConfig, SupervisorInitMode, WorkerBackend, WorkerConfig,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
+pub(crate) use default_strategy_support::{
+    default_review_label, default_revision_resume_session_id, default_strategy_outcome,
+    default_strategy_review_artifacts, live_supervisor_advisor, prepare_default_revision_decision,
+    supervisor_token_usage_labels,
+};
 pub use diff::patch_stats;
 pub use experiment::{
     DefaultRunOptions, experiment_init, experiment_record_mixmod, experiment_recover,
