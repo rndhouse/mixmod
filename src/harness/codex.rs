@@ -150,7 +150,6 @@ impl AgentHarness for ShellCodexRunner {
                 &request.root,
                 &self.config.codex_worker,
                 CodexSandbox::WorkspaceWrite,
-                None,
             )?);
         }
 
@@ -252,7 +251,6 @@ impl CodexAppServer {
         work_dir: &Path,
         supervisor: &SupervisorConfig,
         sandbox: CodexSandbox,
-        _tool_proxy_config: Option<&MixmodConfig>,
     ) -> Result<Self> {
         let code_home = codex_home_for_work_dir(work_dir);
         fs::create_dir_all(&code_home)

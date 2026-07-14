@@ -13,12 +13,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use serde_json::{Value, json};
 
-mod agent_strategy;
 mod artifacts;
 mod checkpoint;
 mod cli;
 mod config;
-#[allow(dead_code)]
 mod default_strategy;
 mod diff;
 mod experiment;
@@ -33,7 +31,6 @@ mod run;
 mod state;
 mod strategy_metrics;
 mod supervisor;
-mod supervisor_tool_proxy;
 mod task;
 #[cfg(test)]
 mod tests;
@@ -41,16 +38,15 @@ mod tool_events;
 mod worker;
 mod worker_telemetry;
 
-pub(crate) use agent_strategy::{AgentStrategyOptions, run_agent_strategy};
 pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
     LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD, PARTIAL_PATCH,
     PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, REASONING_TRACE_JSONL,
     RECEIPT_JSON, REPORT_MD, ROLLBACK_CURRENT_PATCH, ROLLBACK_RESTORED_PATCH,
     RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISION_LOOP_SUMMARY_JSON, SUPERVISOR_CONTROL_LOG,
-    SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, TOOL_EVENTS_JSONL, TOOL_OUTPUT_DIR,
-    WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH,
-    is_static_mixmod_artifact_name, supervisor_review_artifact_paths,
+    SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, TOOL_EVENTS_JSONL, WORKER_BRIEF_JSON,
+    WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH, is_static_mixmod_artifact_name,
+    supervisor_review_artifact_paths,
 };
 pub use artifacts::{
     DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL, PatchStats, Receipt,
@@ -62,15 +58,13 @@ pub(crate) use checkpoint::{
     append_patch_checkpoint_artifacts, patch_checkpoint_metrics, restore_previous_patch_checkpoint,
     write_patch_checkpoint_comparison_from_patch,
 };
-pub use cli::{
-    Cli, CodexHookCommand, Commands, ControlCommand, DelegationMode, ExperimentCommand, ToolCommand,
-};
+pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub(crate) use config::is_cloud_opencode_provider;
 pub use config::{
     LiveSupervisionConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
-    StrategyConfig, SupervisorConfig, SupervisorInitMode, SupervisorToolProxyConfig, WorkerBackend,
-    WorkerConfig,
+    StrategyConfig, SupervisorConfig, SupervisorInitMode, WorkerBackend, WorkerConfig,
 };
+pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use diff::patch_stats;
 pub use experiment::{
     DefaultRunOptions, experiment_init, experiment_record_mixmod, experiment_recover,
@@ -139,11 +133,7 @@ pub(crate) use supervisor::{
     normalize_feedback_value, supervisor_feedback_prompt, supervisor_feedback_repair_prompt,
     supervisor_worker_brief_prompt,
 };
-pub(crate) use supervisor_tool_proxy::{
-    codex_hook_pre_tool_use, run_supervisor_tool_proxy, run_worker_ask_tool,
-    run_worker_command_tool,
-};
-pub(crate) use tool_events::{build_tool_events_jsonl, tool_output_paths_from_events};
+pub(crate) use tool_events::build_tool_events_jsonl;
 pub use worker::WorkerModelProfile;
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
 pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};
@@ -187,12 +177,12 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
         }
         Commands::Exec {
             task,
-            resume_session: _,
+            resume_session,
             supervisor_model,
             worker_model,
             worker_backend,
-            supervisor_init: _,
-            stop_after_first_worker: _,
+            supervisor_init,
+            stop_after_first_worker,
             no_require_local,
             prompt,
         } => {
@@ -201,12 +191,15 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             let out = state_layout(&root).runs().join(make_run_id("run"));
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model)
                 .with_worker_backend(worker_backend);
-            run_agent_strategy(
+            run_default_strategy(
                 &root,
                 &task,
                 &out,
-                AgentStrategyOptions {
+                DefaultStrategyOptions {
+                    resume_session,
                     model_overrides,
+                    supervisor_init,
+                    stop_after_first_worker,
                     no_require_local,
                 },
             )
@@ -288,24 +281,6 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 }
             }
         }
-        Commands::Tool { command } => match command {
-            ToolCommand::Ask { prompt, args } => {
-                ensure_project_state(&root, false)?;
-                let prompt = resolve_tool_prompt(prompt, args)?;
-                run_worker_ask_tool(&root, &prompt)
-            }
-            ToolCommand::RunCommand { command, args } => {
-                ensure_project_state(&root, false)?;
-                let command = resolve_tool_command(command, args)?;
-                run_worker_command_tool(&root, &command)
-            }
-        },
-        Commands::CodexHook { command } => match command {
-            CodexHookCommand::PreToolUse => codex_hook_pre_tool_use(),
-            CodexHookCommand::RunToolProxy { payload } => {
-                run_supervisor_tool_proxy(&payload, &root)
-            }
-        },
         Commands::Experiment { command } => {
             ensure_debug_command_enabled("mixmod experiment")?;
             match command {
@@ -371,24 +346,6 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 ExperimentCommand::Report { name } => experiment_report(&root, &name).map(|_| ()),
             }
         }
-    }
-}
-
-fn resolve_tool_command(command: Option<String>, args: Vec<String>) -> Result<String> {
-    match (command, args.is_empty()) {
-        (Some(command), true) if !command.trim().is_empty() => Ok(command),
-        (None, false) => Ok(args.join(" ")),
-        (Some(_), false) => bail!("use either --command or trailing command args, not both"),
-        _ => bail!("tool command must be provided with --command or after --"),
-    }
-}
-
-fn resolve_tool_prompt(prompt: Option<String>, args: Vec<String>) -> Result<String> {
-    match (prompt, args.is_empty()) {
-        (Some(prompt), true) if !prompt.trim().is_empty() => Ok(prompt),
-        (None, false) => Ok(args.join(" ")),
-        (Some(_), false) => bail!("use either --prompt or trailing prompt args, not both"),
-        _ => bail!("tool prompt must be provided with --prompt or after --"),
     }
 }
 
