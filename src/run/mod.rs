@@ -105,6 +105,14 @@ pub(crate) fn run_mixmod_task_with_worker_options(
     .execute()
 }
 
+fn write_opencode_logs(logs_dir: &Path, stdout: &[u8], stderr: &[u8]) -> Result<()> {
+    atomic_write(&logs_dir.join("opencode.stdout.txt"), stdout)?;
+    atomic_write(&logs_dir.join("opencode.stderr.txt"), stderr)?;
+    let (events, _count) = build_opencode_events_jsonl(stdout)?;
+    atomic_write(&logs_dir.join(OPENCODE_EVENTS_JSONL), events.as_bytes())?;
+    Ok(())
+}
+
 struct MixmodRun<'a> {
     root: &'a Path,
     mode: DelegationMode,
@@ -199,8 +207,7 @@ impl MixmodRun<'_> {
                 .is_some_and(|ctx| ctx.delta_expected),
         );
 
-        atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
-        atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
+        write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
 
         let mut notes = vec![
         "Exact supervisor token telemetry is unavailable to this prototype unless provided manually."
@@ -346,8 +353,7 @@ impl MixmodRun<'_> {
                     );
                 }
             }
-            atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
-            atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
+            write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
         } else if allow_auto_followups
             && should_run_empty_patch_followup(mode, expect_patch, &output, &patch)
         {
@@ -450,8 +456,7 @@ impl MixmodRun<'_> {
                     );
                 }
             }
-            atomic_write(&logs_dir.join("opencode.stdout.txt"), &output.stdout)?;
-            atomic_write(&logs_dir.join("opencode.stderr.txt"), &output.stderr)?;
+            write_opencode_logs(&logs_dir, &output.stdout, &output.stderr)?;
         }
         atomic_write(&out_dir.join(CHANGES_PATCH), patch.as_bytes())?;
         atomic_write(&out_dir.join(WORKTREE_PATCH), worktree_patch.as_bytes())?;
@@ -473,6 +478,7 @@ impl MixmodRun<'_> {
         )?;
         let (tool_events, tool_event_count) = build_tool_events_jsonl(&output.stdout)?;
         atomic_write(&out_dir.join(TOOL_EVENTS_JSONL), tool_events.as_bytes())?;
+        let (_opencode_events, opencode_event_count) = build_opencode_events_jsonl(&output.stdout)?;
         let context_overflow = worker_context_signals(&output.stdout);
         if context_overflow.context_overflow_count > 0 {
             notes.push(format!(
@@ -528,6 +534,7 @@ impl MixmodRun<'_> {
         let patch_bytes = file_len(&out_dir.join(CHANGES_PATCH))?;
         let worktree_patch_bytes = file_len(&out_dir.join(WORKTREE_PATCH))?;
         let session_bytes = file_len(&out_dir.join(SESSION_JSONL))?;
+        let opencode_events_bytes = file_len(&logs_dir.join(OPENCODE_EVENTS_JSONL))?;
         let reasoning_trace_bytes = file_len(&out_dir.join(REASONING_TRACE_JSONL))?;
         let tool_events_bytes = file_len(&out_dir.join(TOOL_EVENTS_JSONL))?;
         let mut metrics = RunMetrics {
@@ -579,6 +586,8 @@ impl MixmodRun<'_> {
             worker_session_token_peak,
             reasoning_trace_bytes,
             reasoning_trace_event_count,
+            opencode_events_bytes,
+            opencode_event_count,
             tool_events_bytes,
             tool_event_count,
             report_bytes,

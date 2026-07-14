@@ -11,10 +11,10 @@ use serde_json::json;
 
 use crate::harness::AgentRequest;
 use crate::{
-    LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OpenCodeConfig, SUPERVISOR_CONTROL_FILE,
-    SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, TOOL_EVENTS_JSONL, append_file, append_jsonl,
-    atomic_write, build_tool_events_jsonl, env_u64, get_str, get_string_array,
-    git_diff_with_untracked, write_pretty_json,
+    LIVE_STATUS_FILE, LOCAL_VERIFICATION_JSON, OPENCODE_EVENTS_JSONL, OpenCodeConfig,
+    SUPERVISOR_CONTROL_FILE, SUPERVISOR_CONTROL_LOG, SupervisorControlEvent, TOOL_EVENTS_JSONL,
+    append_file, append_jsonl, atomic_write, build_tool_events_jsonl, env_u64, get_str,
+    get_string_array, git_diff_with_untracked, write_pretty_json,
 };
 
 use crate::harness::opencode::args::{prepare_opencode_control_args, redact_runtime_opencode_arg};
@@ -88,6 +88,7 @@ impl LocalVerificationRun<'_> {
         })?;
         let mut notes = Vec::new();
         let stdout_path = logs_dir.join("opencode.stdout.txt");
+        let opencode_events_path = logs_dir.join(OPENCODE_EVENTS_JSONL);
         let stderr_path = logs_dir.join("opencode.stderr.txt");
         let heartbeat_path = logs_dir.join("heartbeat.jsonl");
         let live_status_path = out_dir.join(LIVE_STATUS_FILE);
@@ -95,6 +96,7 @@ impl LocalVerificationRun<'_> {
         let supervisor_control_log_path = out_dir.join(SUPERVISOR_CONTROL_LOG);
         let tool_events_path = out_dir.join(TOOL_EVENTS_JSONL);
         atomic_write(&stdout_path, b"")?;
+        atomic_write(&opencode_events_path, b"")?;
         atomic_write(&stderr_path, b"")?;
         atomic_write(&heartbeat_path, b"")?;
         atomic_write(&supervisor_control_log_path, b"")?;
@@ -186,6 +188,7 @@ impl LocalVerificationRun<'_> {
                 args: &segment_args,
                 root,
                 stdout_path: &stdout_path,
+                stdout_events_path: Some(&opencode_events_path),
                 stderr_path: &stderr_path,
                 stdout_bytes: Arc::clone(&stdout_bytes),
                 stderr_bytes: Arc::clone(&stderr_bytes),
@@ -633,6 +636,7 @@ impl LocalVerificationRun<'_> {
             "opencode_segments": opencode_segments.clone(),
             "verification_notes": notes,
             "logs": {
+                "opencode_events": "logs/opencode.events.jsonl",
                 "nvidia_smi_before": "logs/nvidia-smi-before.txt",
                 "nvidia_smi_during": "logs/nvidia-smi-during.txt",
                 "nvidia_smi_after": "logs/nvidia-smi-after.txt",

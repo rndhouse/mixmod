@@ -45,6 +45,7 @@ fn run_writes_full_artifact_bundle() {
         "changes.patch",
         "interventions.jsonl",
         "metrics.json",
+        "logs/opencode.events.jsonl",
         "logs/opencode.stdout.txt",
         "logs/opencode.stderr.txt",
     ] {

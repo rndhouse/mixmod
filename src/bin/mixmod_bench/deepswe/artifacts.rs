@@ -323,6 +323,7 @@ fn worker_runs(worker_root: &Path) -> Result<Vec<Value>> {
                 "rollback-current.patch",
                 "rollback-restored.patch",
                 "supervisor-control.jsonl",
+                "logs/opencode.events.jsonl",
                 "logs/opencode.stdout.txt",
                 "logs/opencode.stderr.txt",
                 "logs/heartbeat.jsonl",

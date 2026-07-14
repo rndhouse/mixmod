@@ -69,6 +69,8 @@ pub struct RunMetrics {
     pub worker_session_token_peak: Option<u64>,
     pub reasoning_trace_bytes: u64,
     pub reasoning_trace_event_count: u64,
+    pub opencode_events_bytes: u64,
+    pub opencode_event_count: u64,
     pub tool_events_bytes: u64,
     pub tool_event_count: u64,
     pub report_bytes: u64,

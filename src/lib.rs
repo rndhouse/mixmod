@@ -40,13 +40,13 @@ mod worker_telemetry;
 
 pub(crate) use artifacts::{
     BLOCKED_RECEIPT_JSON, CHANGES_PATCH, CODEX_REVIEW_ARTIFACTS, FINAL_PATCH,
-    LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_INSTRUCTIONS_MD, PARTIAL_PATCH,
-    PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, REASONING_TRACE_JSONL,
-    RECEIPT_JSON, REPORT_MD, ROLLBACK_CURRENT_PATCH, ROLLBACK_RESTORED_PATCH,
-    RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISION_LOOP_SUMMARY_JSON, SUPERVISOR_CONTROL_LOG,
-    SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, TOOL_EVENTS_JSONL, WORKER_BRIEF_JSON,
-    WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH, is_static_mixmod_artifact_name,
-    supervisor_review_artifact_paths,
+    LOCAL_VERIFICATION_JSON, METRICS_JSON, OPENCODE_EVENTS_JSONL, OPENCODE_INSTRUCTIONS_MD,
+    PARTIAL_PATCH, PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH,
+    REASONING_TRACE_JSONL, RECEIPT_JSON, REPORT_MD, ROLLBACK_CURRENT_PATCH,
+    ROLLBACK_RESTORED_PATCH, RUN_COMPACT_ARTIFACTS, SESSION_JSONL, SUPERVISION_LOOP_SUMMARY_JSON,
+    SUPERVISOR_CONTROL_LOG, SUPERVISOR_FEEDBACK_JSONL, TASK_JSON, TASK_MD, TOOL_EVENTS_JSONL,
+    WORKER_BRIEF_JSON, WORKER_RUN_ARTIFACTS, WORKER_TASK_JSON, WORKTREE_PATCH,
+    is_static_mixmod_artifact_name, supervisor_review_artifact_paths,
 };
 pub use artifacts::{
     DefaultStrategyMetrics, ExperimentReportInputs, INTERVENTIONS_JSONL, PatchStats, Receipt,
@@ -133,7 +133,7 @@ pub(crate) use supervisor::{
     normalize_feedback_value, supervisor_feedback_prompt, supervisor_feedback_repair_prompt,
     supervisor_worker_brief_prompt,
 };
-pub(crate) use tool_events::build_tool_events_jsonl;
+pub(crate) use tool_events::{build_opencode_events_jsonl, build_tool_events_jsonl};
 pub use worker::WorkerModelProfile;
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
 pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};

@@ -26,6 +26,7 @@ pub(super) struct SpawnOpenCodeProcess<'a> {
     pub(super) args: &'a [String],
     pub(super) root: &'a Path,
     pub(super) stdout_path: &'a Path,
+    pub(super) stdout_events_path: Option<&'a Path>,
     pub(super) stderr_path: &'a Path,
     pub(super) stdout_bytes: Arc<AtomicU64>,
     pub(super) stderr_bytes: Arc<AtomicU64>,
@@ -54,12 +55,14 @@ pub(super) fn spawn_opencode_process(
     let stdout_thread = spawn_pipe_logger(
         stdout,
         config.stdout_path.to_path_buf(),
+        config.stdout_events_path.map(Path::to_path_buf),
         config.stdout_bytes,
         Arc::clone(&config.last_output_at),
     );
     let stderr_thread = spawn_pipe_logger(
         stderr,
         config.stderr_path.to_path_buf(),
+        None,
         config.stderr_bytes,
         config.last_output_at,
     );
@@ -73,6 +76,7 @@ pub(super) fn spawn_opencode_process(
 fn spawn_pipe_logger<R: Read + Send + 'static>(
     mut reader: R,
     path: PathBuf,
+    events_path: Option<PathBuf>,
     counter: Arc<AtomicU64>,
     last_output_at: Arc<AtomicU64>,
 ) -> JoinHandle<Result<()>> {
@@ -82,6 +86,17 @@ fn spawn_pipe_logger<R: Read + Send + 'static>(
             .append(true)
             .open(&path)
             .with_context(|| format!("failed to open {}", path.display()))?;
+        let mut events_file = match events_path.as_ref() {
+            Some(events_path) => Some(
+                fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(events_path)
+                    .with_context(|| format!("failed to open {}", events_path.display()))?,
+            ),
+            None => None,
+        };
+        let mut pending_event_line = Vec::new();
         let mut buffer = [0_u8; 8192];
         loop {
             let read = reader
@@ -92,12 +107,65 @@ fn spawn_pipe_logger<R: Read + Send + 'static>(
             }
             file.write_all(&buffer[..read])
                 .with_context(|| format!("failed to write {}", path.display()))?;
+            if let Some(events_file) = events_file.as_mut() {
+                append_json_event_lines(
+                    &mut pending_event_line,
+                    &buffer[..read],
+                    events_file,
+                    events_path.as_deref().unwrap_or(&path),
+                )?;
+            }
             file.flush().ok();
             counter.fetch_add(read as u64, Ordering::Relaxed);
             last_output_at.store(now_millis(), Ordering::Relaxed);
         }
+        if let Some(events_file) = events_file.as_mut()
+            && !pending_event_line.is_empty()
+        {
+            write_json_event_line(
+                &pending_event_line,
+                events_file,
+                events_path.as_deref().unwrap_or(&path),
+            )?;
+        }
         Ok(())
     })
+}
+
+fn append_json_event_lines(
+    pending: &mut Vec<u8>,
+    chunk: &[u8],
+    file: &mut fs::File,
+    path: &Path,
+) -> Result<()> {
+    pending.extend_from_slice(chunk);
+    while let Some(index) = pending.iter().position(|byte| *byte == b'\n') {
+        let line = pending.drain(..=index).collect::<Vec<_>>();
+        write_json_event_line(&line, file, path)?;
+    }
+    Ok(())
+}
+
+fn write_json_event_line(line: &[u8], file: &mut fs::File, path: &Path) -> Result<()> {
+    let line = String::from_utf8_lossy(line);
+    let trimmed = line.trim();
+    if trimmed.is_empty() || !trimmed.starts_with('{') {
+        return Ok(());
+    }
+    let Ok(event) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return Ok(());
+    };
+    if !event.is_object() {
+        return Ok(());
+    }
+    let event = serde_json::to_string(&event)
+        .with_context(|| format!("failed to serialize JSON event for {}", path.display()))?;
+    file.write_all(event.as_bytes())
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    file.write_all(b"\n")
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    file.flush().ok();
+    Ok(())
 }
 
 pub(super) fn join_pipe_logger(

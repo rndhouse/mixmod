@@ -25,6 +25,7 @@ pub(super) fn copy_budgeted_artifacts(
     fs::create_dir_all(&logs_dir)
         .with_context(|| format!("failed to create artifact logs dir {}", logs_dir.display()))?;
     for name in [
+        OPENCODE_EVENTS_JSONL,
         "opencode.stdout.txt",
         "opencode.stderr.txt",
         "nvidia-smi-before.txt",

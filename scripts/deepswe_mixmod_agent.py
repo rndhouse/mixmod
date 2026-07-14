@@ -378,6 +378,7 @@ if worker_root.exists():
             target_logs = target / "logs"
             target_logs.mkdir(parents=True, exist_ok=True)
             for name in [
+                "opencode.events.jsonl",
                 "opencode.stdout.txt",
                 "opencode.stderr.txt",
                 "heartbeat.jsonl",
@@ -593,6 +594,11 @@ summary = {{
     "latest_worker_last_output_age_ms": latest_heartbeat.get("last_output_age_ms"),
     "latest_worker_stdout_bytes": (
         file_len(latest_worker_dir / "logs" / "opencode.stdout.txt")
+        if latest_worker_dir
+        else None
+    ),
+    "latest_worker_events_bytes": (
+        file_len(latest_worker_dir / "logs" / "opencode.events.jsonl")
         if latest_worker_dir
         else None
     ),
