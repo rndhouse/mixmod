@@ -105,19 +105,80 @@ def run_logged(
             return 124, time.monotonic() - started, True
 
 
+def task_name_from_reward(reward_path: Path) -> str:
+    trial_dir = reward_path.parent.parent
+    config_path = trial_dir / "config.json"
+    if config_path.exists():
+        config = read_json(config_path)
+        task = config.get("task")
+        if isinstance(task, dict):
+            for key in ("path", "name"):
+                value = task.get(key)
+                if isinstance(value, str) and value:
+                    return Path(value).name
+    trial_name = trial_dir.name
+    if "__" in trial_name:
+        return trial_name.split("__", 1)[0]
+    return trial_name
+
+
+def mixmod_summary_fields(reward_path: Path) -> dict[str, Any]:
+    trial_dir = reward_path.parent.parent
+    summary_path = trial_dir / "agent" / "mixmod-summary.json"
+    if not summary_path.exists():
+        return {}
+    summary = read_json(summary_path)
+    fields = [
+        "supervisor_input_tokens",
+        "supervisor_cached_input_tokens",
+        "supervisor_output_tokens",
+        "supervisor_reasoning_tokens",
+        "supervisor_total_tokens",
+        "worker_input_tokens",
+        "worker_cached_input_tokens",
+        "worker_cache_write_tokens",
+        "worker_output_tokens",
+        "worker_reasoning_tokens",
+        "worker_total_tokens",
+        "worker_reported_cost_usd",
+        "worker_token_step_count",
+        "worker_token_usage_source",
+        "worker_token_usage_scope",
+        "worker_token_usage_comparable",
+        "codex_calls",
+        "opencode_calls",
+        "final_status",
+        "final_verdict",
+        "worker_session_token_peak",
+    ]
+    values = {
+        key: summary[key]
+        for key in fields
+        if key in summary and summary[key] is not None
+    }
+    values["mixmod_summary_json"] = str(summary_path)
+    metrics_path = trial_dir / "agent" / "mixmod-metrics.json"
+    if metrics_path.exists():
+        values["mixmod_metrics_json"] = str(metrics_path)
+    return values
+
+
 def collect_records(job_dir: Path) -> list[dict[str, Any]]:
     records = []
     for reward_path in sorted(job_dir.rglob("reward.json")):
         reward = read_json(reward_path)
         value = reward.get("reward")
+        record = {
+            "task": task_name_from_reward(reward_path),
+            "reward": value,
+            "resolved": bool(value == 1 or value is True),
+            "reward_json": str(reward_path),
+            "ctrf_json": str(reward_path.with_name("ctrf.json")),
+            "test_stdout": str(reward_path.with_name("test-stdout.txt")),
+        }
+        record.update(mixmod_summary_fields(reward_path))
         records.append(
-            {
-                "reward": value,
-                "resolved": bool(value == 1 or value is True),
-                "reward_json": str(reward_path),
-                "ctrf_json": str(reward_path.with_name("ctrf.json")),
-                "test_stdout": str(reward_path.with_name("test-stdout.txt")),
-            }
+            record
         )
     return records
 
