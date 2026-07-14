@@ -695,6 +695,50 @@ fn openrouter_glm_worker_profile_is_selected_by_alias() {
 }
 
 #[test]
+fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(None, Some("openrouter/minimax/minimax-m3".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
+    assert_eq!(guidance.target_patch_lines, Some(180));
+    assert_eq!(guidance.max_patch_lines, Some(450));
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("larger advertised context window"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("safety margin"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("one coherent source behavior"))
+    );
+
+    ModelOverrides::new(None, Some("minimax/minimax-m3".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
+
+    config.worker_model_profiles.clear();
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
+}
+
+#[test]
 fn model_overrides_apply_codex_worker_backend_and_model() {
     let mut config = MixmodConfig::default();
 

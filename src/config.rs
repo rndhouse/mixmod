@@ -72,11 +72,17 @@ impl MixmodConfig {
                 .worker_model_profiles
                 .iter()
                 .find(|profile| profile.matches_opencode_worker(&self.opencode))
+                .cloned()
+                .or_else(|| {
+                    default_worker_model_profiles()
+                        .into_iter()
+                        .find(|profile| profile.matches_opencode_worker(&self.opencode))
+                })
                 .map(|profile| WorkerSupervisorGuidance {
-                    model: profile.model.clone(),
+                    model: profile.model,
                     target_patch_lines: profile.target_patch_lines,
                     max_patch_lines: profile.max_patch_lines,
-                    guidance: profile.supervisor_guidance.clone(),
+                    guidance: profile.supervisor_guidance,
                 })
                 .unwrap_or_default(),
             WorkerBackend::Codex => WorkerSupervisorGuidance::default(),

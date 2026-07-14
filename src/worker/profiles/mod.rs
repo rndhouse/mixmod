@@ -1,0 +1,89 @@
+use std::collections::BTreeSet;
+
+use serde::{Deserialize, Serialize};
+
+use crate::OpenCodeConfig;
+
+mod glm;
+mod minimaxm3;
+mod qwen;
+
+/// Historical pitfalls for one worker model.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct WorkerModelProfile {
+    /// Canonical worker model label.
+    pub model: String,
+    /// Additional model/provider labels that should select this profile.
+    pub aliases: Vec<String>,
+    /// Expected changed-line target for one worker turn.
+    pub target_patch_lines: Option<u64>,
+    /// Expected changed-line ceiling for one worker turn.
+    pub max_patch_lines: Option<u64>,
+    /// Supervisor-only guidance for adapting worker instructions.
+    pub supervisor_guidance: Vec<String>,
+}
+
+impl WorkerModelProfile {
+    pub(crate) fn matches_opencode_worker(&self, config: &OpenCodeConfig) -> bool {
+        let profile_names = self
+            .identifiers()
+            .into_iter()
+            .map(normalize_model_identifier)
+            .collect::<BTreeSet<_>>();
+        config
+            .selected_model_identifiers()
+            .into_iter()
+            .map(|identifier| normalize_model_identifier(&identifier))
+            .any(|identifier| profile_names.contains(&identifier))
+    }
+
+    fn identifiers(&self) -> Vec<&str> {
+        let mut identifiers = vec![self.model.as_str()];
+        identifiers.extend(self.aliases.iter().map(String::as_str));
+        identifiers
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct WorkerSupervisorGuidance {
+    pub(crate) model: String,
+    pub(crate) target_patch_lines: Option<u64>,
+    pub(crate) max_patch_lines: Option<u64>,
+    pub(crate) guidance: Vec<String>,
+}
+
+impl WorkerSupervisorGuidance {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.guidance.is_empty()
+            && self.target_patch_lines.is_none()
+            && self.max_patch_lines.is_none()
+    }
+
+    pub(crate) fn with_patch_line_overrides(
+        mut self,
+        target_patch_lines: Option<u64>,
+        max_patch_lines: Option<u64>,
+    ) -> Self {
+        if target_patch_lines.is_some() {
+            self.target_patch_lines = target_patch_lines;
+        }
+        if max_patch_lines.is_some() {
+            self.max_patch_lines = max_patch_lines;
+        }
+        self
+    }
+}
+
+pub(crate) fn default_worker_model_profiles() -> Vec<WorkerModelProfile> {
+    vec![
+        qwen::profile(),
+        glm::local_flash_profile(),
+        glm::openrouter_glm_5_2_profile(),
+        minimaxm3::profile(),
+    ]
+}
+
+fn normalize_model_identifier(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}

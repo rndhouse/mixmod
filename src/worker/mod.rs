@@ -1,4 +1,4 @@
-mod guidance;
+mod profiles;
 
-pub use guidance::WorkerModelProfile;
-pub(crate) use guidance::{WorkerSupervisorGuidance, default_worker_model_profiles};
+pub use profiles::WorkerModelProfile;
+pub(crate) use profiles::{WorkerSupervisorGuidance, default_worker_model_profiles};
