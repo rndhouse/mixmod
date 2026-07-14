@@ -292,6 +292,7 @@ fn exec_command_is_public_cli_surface() {
             supervisor_init,
             stop_after_first_worker,
             stop_after_first_review,
+            stop_after_worker_turns,
             worker_target_patch_lines,
             worker_max_patch_lines,
             no_require_local,
@@ -305,6 +306,7 @@ fn exec_command_is_public_cli_surface() {
             assert!(supervisor_init.is_none());
             assert!(!stop_after_first_worker);
             assert!(!stop_after_first_review);
+            assert_eq!(stop_after_worker_turns, None);
             assert_eq!(worker_target_patch_lines, None);
             assert_eq!(worker_max_patch_lines, None);
             assert!(!no_require_local);
@@ -362,6 +364,34 @@ fn exec_command_is_public_cli_surface() {
         ])
         .is_err()
     );
+    let cli = Cli::try_parse_from([
+        "mixmod",
+        "exec",
+        "--task",
+        "task.json",
+        "--stop-after-worker-turns",
+        "2",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Exec {
+            stop_after_worker_turns,
+            ..
+        } => assert_eq!(stop_after_worker_turns, Some(2)),
+        _ => panic!("expected exec command"),
+    }
+    assert!(
+        Cli::try_parse_from([
+            "mixmod",
+            "exec",
+            "--task",
+            "task.json",
+            "--stop-after-worker-turns",
+            "2",
+            "--stop-after-first-review",
+        ])
+        .is_err()
+    );
 }
 
 #[test]
@@ -394,6 +424,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             supervisor_init,
             stop_after_first_worker,
             stop_after_first_review,
+            stop_after_worker_turns,
             worker_target_patch_lines,
             worker_max_patch_lines,
             no_require_local,
@@ -406,6 +437,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
             assert!(!stop_after_first_worker);
             assert!(stop_after_first_review);
+            assert_eq!(stop_after_worker_turns, None);
             assert_eq!(worker_target_patch_lines, Some(120));
             assert_eq!(worker_max_patch_lines, Some(300));
             assert!(!no_require_local);
@@ -450,6 +482,7 @@ fn experiment_run_default_accepts_model_override_flags() {
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
+                    stop_after_worker_turns,
                     worker_target_patch_lines,
                     worker_max_patch_lines,
                 },
@@ -465,6 +498,7 @@ fn experiment_run_default_accepts_model_override_flags() {
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
             assert!(!stop_after_first_worker);
             assert!(stop_after_first_review);
+            assert_eq!(stop_after_worker_turns, None);
             assert_eq!(worker_target_patch_lines, Some(100));
             assert_eq!(worker_max_patch_lines, Some(250));
         }

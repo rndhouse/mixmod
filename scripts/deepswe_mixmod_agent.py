@@ -79,6 +79,7 @@ class MixmodAgent(BaseInstalledAgent):
         supervisor_init: str = "compact",
         stop_after_first_worker: bool | str = False,
         stop_after_first_review: bool | str = False,
+        stop_after_worker_turns: int | str | None = None,
         worker_target_patch_lines: int | str | None = None,
         worker_max_patch_lines: int | str | None = None,
         require_local: bool | str = True,
@@ -97,9 +98,22 @@ class MixmodAgent(BaseInstalledAgent):
         self.supervisor_init = supervisor_init
         self.stop_after_first_worker = _truthy(stop_after_first_worker)
         self.stop_after_first_review = _truthy(stop_after_first_review)
-        if self.stop_after_first_worker and self.stop_after_first_review:
+        self.stop_after_worker_turns = (
+            int(stop_after_worker_turns)
+            if stop_after_worker_turns not in (None, "")
+            else None
+        )
+        if sum(
+            bool(value)
+            for value in [
+                self.stop_after_first_worker,
+                self.stop_after_first_review,
+                self.stop_after_worker_turns is not None,
+            ]
+        ) > 1:
             raise ValueError(
-                "stop_after_first_worker and stop_after_first_review are mutually exclusive"
+                "stop_after_first_worker, stop_after_first_review, and "
+                "stop_after_worker_turns are mutually exclusive"
             )
         self.worker_target_patch_lines = (
             int(worker_target_patch_lines)
@@ -246,6 +260,10 @@ class MixmodAgent(BaseInstalledAgent):
             run_default_args.append("--stop-after-first-worker")
         if self.stop_after_first_review:
             run_default_args.append("--stop-after-first-review")
+        if self.stop_after_worker_turns is not None:
+            run_default_args.extend(
+                ["--stop-after-worker-turns", str(self.stop_after_worker_turns)]
+            )
         if self.worker_target_patch_lines is not None:
             run_default_args.extend(
                 ["--worker-target-patch-lines", str(self.worker_target_patch_lines)]

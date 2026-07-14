@@ -51,6 +51,9 @@ pub enum Commands {
         /// Stop after the first supervisor review and leave artifacts for inspection.
         #[arg(long, conflicts_with = "stop_after_first_worker")]
         stop_after_first_review: bool,
+        /// Stop after this many completed worker turns, before the next review.
+        #[arg(long, conflicts_with_all = ["stop_after_first_worker", "stop_after_first_review"])]
+        stop_after_worker_turns: Option<u64>,
         /// Suggested worker changed-line target for one turn.
         #[arg(long)]
         worker_target_patch_lines: Option<u64>,
@@ -202,6 +205,9 @@ pub enum ExperimentCommand {
         /// Stop after the first supervisor review and leave artifacts for inspection.
         #[arg(long, conflicts_with = "stop_after_first_worker")]
         stop_after_first_review: bool,
+        /// Stop after this many completed worker turns, before the next review.
+        #[arg(long, conflicts_with_all = ["stop_after_first_worker", "stop_after_first_review"])]
+        stop_after_worker_turns: Option<u64>,
         /// Suggested worker changed-line target for one turn.
         #[arg(long)]
         worker_target_patch_lines: Option<u64>,
@@ -230,6 +236,9 @@ pub enum ExperimentCommand {
         /// Stop after the first supervisor review and leave artifacts for inspection.
         #[arg(long, conflicts_with = "stop_after_first_worker")]
         stop_after_first_review: bool,
+        /// Stop after this many completed worker turns, before the next review.
+        #[arg(long, conflicts_with_all = ["stop_after_first_worker", "stop_after_first_review"])]
+        stop_after_worker_turns: Option<u64>,
         /// Suggested worker changed-line target for one turn.
         #[arg(long)]
         worker_target_patch_lines: Option<u64>,

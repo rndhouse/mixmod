@@ -14,6 +14,8 @@ pub(crate) struct DefaultStrategyOptions {
     pub(crate) stop_after_first_worker: bool,
     /// Stop after the first supervisor review and leave artifacts for inspection.
     pub(crate) stop_after_first_review: bool,
+    /// Stop after this many completed worker turns, before the next review.
+    pub(crate) stop_after_worker_turns: Option<u64>,
     /// Optional worker changed-line target for one turn.
     pub(crate) worker_target_patch_lines: Option<u64>,
     /// Optional worker changed-line ceiling for one turn.
@@ -135,9 +137,10 @@ impl DefaultStrategyRun<'_> {
             runner.as_ref(),
             false,
             WorkerRunOptions {
-                resume_session_id: options.resume_session,
+                resume_session_id: options.resume_session.clone(),
                 allow_auto_followups: !(options.stop_after_first_worker
-                    || options.stop_after_first_review),
+                    || options.stop_after_first_review
+                    || options.stop_after_worker_turns.is_some()),
                 worker_self_review,
                 supervisor_advisor: live_supervisor_advisor(&live_supervisor),
             },
@@ -153,10 +156,12 @@ impl DefaultStrategyRun<'_> {
             supervisor_control_decision_from_metrics(&proposal_out)?;
         let mut final_out = proposal_out;
         let mut supervisor_samples = vec![worker_brief.usage_sample()];
-        let final_decision = if options.stop_after_first_worker {
-            None
-        } else {
-            Some(loop {
+        let mut final_decision = None;
+        if !should_stop_before_next_review(&options, opencode_calls) {
+            loop {
+                if should_stop_before_next_review(&options, opencode_calls) {
+                    break;
+                }
                 let decision_index = opencode_calls;
                 let mut decision = if let Some(decision) = pending_supervisor_control.take() {
                     decision
@@ -182,14 +187,16 @@ impl DefaultStrategyRun<'_> {
                 };
                 if options.stop_after_first_review && decision_index == 1 {
                     append_jsonl(&feedback_path, &decision.feedback)?;
-                    break decision;
+                    final_decision = Some(decision);
+                    break;
                 }
 
                 force_context_focus_after_worker_context_overflow(&mut decision, &final_out)?;
                 append_jsonl(&feedback_path, &decision.feedback)?;
 
                 if decision.verdict_kind().is_terminal() {
-                    break decision;
+                    final_decision = Some(decision);
+                    break;
                 } else {
                     let (worker_decision, previous_patch_source) =
                         prepare_default_revision_decision(root, &final_out, &decision)?;
@@ -222,7 +229,7 @@ impl DefaultStrategyRun<'_> {
                         false,
                         WorkerRunOptions {
                             resume_session_id,
-                            allow_auto_followups: true,
+                            allow_auto_followups: options.stop_after_worker_turns.is_none(),
                             worker_self_review,
                             supervisor_advisor: live_supervisor_advisor(&live_supervisor),
                         },
@@ -240,8 +247,8 @@ impl DefaultStrategyRun<'_> {
                     pending_supervisor_control =
                         supervisor_control_decision_from_metrics(&final_out)?;
                 }
-            })
-        };
+            }
+        }
 
         let final_patch = git_diff_with_untracked(root)?;
         atomic_write(&out_dir.join(FINAL_PATCH), final_patch.as_bytes())?;
@@ -262,6 +269,8 @@ impl DefaultStrategyRun<'_> {
             final_decision.as_ref(),
             options.stop_after_first_worker,
             options.stop_after_first_review,
+            options.stop_after_worker_turns,
+            opencode_calls,
         );
         let supervisor_token_usage =
             supervisor_token_usage_labels(supervisor_usage.token_usage_comparable);
@@ -308,6 +317,7 @@ impl DefaultStrategyRun<'_> {
             "revision_attempts": opencode_calls.saturating_sub(1),
             "stop_after_first_worker": options.stop_after_first_worker,
             "stop_after_first_review": options.stop_after_first_review,
+            "stop_after_worker_turns": options.stop_after_worker_turns,
             "worker_self_review": worker_self_review,
             "worker_target_patch_lines": worker_guidance.target_patch_lines,
             "worker_max_patch_lines": worker_guidance.max_patch_lines,
@@ -405,6 +415,13 @@ fn ensure_worker_run_verified(out_dir: &Path, receipt: &Receipt, run_dir: &Path)
         "local worker inference was required but could not be verified for {}",
         run_dir.display()
     )
+}
+
+fn should_stop_before_next_review(options: &DefaultStrategyOptions, worker_turns: u64) -> bool {
+    options.stop_after_first_worker
+        || options
+            .stop_after_worker_turns
+            .is_some_and(|limit| worker_turns >= limit)
 }
 
 fn artifact_byte_sizes(dir: &Path) -> Result<Value> {

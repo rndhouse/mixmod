@@ -103,6 +103,8 @@ pub(crate) fn default_strategy_outcome(
     final_decision: Option<&SupervisorFeedbackTurn>,
     stop_after_first_worker: bool,
     stop_after_first_review: bool,
+    stop_after_worker_turns: Option<u64>,
+    completed_worker_turns: u64,
 ) -> DefaultStrategyOutcome {
     let final_verdict = final_decision
         .map(|decision| decision.verdict.clone())
@@ -114,6 +116,10 @@ pub(crate) fn default_strategy_outcome(
         "stopped_after_first_worker"
     } else if stop_after_first_review {
         "stopped_after_first_review"
+    } else if final_decision.is_none()
+        && stop_after_worker_turns.is_some_and(|limit| completed_worker_turns >= limit)
+    {
+        "stopped_after_worker_turn_limit"
     } else {
         match final_decision.map(SupervisorFeedbackTurn::verdict_kind) {
             Some(SupervisorVerdict::Approve) => "approved_by_codex",

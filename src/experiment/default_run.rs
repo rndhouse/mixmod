@@ -13,6 +13,7 @@ pub struct DefaultRunOptions {
     pub supervisor_init: Option<SupervisorInitMode>,
     pub stop_after_first_worker: bool,
     pub stop_after_first_review: bool,
+    pub stop_after_worker_turns: Option<u64>,
     pub worker_target_patch_lines: Option<u64>,
     pub worker_max_patch_lines: Option<u64>,
 }
@@ -139,7 +140,8 @@ impl DefaultExperimentRun<'_> {
             WorkerRunOptions {
                 resume_session_id: None,
                 allow_auto_followups: !(options.stop_after_first_worker
-                    || options.stop_after_first_review),
+                    || options.stop_after_first_review
+                    || options.stop_after_worker_turns.is_some()),
                 worker_self_review,
                 supervisor_advisor: live_supervisor_advisor(&live_supervisor),
             },
@@ -161,10 +163,12 @@ impl DefaultExperimentRun<'_> {
             supervisor_control_decision_from_metrics(&proposal_out)?;
         let mut final_out = proposal_out;
         let mut supervisor_samples = vec![worker_brief.usage_sample()];
-        let final_decision = if options.stop_after_first_worker {
-            None
-        } else {
-            Some(loop {
+        let mut final_decision = None;
+        if !should_stop_before_next_review(&options, opencode_calls) {
+            loop {
+                if should_stop_before_next_review(&options, opencode_calls) {
+                    break;
+                }
                 let decision_index = opencode_calls;
                 let mut decision = if let Some(decision) = pending_supervisor_control.take() {
                     decision
@@ -191,14 +195,16 @@ impl DefaultExperimentRun<'_> {
                 };
                 if options.stop_after_first_review && decision_index == 1 {
                     append_jsonl(&feedback_path, &decision.feedback)?;
-                    break decision;
+                    final_decision = Some(decision);
+                    break;
                 }
 
                 force_context_focus_after_worker_context_overflow(&mut decision, &final_out)?;
                 append_jsonl(&feedback_path, &decision.feedback)?;
 
                 if decision.verdict_kind().is_terminal() {
-                    break decision;
+                    final_decision = Some(decision);
+                    break;
                 } else {
                     let (worker_decision, previous_patch_source) =
                         prepare_default_revision_decision(&work_dir, &final_out, &decision)?;
@@ -231,7 +237,7 @@ impl DefaultExperimentRun<'_> {
                         options.require_local,
                         WorkerRunOptions {
                             resume_session_id,
-                            allow_auto_followups: true,
+                            allow_auto_followups: options.stop_after_worker_turns.is_none(),
                             worker_self_review,
                             supervisor_advisor: live_supervisor_advisor(&live_supervisor),
                         },
@@ -255,8 +261,8 @@ impl DefaultExperimentRun<'_> {
                     pending_supervisor_control =
                         supervisor_control_decision_from_metrics(&final_out)?;
                 }
-            })
-        };
+            }
+        }
 
         let final_patch = git_diff_with_untracked(&work_dir)?;
         atomic_write(&default_dir.join(FINAL_PATCH), final_patch.as_bytes())?;
@@ -278,6 +284,8 @@ impl DefaultExperimentRun<'_> {
             final_decision.as_ref(),
             options.stop_after_first_worker,
             options.stop_after_first_review,
+            options.stop_after_worker_turns,
+            opencode_calls,
         );
         let supervisor_token_usage =
             supervisor_token_usage_labels(supervisor_usage.token_usage_comparable);
@@ -320,6 +328,7 @@ impl DefaultExperimentRun<'_> {
             "revision_attempts": opencode_calls.saturating_sub(1),
             "stop_after_first_worker": options.stop_after_first_worker,
             "stop_after_first_review": options.stop_after_first_review,
+            "stop_after_worker_turns": options.stop_after_worker_turns,
             "worker_self_review": worker_self_review,
             "worker_target_patch_lines": worker_guidance.target_patch_lines,
             "worker_max_patch_lines": worker_guidance.max_patch_lines,
@@ -416,6 +425,13 @@ fn ensure_local_run_verified(
         bail!("local worker inference could not be verified under --require-local");
     }
     Ok(())
+}
+
+fn should_stop_before_next_review(options: &DefaultRunOptions, worker_turns: u64) -> bool {
+    options.stop_after_first_worker
+        || options
+            .stop_after_worker_turns
+            .is_some_and(|limit| worker_turns >= limit)
 }
 
 fn write_budgeted_blocker(

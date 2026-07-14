@@ -229,6 +229,8 @@ def build_pier_command(
             "--agent-kwarg",
             f"stop_after_first_review={str(args.stop_after_first_review).lower()}",
             "--agent-kwarg",
+            f"stop_after_worker_turns={args.stop_after_worker_turns or ''}",
+            "--agent-kwarg",
             f"require_local={str(args.require_local).lower()}",
             "--agent-kwarg",
             f"mixmod_timeout_sec={args.mixmod_timeout_seconds}",
@@ -300,6 +302,7 @@ def main() -> int:
     )
     parser.add_argument("--stop-after-first-worker", action="store_true")
     parser.add_argument("--stop-after-first-review", action="store_true")
+    parser.add_argument("--stop-after-worker-turns", type=int)
     parser.add_argument("--worker-target-patch-lines", type=int)
     parser.add_argument("--worker-max-patch-lines", type=int)
     parser.add_argument("--no-require-local", dest="require_local", action="store_false")
@@ -327,9 +330,15 @@ def main() -> int:
     parser.add_argument("--no-host-network", dest="host_network", action="store_false")
     parser.set_defaults(require_local=True, host_network=None)
     args = parser.parse_args()
-    if args.stop_after_first_worker and args.stop_after_first_review:
+    stop_modes = [
+        args.stop_after_first_worker,
+        args.stop_after_first_review,
+        args.stop_after_worker_turns is not None,
+    ]
+    if sum(bool(value) for value in stop_modes) > 1:
         parser.error(
-            "--stop-after-first-worker and --stop-after-first-review are mutually exclusive"
+            "--stop-after-first-worker, --stop-after-first-review, and "
+            "--stop-after-worker-turns are mutually exclusive"
         )
 
     root = args.root.resolve()
@@ -372,6 +381,7 @@ def main() -> int:
         "supervisor_init": args.supervisor_init,
         "stop_after_first_worker": args.stop_after_first_worker,
         "stop_after_first_review": args.stop_after_first_review,
+        "stop_after_worker_turns": args.stop_after_worker_turns,
         "worker_target_patch_lines": args.worker_target_patch_lines,
         "worker_max_patch_lines": args.worker_max_patch_lines,
         "require_local": args.require_local,
