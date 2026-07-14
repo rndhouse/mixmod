@@ -71,39 +71,40 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     )
     .unwrap();
 
-    assert!(prompt.contains("minimize supervisor output"));
-    assert!(prompt.contains("compact executable worker handoff"));
-    assert!(prompt.contains("exact files, edit target, expected behavior, and checks"));
+    assert!(prompt.contains("minimizing expensive supervisor GPT output tokens"));
+    assert!(prompt.contains("Local worker tokens are cheap"));
+    assert!(prompt.contains("Use the worker for concrete implementation"));
+    assert!(prompt.contains("remain accountable for correctness"));
     assert!(prompt.contains("Candidate repo file contents are not embedded"));
     assert!(prompt.contains("Candidate repo files:"));
     assert!(prompt.contains("checkout.py"));
     assert!(prompt.contains("listed by task"));
     assert!(!prompt.contains("def total(items):"));
     assert!(!prompt.contains("return sum(items)"));
-    assert!(prompt.contains(r#"Default to "guided""#));
-    assert!(prompt.contains("Guided means terse and executable"));
-    assert!(prompt.contains("target <=120 output tokens"));
-    assert!(prompt.contains("one command-style message_to_worker"));
-    assert!(prompt.contains("usually <=2"));
+    assert!(prompt.contains("Target <=160 supervisor output tokens"));
+    assert!(prompt.contains("Choose the cheapest reliable next worker handoff"));
+    assert!(prompt.contains(r#"Use {"handoff":"as_given"} only"#));
+    assert!(prompt.contains("already gives enough files, behavior, and checks"));
+    assert!(prompt.contains(r#"Use "guided" or "focused""#));
+    assert!(prompt.contains("message_to_worker should be short and command-style"));
     assert!(prompt.contains("worker_turn_shape"));
     assert!(prompt.contains("planning_probe"));
     assert!(prompt.contains("small_patch_slice"));
+    assert!(prompt.contains("bounded_feature_slice"));
     assert!(prompt.contains("exact_edits"));
     assert!(prompt.contains("completion_gate"));
-    assert!(prompt.contains("preferred worker_turn_shape"));
-    assert!(prompt.contains("one coherent source behavior"));
-    assert!(prompt.contains("Bad small_patch_slice choices ask for a whole feature"));
-    assert!(prompt.contains("immediately executable edit commands"));
+    assert!(prompt.contains("according to the worker profile"));
+    assert!(prompt.contains("largest coherent slice"));
+    assert!(prompt.contains("If the route is clear"));
+    assert!(prompt.contains("concrete source edits"));
+    assert!(prompt.contains("Handoff requirements:"));
+    assert!(prompt.contains("immediately executable edit instructions"));
     assert!(prompt.contains("concrete repo file paths, not directories"));
-    assert!(prompt.contains("omit investigation_summary"));
-    assert!(prompt.contains(r#""expect_patch": true"#));
-    assert!(prompt.contains("Set false for investigation/no-change handoffs"));
-    assert!(prompt.contains("ask for a compact next-slice proposal"));
-    assert!(prompt.contains("one to three focused repo files"));
-    assert!(prompt.contains("setup rabbit holes"));
-    assert!(prompt.contains("already names the relevant files, desired behavior, and checks"));
+    assert!(prompt.contains(r#""expect_patch":true"#));
+    assert!(prompt.contains("Ask for a compact proposal, not edits"));
     assert!(prompt.contains(r#"{"handoff":"as_given"}"#));
-    assert!(prompt.contains("omit empty fields"));
+    assert!(prompt.contains("Omit optional fields"));
+    assert!(prompt.contains("JSON shape:"));
 }
 
 #[test]
@@ -130,15 +131,15 @@ fn investigative_worker_brief_prompt_allows_repo_investigation_pass() {
     )
     .unwrap();
 
-    assert!(prompt.contains("repo investigation"));
+    assert!(prompt.contains("Do one repo investigation pass"));
     assert!(prompt.contains("Workspace access is for supervision, not implementation"));
     assert!(prompt.contains("rg"));
     assert!(prompt.contains("git status"));
-    assert!(prompt.contains("target <=500 output tokens"));
+    assert!(prompt.contains("Stop investigating once you can choose a reliable worker handoff"));
+    assert!(prompt.contains("Target <=500 supervisor output tokens"));
     assert!(prompt.contains("investigation_summary"));
     assert!(prompt.contains("edit_plan"));
     assert!(prompt.contains("evidence"));
-    assert!(prompt.contains("less capable"));
 }
 
 #[test]

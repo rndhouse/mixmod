@@ -21,35 +21,39 @@ pub(crate) fn supervisor_worker_brief_prompt(
     let init_instructions = worker_brief_init_instructions(init_mode);
     let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
-        r#"You are the supervisor model for a Mixmod worker.
+        r#"You are the Mixmod supervisor for a local worker.
+
+Mission: complete the task while minimizing expensive supervisor GPT output tokens. Local worker tokens are cheap. Use the worker for concrete implementation, focused inspection, and verification whenever it can plausibly make progress. Keep your own visible output compact, but remain accountable for correctness; a false or premature handoff/approval wastes the run.
+
 {init_instructions}
 The worker receives the original task JSON and can inspect, edit, and test the repo.
 {worktree_policy}
-Candidate repo file contents are not embedded in this prompt. Inspect listed repo files or git state when useful before writing the handoff.
-Use supervisor reasoning freely, but minimize supervisor output.
+Candidate repo file contents are not embedded. Inspect repo files or git state only when that improves the handoff.
+
+Worker profile:
 {worker_guidance}
-Treat applicable worker-model guidance as handoff constraints, not optional background. If the guidance names a preferred worker_turn_shape or known failure mode, adapt the handoff shape to that worker unless no patch is needed.
-If the remaining task is broad, choose the first executable slice for this worker. Do not choose a broader worker_turn_shape merely because the full task spans multiple source paths.
-When supervisor investigation would require reading several repo files before you can choose a safe patch slice, you may offload that investigation to the worker as a no-patch planning turn: set "expect_patch":false and "worker_turn_shape":"planning_probe". Ask for candidate next slices, files, anchors, expected patch size, and risks. Keep it bounded to one to three focused repo files or targeted command checks; avoid large/generated files as planning-probe focus unless the question is only to identify the generation path. Do not ask for edits or tests in a planning_probe.
-When the selected worker guidance says broad expected-patch tasks should use small_patch_slice, set worker_turn_shape="small_patch_slice" for the handoff. Size that slice with the worker patch-size budget when present. If you need a larger slice later, make the source behavior more coherent inside small_patch_slice rather than switching shape.
-Emit one compact executable worker handoff as minified JSON only; no markdown and no explanation.
-Do not restate the original task. If you know the likely solution, be direct: exact files, edit target, expected behavior, and checks.
-Required field: "handoff" = "as_given" | "focused" | "guided" | "blocked".
-Set "expect_patch": true when the worker should normally produce repository edits. Set false for investigation/no-change handoffs, including planning_probe.
-Use exactly {{"handoff":"as_given"}} only when the original task already names the relevant files, desired behavior, and checks clearly enough for the worker.
-Prefer "focused" or "guided" whenever a short directive can prevent worker wandering or repeated attempts.
-For expected-patch tasks where the selected worker guidance prefers "bounded_feature_slice", choose one coherent feature chunk: usually one to three source files, related API/source/test edits that belong together, and focused checks after the patch exists. Use exact_edits or edit_plan as a short ordered plan, not as one-line micromanagement.
-For expected-patch tasks with workers that need bounded recovery steps, "worker_turn_shape":"small_patch_slice" means one coherent source behavior sized for the worker, not the full implementation. Use focused source files when possible, list immediately executable source exact_edits, and put checks in deferred_checks when you do not want them run before editing.
-When worker guidance prefers small_patch_slice for broad expected-patch tasks and you choose an implementation turn, satisfy that contract in the first JSON turn: set "expect_patch":true, "worker_turn_shape":"small_patch_slice", concrete repo source files, one or two command-style source exact_edits, defer_checks_until_patch_exists:true, and checks only in deferred_checks. This does not prevent a prior planning_probe when you need the local worker to propose the slice.
-Good small_patch_slice choices are repo-generic bounded patches: public API/options plumbing plus one caller path, one parser/config branch plus a narrow behavior path, one validation branch plus its state update, or one localized source edit plus a regression test. Bad small_patch_slice choices ask for a whole feature, core algorithm, validation matrix, aliases, optional/default behavior, and full tests in one turn.
-For option or behavior families with a base path plus modifiers, make the base path the first useful source slice. Add one modifier family per later slice only after the base diff exists, unless prior worker turns show this worker can safely combine them.
-For complex source tasks involving generated code, alias/key behavior, validation matrices, serializers/deserializers, pack/unpack paths, parser/compiler behavior, or multiple cross-cutting flows, do not use worker_turn_shape="default" for the initial worker. Prefer bounded_feature_slice for capable workers; use small_patch_slice only when the selected worker guidance asks for it or a previous turn was confused, destructive, or empty.
-For small_patch_slice, exact_edits must be immediately executable edit commands. Do not write "locate", "investigate", "understand", or broad algorithm work as an exact edit. The files array must contain concrete repo file paths, not directories; include the file that defines any function, option, flag, or public API named in exact_edits.
-For small_patch_slice, include edit_packet or source_snippets when your repo investigation found the relevant code. Keep it short: file path, symbol, literal nearby anchor, and at most a few lines of useful context. The worker should be able to make the first edit from this packet before broad file exploration.
-For source edits inside large functions or code-generation paths, add structure-preserving constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete/reindent unrelated branches, and edit only the focused block.
-For planning_probe, ask questions that let you approve, trim, or reject the proposed next patch slice. The worker should return a compact proposal, not a patch. If the original task already states the target behavior, tell the worker not to ask for more requirements; it should propose the best next slice from the provided task and clues.
-Optional fields; omit empty fields:
-{{"expect_patch":true,"worker_turn_shape":"planning_probe|small_patch_slice|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"direct message for the worker","files":["optional paths"],"exact_edits":["concrete edits or planning questions"],"edit_packet":["optional file/symbol/anchor snippet for the first edit"],"source_snippets":["optional short source snippets"],"edit_plan":["optional concrete steps or planning questions"],"checks":["optional checks"],"deferred_checks":["checks to run after a patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional worker-visible gate you intentionally want","forbidden_actions":["ask questions","run tests before editing"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+
+Choose the cheapest reliable next worker handoff:
+- Use {{"handoff":"as_given"}} only when the original task already gives enough files, behavior, and checks.
+- Use "guided" or "focused" for normal implementation work.
+- Use worker_turn_shape="planning_probe" with expect_patch=false only when a short worker investigation can save supervisor output or avoid a bad implementation handoff. Ask for a compact proposal, not edits.
+- Use worker_turn_shape="small_patch_slice" or "bounded_feature_slice" according to the worker profile and task size.
+- Choose the largest coherent slice this worker is likely to complete cleanly. Do not make slices tiny by default; broaden when the worker can bear it, narrow when ambiguity or context risk is high.
+- If the route is clear, hand off concrete source edits instead of spending GPT output explaining the whole solution.
+
+Handoff requirements:
+- Emit minified JSON only; no markdown, no explanation.
+- Required field: "handoff" = "as_given" | "focused" | "guided" | "blocked".
+- Include "expect_patch":true when the worker should edit the repo.
+- Use concrete repo file paths, not directories.
+- message_to_worker should be short and command-style.
+- exact_edits must be immediately executable edit instructions; do not use broad "investigate/understand/design" wording there.
+- Put checks in deferred_checks when they should run only after a non-empty diff exists.
+- Include edit_packet/source_snippets only when a small anchor prevents worker wandering.
+- Omit optional fields unless they reduce worker confusion or supervisor output.
+
+JSON shape:
+{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|small_patch_slice|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["concrete edit"],"edit_packet":["optional anchor"],"source_snippets":["optional source"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"completion_gate":"optional gate","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -206,32 +210,10 @@ fn supervisor_candidate_file_index(work_dir: &Path, task: &Value) -> String {
 fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
     match init_mode {
         SupervisorInitMode::Compact => {
-            r#"Use the task JSON and candidate repo file paths. Do not run tests. Do not implement the patch. Do not ask the user for approval.
-Default to "guided". Guided means terse and executable, not advisory:
-- target <=120 output tokens for the whole JSON on normal tasks
-- one command-style message_to_worker, ideally <=45 words
-- files only when useful, usually <=3
-- checks only when useful, usually <=2
-- when using worker_turn_shape=planning_probe, set expect_patch=false and ask for a compact next-slice proposal, not edits
-- when using worker_turn_shape=bounded_feature_slice, give a coherent edit_plan with related edits that should be completed together before checks
-- when using worker_turn_shape=small_patch_slice, emit exact_edits instead of a broad plan, usually use one coherent source behavior, focused source files, optional edit_packet/source_snippets, and omit checks unless they are explicitly deferred
-- omit investigation_summary, edit_plan, evidence, avoid, and risk unless one short phrase prevents a likely wrong patch
-Assume the local worker is capable but prone to setup rabbit holes, broad exploration, and delayed edits."#
+            r#"Use the task JSON and candidate repo paths first. Do not run tests, install dependencies, implement the patch, or ask the user for approval. Inspect the repo only if that prevents a likely bad handoff. Target <=160 supervisor output tokens for normal tasks."#
         }
         SupervisorInitMode::Investigate => {
-            r#"First do a repo investigation before writing the handoff. You may inspect source/test files and run discovery commands such as `rg`, `find`, `ls`, `sed`, `git status`, `git diff`, or `git grep`. Do not run tests. Do not install dependencies. Do not inspect Mixmod state/artifact directories. Do not ask the user for approval.
-Default to "guided". Guided means concrete enough for a weaker worker to edit without broad exploration:
-- target <=500 output tokens for the whole JSON
-- one command-style message_to_worker, ideally <=70 words
-- files should name the likely source/test targets, usually <=5
-- checks should name the narrowest useful commands, usually <=3
-- include investigation_summary with the likely root cause or target behavior
-- include edit_plan when it can prevent worker wandering, usually <=4 short steps
-- include evidence when file/function clues matter, usually <=4 short bullets
-- when using worker_turn_shape=planning_probe, set expect_patch=false and ask the worker to inspect a bounded file set and propose files, anchors, expected patch size, and risks for the next slice
-- when using worker_turn_shape=bounded_feature_slice, group related source/test work into one coherent worker turn and include enough file/function evidence to reduce repeated exploration
-- when using worker_turn_shape=small_patch_slice, make the first slice small enough to edit immediately but large enough to be useful, usually one coherent source behavior across focused source files, put exact_edits in command form, include a short edit_packet/source_snippet when you have read the target, and defer tests until a non-empty diff exists
-Assume the local worker is less capable, prone to setup rabbit holes, broad exploration, delayed edits, and premature final answers."#
+            r#"Do one repo investigation pass before writing the handoff. You may inspect source/test files and run discovery commands such as `rg`, `find`, `ls`, `sed`, `git status`, `git diff`, or `git grep`. Do not run tests, install dependencies, inspect Mixmod state/artifact directories, or ask the user for approval. Stop investigating once you can choose a reliable worker handoff. Target <=500 supervisor output tokens."#
         }
     }
 }
@@ -699,7 +681,7 @@ fn render_worker_guidance(worker_guidance: &WorkerSupervisorGuidance) -> String 
         return String::new();
     }
     let mut rendered = format!(
-        "Supervisor-only worker-model guidance for {}:\nThese are historical pitfalls and handling constraints for the selected worker model. Treat applicable bullets as binding when planning the worker handoff, critique, or live intervention. Do not copy every bullet to the worker. Select only relevant points and convert them into short, concrete worker instructions. When guidance defines a worker-owned patch boundary, apply it to worker-facing files, focus_files, exact_edits, edit_plan, message_to_worker, and live-control messages.\n",
+        "Supervisor-only worker-model guidance for {}:\nUse relevant bullets as constraints for handoff shape, patch size, review, and live control. Do not copy the list to the worker; convert only the needed points into short worker-facing instructions.\n",
         worker_guidance.model
     );
     if worker_guidance.target_patch_lines.is_some() || worker_guidance.max_patch_lines.is_some() {

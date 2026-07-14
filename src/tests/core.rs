@@ -522,19 +522,19 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("raw field names and resolved aliases"))
+            .any(|item| item.contains("directionally useful but messy parser"))
     );
     assert!(
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("end-to-end semantics across slices"))
+            .any(|item| item.contains("end-to-end integration across slices"))
     );
     assert!(
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("task-derived probes or focused tests"))
+            .any(|item| item.contains("task-derived behavior evidence"))
     );
 
     ModelOverrides::new(None, Some("llama.cpp/qwen/qwen3.6-27b".to_string()))
@@ -547,7 +547,7 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("global environments"))
+            .any(|item| item.contains("global environment repair"))
     );
 }
 
