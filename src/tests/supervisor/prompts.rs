@@ -222,6 +222,10 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Mission: complete the task while minimizing"));
     assert!(brief_prompt.contains("Local worker tokens are cheap"));
     assert!(brief_prompt.contains("Choose the cheapest reliable next worker handoff"));
+    assert!(brief_prompt.contains("Worker shape contract:"));
+    assert!(brief_prompt.contains("Profile-selected shape"));
+    assert!(brief_prompt.contains("use worker_turn_shape=\"small_patch_slice\""));
+    assert!(brief_prompt.contains("Do not emit worker_turn_shape=\"bounded_feature_slice\""));
     assert!(brief_prompt.contains("reasoning before editing"));
     assert!(brief_prompt.contains("large effective context"));
     assert!(brief_prompt.contains("Worker patch-size guidance"));
@@ -245,9 +249,11 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("context overflow"));
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("repo-level evidence"));
-    assert!(brief_prompt.contains("according to the worker profile"));
+    assert!(brief_prompt.contains("obey the worker shape contract"));
     assert!(brief_prompt.contains("largest coherent slice"));
     assert!(brief_prompt.contains("Handoff requirements:"));
+    assert!(brief_prompt.contains("do not duplicate it in message_to_worker"));
+    assert!(brief_prompt.contains("only anchors or evidence"));
 }
 
 #[test]
@@ -281,6 +287,7 @@ fn supervisor_prompts_include_openrouter_glm_worker_guidance() {
     assert!(brief_prompt.contains("resolve the implementation route"));
     assert!(brief_prompt.contains("trust that route"));
     assert!(brief_prompt.contains("worker_turn_shape=bounded_feature_slice"));
+    assert!(brief_prompt.contains("prefer worker_turn_shape=\"bounded_feature_slice\""));
     assert!(brief_prompt.contains("patch-first"));
     assert!(brief_prompt.contains("toolchain archaeology"));
     assert!(brief_prompt.contains("current accumulated patch"));

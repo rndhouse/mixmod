@@ -17,6 +17,7 @@ pub(crate) fn supervisor_worker_brief_prompt(
     let task = serde_json::to_string_pretty(&visible_task)
         .context("failed to serialize agent-visible task for worker brief prompt")?;
     let candidate_files = supervisor_candidate_file_index(work_dir, &visible_task);
+    let shape_contract = supervisor_worker_shape_contract(worker_guidance);
     let worker_guidance = render_worker_guidance(worker_guidance);
     let init_instructions = worker_brief_init_instructions(init_mode);
     let worktree_policy = supervisor_worktree_policy();
@@ -33,11 +34,14 @@ Candidate repo file contents are not embedded. Inspect repo files or git state o
 Worker profile:
 {worker_guidance}
 
+Worker shape contract:
+{shape_contract}
+
 Choose the cheapest reliable next worker handoff:
 - Use {{"handoff":"as_given"}} only when the original task already gives enough files, behavior, and checks.
 - Use "guided" or "focused" for normal implementation work.
 - Use worker_turn_shape="planning_probe" with expect_patch=false only when a short worker investigation can save supervisor output or avoid a bad implementation handoff. Ask for a compact proposal, not edits.
-- Use worker_turn_shape="small_patch_slice" or "bounded_feature_slice" according to the worker profile and task size.
+- For expected-patch implementation handoffs, obey the worker shape contract before choosing field detail.
 - Choose the largest coherent slice this worker is likely to complete cleanly. Do not make slices tiny by default; broaden when the worker can bear it, narrow when ambiguity or context risk is high.
 - If the route is clear, hand off concrete source edits instead of spending GPT output explaining the whole solution.
 
@@ -46,10 +50,13 @@ Handoff requirements:
 - Required field: "handoff" = "as_given" | "focused" | "guided" | "blocked".
 - Include "expect_patch":true when the worker should edit the repo.
 - Use concrete repo file paths, not directories.
-- message_to_worker should be short and command-style.
+- message_to_worker is only the short command the worker should follow.
+- exact_edits is the implementation instruction list; do not duplicate it in message_to_worker.
 - exact_edits must be immediately executable edit instructions; do not use broad "investigate/understand/design" wording there.
 - Put checks in deferred_checks when they should run only after a non-empty diff exists.
-- Include edit_packet/source_snippets only when a small anchor prevents worker wandering.
+- edit_packet/source_snippets are only anchors or evidence; do not restate exact_edits there.
+- completion_gate is only for acceptance criteria not already covered by exact_edits or deferred_checks.
+- forbidden_actions is only for task-specific limits beyond normal noninteractive worker behavior.
 - Omit optional fields unless they reduce worker confusion or supervisor output.
 
 JSON shape:
@@ -205,6 +212,24 @@ fn supervisor_candidate_file_index(work_dir: &Path, task: &Value) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) -> &'static str {
+    if worker_guidance
+        .guidance
+        .iter()
+        .any(|item| item.contains("worker_turn_shape=bounded_feature_slice"))
+    {
+        return r#"Profile-selected shape: for expected-patch implementation handoffs, prefer worker_turn_shape="bounded_feature_slice". Use small_patch_slice only when ambiguity, context risk, or prior worker evidence calls for a smaller source slice. Use planning_probe with expect_patch=false only for bounded investigation."#;
+    }
+    if worker_guidance
+        .guidance
+        .iter()
+        .any(|item| item.contains("worker_turn_shape=small_patch_slice"))
+    {
+        return r#"Profile-selected shape: for expected-patch implementation handoffs, use worker_turn_shape="small_patch_slice". Do not emit worker_turn_shape="bounded_feature_slice" or "default" for expected-patch work. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
+    }
+    "No worker-specific default shape is selected. Choose one shape deliberately: planning_probe for no-patch investigation, small_patch_slice for a focused edit, bounded_feature_slice for a coherent larger feature chunk, or default only when the task is already simple."
 }
 
 fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
