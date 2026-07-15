@@ -413,6 +413,9 @@ pub(crate) fn default_strategy_review_instruction(strategy: DefaultStrategyMode)
         DefaultStrategyMode::WorkerBootstrap => {
             "Decide the next worker-bootstrap action. Use approve only when the current source is acceptable. Use revise when the next work is still a substantial separable worker implementation slice. Use take_over when the current patch is a useful baseline and the remaining work is localized edge cases, focused tests, formatting, or debugging that you already understand well enough to finish directly. Use stop only when no useful worker or direct-supervisor path remains. Do not author task-solving source changes during this review turn."
         }
+        DefaultStrategyMode::WorkerBuildSupervisorFix => {
+            "Decide the next worker-build-supervisor-fix action. Use approve only when the current source is acceptable. Use revise only when the next work is broad worker-scale construction. Use take_over when the next work is corrective: named residual defects, edge cases, error wording, propagation, shadowing, formatting, targeted verification, or other small repairs after a usable baseline exists. Use stop only when no useful worker or direct-supervisor path remains. Do not author task-solving source changes during this review turn."
+        }
     }
 }
 

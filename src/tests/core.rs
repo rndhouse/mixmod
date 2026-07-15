@@ -477,6 +477,31 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
 }
 
 #[test]
+fn exec_accepts_worker_build_supervisor_fix_strategy() {
+    let cli = Cli::try_parse_from([
+        "mixmod",
+        "exec",
+        "--strategy",
+        "worker-build-supervisor-fix",
+        "Fix checkout totals.",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Commands::Exec {
+            strategy, prompt, ..
+        } => {
+            assert_eq!(
+                strategy,
+                Some(DefaultStrategyMode::WorkerBuildSupervisorFix)
+            );
+            assert_eq!(prompt, vec!["Fix checkout totals."]);
+        }
+        _ => panic!("expected exec command"),
+    }
+}
+
+#[test]
 fn experiment_run_default_accepts_model_override_flags() {
     let cli = Cli::try_parse_from([
         "mixmod",

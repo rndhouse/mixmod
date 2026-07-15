@@ -261,10 +261,10 @@ impl DefaultStrategyRun<'_> {
                                 &mut supervisor_session,
                                 &out_dir,
                                 &format!("supervisor-compact-before-takeover-{decision_index}"),
-                                "worker_bootstrap_takeover",
+                                "supervisor_takeover",
                                 &json!({
                                     "action": "compact_now",
-                                    "reason": "worker-bootstrap supervisor takeover"
+                                    "reason": format!("{} supervisor takeover", strategy.as_str())
                                 }),
                                 &context_telemetry,
                             )?
@@ -288,6 +288,7 @@ impl DefaultStrategyRun<'_> {
                             &artifact_paths,
                             &takeover_decision,
                             &context_telemetry,
+                            strategy,
                         )?
                     };
                     append_jsonl(&feedback_path, &direct.record)?;
@@ -420,7 +421,14 @@ impl DefaultStrategyRun<'_> {
             json!(["codex_worker_brief", "codex_worker_decision_loop"])
         };
         let strategy_note = if strategy.allows_supervisor_takeover() {
-            "In worker-bootstrap mode, the supervisor may choose take_over when the worker has produced a useful baseline and the remaining work is localized direct-finish work."
+            match strategy {
+                DefaultStrategyMode::WorkerBuildSupervisorFix => {
+                    "In worker-build-supervisor-fix mode, the supervisor may choose take_over when the next step is correction rather than broad worker-scale construction."
+                }
+                _ => {
+                    "In worker-bootstrap mode, the supervisor may choose take_over when the worker has produced a useful baseline and the remaining work is localized direct-finish work."
+                }
+            }
         } else {
             "The supervisor controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy."
         };

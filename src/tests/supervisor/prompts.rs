@@ -95,6 +95,59 @@ fn worker_bootstrap_feedback_prompt_allows_takeover_at_edge_case_phase() {
 }
 
 #[test]
+fn worker_build_supervisor_fix_feedback_prompt_prefers_direct_correction() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let prompt = supervisor_feedback_prompt(
+        root,
+        &[root.join("missing-report.md")],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+        &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::WorkerBuildSupervisorFix,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Strategy mode: worker-build-supervisor-fix"));
+    assert!(prompt.contains("Use the worker for construction"));
+    assert!(prompt.contains("Use action=take_over for correction"));
+    assert!(prompt.contains("Before action=revise, classify the next request"));
+    assert!(prompt.contains("named residual defects"));
+    assert!(
+        prompt
+            .contains("Choose revise only when you can name a remaining broad construction slice")
+    );
+    assert!(prompt.contains("Corrections can appear before every broad task area is complete"));
+    assert!(prompt.contains("\"action\":\"approve|revise|take_over|stop\""));
+    assert!(prompt.contains("\"takeover_reason\""));
+    assert!(prompt.contains("\"direct_plan\""));
+    assert!(!prompt.contains("\"delegation_decision\""));
+}
+
+#[test]
+fn worker_build_supervisor_fix_debug_prompt_requires_delegation_decision() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let prompt = supervisor_feedback_prompt_with_debug_profile_fit(
+        root,
+        &[root.join("missing-report.md")],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+        &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::WorkerBuildSupervisorFix,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Debug delegation-decision audit"));
+    assert!(prompt.contains("delegation_decision.next_owner"));
+    assert!(prompt.contains("delegation_decision.work_type"));
+    assert!(prompt.contains("why the next step belongs with the worker or direct supervisor"));
+    assert!(prompt.contains("\"delegation_decision\""));
+    assert!(prompt.contains("\"worker_fit\""));
+    assert!(prompt.contains("\"direct_fit\""));
+}
+
+#[test]
 fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

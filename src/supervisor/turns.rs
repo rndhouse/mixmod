@@ -383,12 +383,14 @@ pub(crate) fn run_supervisor_direct_finish_turn(
     artifact_paths: &[PathBuf],
     takeover_decision: &SupervisorFeedbackTurn,
     context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
 ) -> Result<SupervisorDirectTurn> {
     let prompt = supervisor_direct_finish_prompt(
         work_dir,
         artifact_paths,
         takeover_decision,
         context_telemetry,
+        strategy,
     )?;
     let result = session.run_turn(artifact_dir, label, &prompt)?;
     let parsed_decision = parse_feedback_json(&result.last_message).unwrap_or_else(|| {

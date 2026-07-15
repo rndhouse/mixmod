@@ -118,6 +118,9 @@ pub enum DefaultStrategyMode {
     /// Use workers for baseline progress, then allow supervisor direct finish.
     #[value(name = "worker-bootstrap")]
     WorkerBootstrap,
+    /// Use workers for broad construction and supervisor direct fixes.
+    #[value(name = "worker-build-supervisor-fix")]
+    WorkerBuildSupervisorFix,
 }
 
 impl DefaultStrategyMode {
@@ -126,12 +129,13 @@ impl DefaultStrategyMode {
         match self {
             Self::SupervisedWorker => "supervised-worker",
             Self::WorkerBootstrap => "worker-bootstrap",
+            Self::WorkerBuildSupervisorFix => "worker-build-supervisor-fix",
         }
     }
 
     /// Return whether this mode permits supervisor-authored solution edits.
     pub(crate) fn allows_supervisor_takeover(self) -> bool {
-        matches!(self, Self::WorkerBootstrap)
+        matches!(self, Self::WorkerBootstrap | Self::WorkerBuildSupervisorFix)
     }
 }
 

@@ -363,7 +363,11 @@ def main() -> int:
     parser.add_argument("--worker-model", default=DEFAULT_WORKER_MODEL)
     parser.add_argument(
         "--strategy",
-        choices=["supervised-worker", "worker-bootstrap"],
+        choices=[
+            "supervised-worker",
+            "worker-bootstrap",
+            "worker-build-supervisor-fix",
+        ],
         default=None,
     )
     parser.add_argument(
