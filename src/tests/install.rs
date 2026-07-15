@@ -68,6 +68,7 @@ fn opencode_config_is_written_to_central_state() {
     assert!(config_path.starts_with(state_layout(root).project_dir()));
     assert!(!root.join("opencode.json").exists());
     assert_eq!(get_bool(&config, "autoupdate"), Some(false));
+    assert_eq!(get_bool(&config["compaction"], "prune"), Some(true));
     assert_eq!(
         get_str(&config, "default_agent"),
         Some(MIXMOD_OPENCODE_AGENT)

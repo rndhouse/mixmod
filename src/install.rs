@@ -270,6 +270,9 @@ fn opencode_config_content_for_provider(provider: &str, name: &str) -> String {
     let config = json!({
         "$schema": "https://opencode.ai/config.json",
         "autoupdate": false,
+        "compaction": {
+            "prune": true
+        },
         "model": format!("{provider}/{local_model}", local_model = DEFAULT_OPENCODE_LOCAL_MODEL),
         "default_agent": MIXMOD_OPENCODE_AGENT,
         "agent": agents,
