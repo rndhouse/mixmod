@@ -59,7 +59,6 @@ Handoff requirements:
 - edit_packet/source_snippets are optional and sparse. Omit them by default; include them only when you already have a cheap anchor/snippet and it will likely save more worker exploration than it costs in supervisor output.
 - stop_condition is the worker-visible point where this turn should stop and return for supervisor review; include it when the selected worker shape contract requires a reviewable slice boundary.
 - completion_gate is only for acceptance criteria not already covered by the patch request or deferred_checks.
-- scope_rationale is only for a compact supervisor-visible justification when you intentionally choose a broad or full-task worker scope despite the selected worker contract.
 - forbidden_actions is only for task-specific limits beyond normal noninteractive worker behavior.
 - Omit optional fields unless they reduce worker confusion or supervisor output.
 
