@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::OpenCodeConfig;
 
+mod deepseekv4flash;
 mod glm;
 mod minimaxm3;
 mod qwen;
@@ -125,6 +126,7 @@ pub(crate) fn default_worker_model_profiles() -> Vec<WorkerModelProfile> {
         glm::local_flash_profile(),
         glm::openrouter_glm_5_2_profile(),
         minimaxm3::profile(),
+        deepseekv4flash::profile(),
     ]
 }
 

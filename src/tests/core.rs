@@ -840,6 +840,67 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
 }
 
 #[test]
+fn openrouter_deepseek_v4_flash_worker_profile_is_selected_by_alias() {
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(
+        None,
+        Some("openrouter/deepseek/deepseek-v4-flash".to_string()),
+    )
+    .apply_to_config(&mut config)
+    .unwrap();
+
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, "openrouter/deepseek/deepseek-v4-flash");
+    assert_eq!(config.opencode.model_output_token_limit, Some(4_096));
+    assert_eq!(guidance.target_patch_lines, Some(220));
+    assert_eq!(guidance.max_patch_lines, Some(550));
+    assert_eq!(guidance.worker_timeout_seconds(), Some(0));
+    assert_eq!(guidance.opencode_output_token_limit, Some(4_096));
+    assert!(!guidance.auto_followups_enabled());
+    assert!(!guidance.worker_self_review_enabled());
+    assert!(!guidance.forced_context_focus_enabled());
+    assert!(
+        !guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("MiniMax"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("lower-cost OpenRouter worker"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("less output on reasoning"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("worker_turn_shape=patch_request"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("worker_mode=context_focus"))
+    );
+
+    ModelOverrides::new(None, Some("deepseek/deepseek-v4-flash".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+    let guidance = config.worker_supervisor_guidance();
+
+    assert_eq!(guidance.model, "openrouter/deepseek/deepseek-v4-flash");
+    assert_eq!(config.opencode.model_output_token_limit, Some(4_096));
+}
+
+#[test]
 fn stale_config_worker_profile_blocks_are_ignored() {
     let config: MixmodConfig = toml::from_str(
         r#"
