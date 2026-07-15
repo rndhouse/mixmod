@@ -790,6 +790,18 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
             .iter()
             .any(|item| item.contains("one coherent source behavior"))
     );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("cached input is discounted"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("worker_mode=context_focus"))
+    );
 
     ModelOverrides::new(None, Some("minimax/minimax-m3".to_string()))
         .apply_to_config(&mut config)
