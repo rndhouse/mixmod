@@ -345,9 +345,18 @@ pub(crate) fn prepare_default_revision_decision(
     let mut created_internal_baseline = false;
     let previous_patch_source = match worker_decision.patch_decision_kind() {
         PatchDecision::RevisePrevious => {
+            let previous_patch = previous_worker_run_dir.join(PREVIOUS_WORKTREE_PATCH);
+            if !previous_patch.exists() {
+                worker_decision.patch_decision = PatchDecision::ReviseCurrent.as_str().to_string();
+                return Ok(DefaultRevisionPreparation {
+                    worker_decision,
+                    previous_patch_source: previous_worker_run_dir.join(WORKTREE_PATCH),
+                    created_internal_baseline,
+                });
+            }
             restore_previous_patch_checkpoint(root, previous_worker_run_dir)?;
             worker_decision.worker_mode = WorkerMode::ContextFocus.as_str().to_string();
-            previous_worker_run_dir.join(PREVIOUS_WORKTREE_PATCH)
+            previous_patch
         }
         PatchDecision::AcceptCurrentBaseline => {
             let receipt = create_patch_baseline_checkpoint(root, previous_worker_run_dir)?;
@@ -480,6 +489,7 @@ mod tests {
     use super::*;
     use crate::RevisionHandoff;
     use serde_json::json;
+    use tempfile::TempDir;
 
     fn thresholds() -> SupervisorCompactionThresholds {
         SupervisorCompactionThresholds {
@@ -585,5 +595,28 @@ mod tests {
         assert_eq!(outcome.final_verdict, "approve");
         assert_eq!(outcome.final_worker_mode, "supervisor_direct");
         assert_eq!(outcome.final_status, "approved_by_supervisor_direct");
+    }
+
+    #[test]
+    fn revise_previous_without_checkpoint_falls_back_to_current_patch() {
+        let temp = TempDir::new().unwrap();
+        let previous_run = temp.path().join("proposal");
+        fs::create_dir_all(&previous_run).unwrap();
+        fs::write(previous_run.join(WORKTREE_PATCH), b"").unwrap();
+        let mut decision = feedback(json!("continue"));
+        decision.patch_decision = PatchDecision::RevisePrevious.as_str().to_string();
+
+        let preparation =
+            prepare_default_revision_decision(temp.path(), &previous_run, &decision).unwrap();
+
+        assert_eq!(
+            preparation.previous_patch_source,
+            previous_run.join(WORKTREE_PATCH)
+        );
+        assert_eq!(
+            preparation.worker_decision.patch_decision,
+            PatchDecision::ReviseCurrent.as_str()
+        );
+        assert!(!preparation.created_internal_baseline);
     }
 }

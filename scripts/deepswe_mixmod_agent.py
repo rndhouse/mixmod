@@ -586,7 +586,7 @@ except OSError:
 
 summary = {{
     "snapshot_status": "final" if metrics else "in_progress_or_interrupted",
-    "strategy": metrics.get("strategy"),
+    "strategy": metrics.get("strategy") or {self.strategy!r},
     "supervisor_takeover": metrics.get("supervisor_takeover")
         if metrics.get("supervisor_takeover") is not None
         else any(
