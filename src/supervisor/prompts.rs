@@ -2,6 +2,8 @@ use std::collections::BTreeSet;
 
 use crate::*;
 
+const DEBUG_PROFILE_FIT_ENV: &str = "MIXMOD_DEBUG_PROFILE_FIT";
+
 fn supervisor_worktree_policy() -> &'static str {
     "Workspace access is for supervision, not implementation. You may use git/worktree commands such as `git status`, `git diff`, `git show`, `git grep`, and checkpoint-oriented `git restore` or `git apply` when needed to inspect or manage state. Do not author task-solving source edits, rewrite code, or create the solution patch yourself; the worker owns implementation."
 }
@@ -12,12 +14,39 @@ pub(crate) fn supervisor_worker_brief_prompt(
     worker_guidance: &WorkerSupervisorGuidance,
     init_mode: SupervisorInitMode,
 ) -> Result<String> {
+    supervisor_worker_brief_prompt_inner(
+        work_dir,
+        task_path,
+        worker_guidance,
+        init_mode,
+        env_bool(DEBUG_PROFILE_FIT_ENV).unwrap_or(false),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn supervisor_worker_brief_prompt_with_debug_profile_fit(
+    work_dir: &Path,
+    task_path: &Path,
+    worker_guidance: &WorkerSupervisorGuidance,
+    init_mode: SupervisorInitMode,
+) -> Result<String> {
+    supervisor_worker_brief_prompt_inner(work_dir, task_path, worker_guidance, init_mode, true)
+}
+
+fn supervisor_worker_brief_prompt_inner(
+    work_dir: &Path,
+    task_path: &Path,
+    worker_guidance: &WorkerSupervisorGuidance,
+    init_mode: SupervisorInitMode,
+    debug_profile_fit: bool,
+) -> Result<String> {
     let task_value = read_json_file(task_path)?;
     let visible_task = agent_visible_task_value(&task_value);
     let task = serde_json::to_string_pretty(&visible_task)
         .context("failed to serialize agent-visible task for worker brief prompt")?;
     let candidate_files = supervisor_candidate_file_index(work_dir, &visible_task);
     let shape_contract = supervisor_worker_shape_contract(worker_guidance);
+    let profile_fit_debug = supervisor_profile_fit_debug(worker_guidance, debug_profile_fit);
     let worker_guidance = render_worker_guidance(worker_guidance);
     let init_instructions = worker_brief_init_instructions(init_mode);
     let worktree_policy = supervisor_worktree_policy();
@@ -46,6 +75,7 @@ Choose the cheapest reliable next worker handoff:
 - Treat worker profile patch-size guidance as a decomposition budget. If the full task likely crosses that budget or spans independent implementation slices, hand off only the next reviewable slice.
 - If the route is clear, hand off concrete source edits instead of spending GPT output explaining the whole solution.
 - For generated outputs, keep the request bounded to intentional repo outputs. Ask the worker to leave no transient generator/debug/build sidecars and to report broad unrelated generator churn instead of carrying it forward.
+{profile_fit_debug_requirements}
 
 Handoff requirements:
 - Emit minified JSON only; no markdown, no explanation.
@@ -63,7 +93,7 @@ Handoff requirements:
 - Omit optional fields unless they reduce worker confusion or supervisor output.
 
 JSON shape:
-{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["optional concrete edit"],"edit_packet":["optional cost-justified anchor"],"source_snippets":["optional cost-justified snippet"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"stop_condition":"worker-visible turn stop when required","completion_gate":"optional gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["optional concrete edit"],"edit_packet":["optional cost-justified anchor"],"source_snippets":["optional cost-justified snippet"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"stop_condition":"worker-visible turn stop when required","completion_gate":"optional gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"{profile_fit_debug_json_field}}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -76,6 +106,8 @@ Candidate repo files:
 "#,
         work_dir = work_dir.display(),
         worktree_policy = worktree_policy,
+        profile_fit_debug_requirements = profile_fit_debug.requirements,
+        profile_fit_debug_json_field = profile_fit_debug.json_field,
     ))
 }
 
@@ -97,6 +129,31 @@ fn supervisor_candidate_file_index(work_dir: &Path, task: &Value) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+struct ProfileFitDebugPrompt {
+    requirements: &'static str,
+    json_field: &'static str,
+}
+
+fn supervisor_profile_fit_debug(
+    worker_guidance: &WorkerSupervisorGuidance,
+    enabled: bool,
+) -> ProfileFitDebugPrompt {
+    if !enabled || worker_guidance.is_empty() {
+        return ProfileFitDebugPrompt {
+            requirements: "",
+            json_field: "",
+        };
+    }
+    ProfileFitDebugPrompt {
+        requirements: r#"
+Debug profile-fit audit:
+- Include "profile_fit" on expected-patch handoffs.
+- profile_fit must justify why this exact turn_goal, file list, stop_condition, and checks fit the selected worker profile and patch-size guidance.
+- If the justification would be weak, shrink the handoff to the next reviewable slice before emitting JSON."#,
+        json_field: r#","profile_fit":"debug-only: why this handoff fits the selected worker profile""#,
+    }
 }
 
 fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) -> &'static str {

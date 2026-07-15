@@ -246,6 +246,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("optional and sparse"));
     assert!(brief_prompt.contains("stop_condition"));
     assert!(brief_prompt.contains("scope_rationale"));
+    assert!(!brief_prompt.contains("profile_fit"));
 }
 
 #[test]
@@ -286,6 +287,45 @@ fn supervisor_prompts_include_openrouter_glm_worker_guidance() {
     assert!(brief_prompt.contains("toolchain archaeology"));
     assert!(brief_prompt.contains("current accumulated patch"));
     assert!(brief_prompt.contains("end-to-end behavior"));
+}
+
+#[test]
+fn supervisor_worker_brief_debug_profile_fit_adds_audit_field() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(
+        None,
+        Some("openrouter/deepseek/deepseek-v4-flash".to_string()),
+    )
+    .apply_to_config(&mut config)
+    .unwrap();
+    let guidance = config.worker_supervisor_guidance();
+
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Typed variables",
+  "instructions": "Add typed variable declarations.",
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let prompt = supervisor_worker_brief_prompt_with_debug_profile_fit(
+        root,
+        &task,
+        &guidance,
+        SupervisorInitMode::Compact,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Debug profile-fit audit"));
+    assert!(prompt.contains(r#"Include "profile_fit" on expected-patch handoffs"#));
+    assert!(prompt.contains("this exact turn_goal, file list, stop_condition, and checks"));
+    assert!(prompt.contains("shrink the handoff to the next reviewable slice"));
+    assert!(prompt.contains(r#""profile_fit":"debug-only"#));
 }
 
 #[test]
