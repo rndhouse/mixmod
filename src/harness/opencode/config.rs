@@ -429,7 +429,7 @@ exit 1
             serde_json::from_str(&std::fs::read_to_string(opencode_config).unwrap()).unwrap();
         let limit = &value["provider"]["openrouter"]["models"]["minimax/minimax-m3"]["limit"];
         assert_eq!(limit["context"], json!(DEFAULT_SYNTHETIC_CONTEXT_LIMIT));
-        assert_eq!(limit["output"], json!(10_000));
+        assert_eq!(limit["output"], json!(4_096));
     }
 
     #[test]
