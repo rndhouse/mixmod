@@ -240,7 +240,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("repo-level evidence"));
     assert!(brief_prompt.contains("obey the worker shape contract"));
-    assert!(brief_prompt.contains("largest coherent request"));
+    assert!(brief_prompt.contains("smallest reviewable request"));
+    assert!(brief_prompt.contains("broaden only when worker evidence shows"));
     assert!(brief_prompt.contains("Handoff requirements:"));
     assert!(brief_prompt.contains("exact_edits is optional"));
     assert!(brief_prompt.contains("optional and sparse"));
@@ -365,7 +366,11 @@ fn supervisor_prompt_uses_general_patch_request_decomposition_for_deepseek() {
     assert!(prompt.contains("stop after the slice has one useful tracked diff"));
     assert!(prompt.contains("profile's patch-size guidance"));
     assert!(prompt.contains("within the selected worker shape contract"));
+    assert!(prompt.contains("selected worker profile explicitly supports that scope"));
     assert!(prompt.contains("patch-size guidance as a decomposition budget"));
+    assert!(prompt.contains("Do not ask for full-task or multi-phase scope on the first turn"));
+    assert!(prompt.contains("After a successful bounded patch_request"));
+    assert!(prompt.contains("prior worker evidence shows DeepSeek handled it cleanly"));
     assert!(
         !prompt.contains("DeepSeek V4 Flash first expected-patch implementation handoff contract")
     );
