@@ -15,6 +15,7 @@ pub(super) fn profile() -> WorkerModelProfile {
         max_patch_lines: Some(250),
         supervisor_guidance: vec![
             "This worker is cheap and useful for focused source edits, narrow repo inspection, compact command checks, and proposal turns; avoid broad autonomous design work.".to_string(),
+            "When the implementation route is clear, prefer handoff=as_given or a short worker_turn_shape=patch_request over detailed supervisor explanation; omit exact_edits, edit_plan, edit_packet, and source_snippets unless that precision is likely to save more worker confusion than supervisor tokens cost.".to_string(),
             "It can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.".to_string(),
             "It can struggle with large effective context before explicit overflow; avoid asking it to reread many files, and use worker_mode=context_focus after context overflow, stale context, or repeated no-delta turns.".to_string(),
             "Treat the files list as a likely read queue for this worker: it often opens every listed path before editing, so do not list large or generated files unless full-file reading is intended and context-safe.".to_string(),

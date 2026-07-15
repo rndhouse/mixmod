@@ -148,6 +148,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(feedback_prompt.contains("handoff shape"));
     assert!(feedback_prompt.contains("focused source edits"));
     assert!(feedback_prompt.contains("broad autonomous design work"));
+    assert!(feedback_prompt.contains("short worker_turn_shape=patch_request"));
+    assert!(feedback_prompt.contains("supervisor tokens cost"));
     assert!(feedback_prompt.contains("directionally useful but messy parser"));
     assert!(feedback_prompt.contains("generated-code"));
     assert!(feedback_prompt.contains("end-to-end integration across slices"));
@@ -180,6 +182,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Do not emit worker_turn_shape=\"bounded_feature_slice\""));
     assert!(brief_prompt.contains("reasoning before editing"));
     assert!(brief_prompt.contains("large effective context"));
+    assert!(brief_prompt.contains("short worker_turn_shape=patch_request"));
+    assert!(brief_prompt.contains("supervisor tokens cost"));
     assert!(brief_prompt.contains("Worker patch-size guidance"));
     assert!(brief_prompt.contains("worker_turn_shape=planning_probe"));
     assert!(brief_prompt.contains("propose the next request"));

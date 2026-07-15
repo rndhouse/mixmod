@@ -645,6 +645,18 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
         guidance
             .guidance
             .iter()
+            .any(|item| item.contains("short worker_turn_shape=patch_request"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("supervisor tokens cost"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
             .any(|item| item.contains("directionally useful but messy parser"))
     );
     assert!(
