@@ -75,6 +75,7 @@ impl MixmodConfig {
                     enable_auto_followups: profile.enable_auto_followups,
                     enable_worker_self_review: profile.enable_worker_self_review,
                     enable_forced_context_focus: profile.enable_forced_context_focus,
+                    worker_timeout_seconds: profile.worker_timeout_seconds,
                 })
                 .unwrap_or_default(),
             WorkerBackend::Codex => WorkerSupervisorGuidance::default(),

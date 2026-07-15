@@ -22,6 +22,7 @@ pub(super) fn local_flash_profile() -> WorkerModelProfile {
         enable_auto_followups: true,
         enable_worker_self_review: false,
         enable_forced_context_focus: true,
+        worker_timeout_seconds: None,
     }
 }
 
@@ -48,5 +49,6 @@ pub(super) fn openrouter_glm_5_2_profile() -> WorkerModelProfile {
         enable_auto_followups: true,
         enable_worker_self_review: false,
         enable_forced_context_focus: true,
+        worker_timeout_seconds: None,
     }
 }

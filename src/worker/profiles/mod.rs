@@ -25,6 +25,11 @@ pub(crate) struct WorkerModelProfile {
     pub(crate) enable_worker_self_review: bool,
     /// Enable Mixmod forcing fresh worker context after observed overflow.
     pub(crate) enable_forced_context_focus: bool,
+    /// Override the OpenCode total worker-turn timeout in seconds.
+    ///
+    /// A value of `0` disables the total-duration worker timeout while leaving
+    /// idle timeout handling intact.
+    pub(crate) worker_timeout_seconds: Option<u64>,
 }
 
 impl WorkerModelProfile {
@@ -57,6 +62,10 @@ pub(crate) struct WorkerSupervisorGuidance {
     pub(crate) enable_auto_followups: bool,
     pub(crate) enable_worker_self_review: bool,
     pub(crate) enable_forced_context_focus: bool,
+    /// Effective OpenCode total worker-turn timeout override in seconds.
+    ///
+    /// `Some(0)` disables the total timeout for the selected worker profile.
+    pub(crate) worker_timeout_seconds: Option<u64>,
 }
 
 impl WorkerSupervisorGuidance {
@@ -67,6 +76,7 @@ impl WorkerSupervisorGuidance {
             && !self.enable_auto_followups
             && !self.enable_worker_self_review
             && !self.enable_forced_context_focus
+            && self.worker_timeout_seconds.is_none()
     }
 
     pub(crate) fn with_patch_line_overrides(
@@ -96,6 +106,11 @@ impl WorkerSupervisorGuidance {
     /// Return whether Mixmod may force fresh worker context after overflow.
     pub(crate) fn forced_context_focus_enabled(&self) -> bool {
         self.enable_forced_context_focus
+    }
+
+    /// Return the profile's OpenCode worker timeout override, if any.
+    pub(crate) fn worker_timeout_seconds(&self) -> Option<u64> {
+        self.worker_timeout_seconds
     }
 }
 

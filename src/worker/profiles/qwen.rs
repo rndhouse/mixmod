@@ -35,5 +35,6 @@ pub(super) fn profile() -> WorkerModelProfile {
         enable_auto_followups: true,
         enable_worker_self_review: true,
         enable_forced_context_focus: true,
+        worker_timeout_seconds: None,
     }
 }

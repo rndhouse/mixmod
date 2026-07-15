@@ -124,6 +124,7 @@ exit 0
         &request,
         &config,
         &selection,
+        None,
     )
     .unwrap();
 
@@ -133,6 +134,60 @@ exit 0
     let backend_status =
         fs::read_to_string(request.out_dir.join("logs/backend-status.txt")).unwrap();
     assert!(backend_status.contains("--- final sample ---"));
+}
+
+#[test]
+fn worker_timeout_profile_override_can_disable_total_timeout() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let fake_opencode = root.join("fake-opencode.sh");
+    let script = r#"#!/bin/sh
+if [ "$1" = "models" ]; then
+  echo "openrouter/minimax/minimax-m3"
+  exit 0
+fi
+sleep 2
+echo "done"
+exit 0
+"#;
+    atomic_write(&fake_opencode, script.as_bytes()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&fake_opencode).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_opencode, perms).unwrap();
+    }
+
+    let request = test_opencode_request(root);
+    let mut config = OpenCodeConfig::default();
+    config.local_verification.enabled = false;
+    config.heartbeat_seconds = 60;
+    config.worker_timeout_seconds = 1;
+    config.idle_timeout_seconds = 0;
+    let selection = OpenCodeModelSelection {
+        provider: "openrouter".to_string(),
+        model: "minimax/minimax-m3".to_string(),
+        model_arg: "openrouter/minimax/minimax-m3".to_string(),
+        require_local: false,
+    };
+
+    let output = run_with_local_verification(
+        fake_opencode.to_str().unwrap(),
+        &["run".to_string(), "Do the task".to_string()],
+        &request,
+        &config,
+        &selection,
+        Some(0),
+    )
+    .unwrap();
+
+    assert_eq!(output.exit_status, Some(0));
+    assert!(!output.timed_out);
+    let verification: Value =
+        serde_json::from_slice(&fs::read(request.out_dir.join(LOCAL_VERIFICATION_JSON)).unwrap())
+            .unwrap();
+    assert_eq!(verification["worker_timeout_seconds"], json!(0));
 }
 
 #[test]
@@ -289,6 +344,7 @@ exec sleep 30
         &request,
         &config,
         &selection,
+        None,
     )
     .unwrap();
 
@@ -393,6 +449,7 @@ esac
         &request,
         &config,
         &selection,
+        None,
     )
     .unwrap();
     writer.join().unwrap();

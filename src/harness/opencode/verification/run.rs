@@ -50,6 +50,7 @@ pub(crate) fn run_with_local_verification(
     request: &AgentRequest,
     opencode_config: &OpenCodeConfig,
     selection: &OpenCodeModelSelection,
+    worker_timeout_seconds_override: Option<u64>,
 ) -> Result<VerifiedCommandOutput> {
     LocalVerificationRun {
         command,
@@ -57,6 +58,7 @@ pub(crate) fn run_with_local_verification(
         request,
         opencode_config,
         selection,
+        worker_timeout_seconds_override,
     }
     .execute()
 }
@@ -67,6 +69,7 @@ struct LocalVerificationRun<'a> {
     request: &'a AgentRequest,
     opencode_config: &'a OpenCodeConfig,
     selection: &'a OpenCodeModelSelection,
+    worker_timeout_seconds_override: Option<u64>,
 }
 
 impl LocalVerificationRun<'_> {
@@ -77,6 +80,7 @@ impl LocalVerificationRun<'_> {
             request,
             opencode_config,
             selection,
+            worker_timeout_seconds_override,
         } = self;
         let root = &request.root;
         let out_dir = &request.out_dir;
@@ -123,6 +127,7 @@ impl LocalVerificationRun<'_> {
             .unwrap_or(opencode_config.heartbeat_seconds)
             .max(1);
         let worker_timeout_seconds = env_u64("MIXMOD_OPENCODE_WORKER_TIMEOUT_SECONDS")
+            .or(worker_timeout_seconds_override)
             .unwrap_or(opencode_config.worker_timeout_seconds);
         let idle_timeout_seconds = env_u64("MIXMOD_OPENCODE_IDLE_TIMEOUT_SECONDS")
             .unwrap_or(opencode_config.idle_timeout_seconds);
