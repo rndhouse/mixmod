@@ -76,6 +76,7 @@ impl MixmodConfig {
                     enable_worker_self_review: profile.enable_worker_self_review,
                     enable_forced_context_focus: profile.enable_forced_context_focus,
                     worker_timeout_seconds: profile.worker_timeout_seconds,
+                    opencode_output_token_limit: profile.opencode_output_token_limit,
                 })
                 .unwrap_or_default(),
             WorkerBackend::Codex => WorkerSupervisorGuidance::default(),
@@ -264,6 +265,7 @@ pub struct OpenCodeConfig {
     pub heartbeat_seconds: u64,
     pub worker_timeout_seconds: u64,
     pub idle_timeout_seconds: u64,
+    pub model_output_token_limit: Option<u64>,
     pub local_verification: LocalVerificationConfig,
     pub model_aliases: BTreeMap<String, Vec<String>>,
     pub local_providers: Vec<String>,
@@ -300,6 +302,7 @@ impl Default for OpenCodeConfig {
             heartbeat_seconds: 10,
             worker_timeout_seconds: 600,
             idle_timeout_seconds: 300,
+            model_output_token_limit: None,
             local_verification: LocalVerificationConfig::default(),
             model_aliases,
             local_providers: vec![
@@ -385,7 +388,15 @@ fn apply_worker_model_override(config: &mut OpenCodeConfig, value: &str) -> Resu
         }
     }
     config.model = model;
+    apply_worker_profile_opencode_overrides(config);
     Ok(())
+}
+
+fn apply_worker_profile_opencode_overrides(config: &mut OpenCodeConfig) {
+    config.model_output_token_limit = default_worker_model_profiles()
+        .into_iter()
+        .find(|profile| profile.matches_opencode_worker(config))
+        .and_then(|profile| profile.opencode_output_token_limit);
 }
 
 #[derive(Debug, Deserialize, Serialize)]

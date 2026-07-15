@@ -7,6 +7,8 @@ use serde_json::{Map, Value, json};
 
 use crate::{OpenCodeConfig, atomic_write, get_str, is_cloud_opencode_provider, state_layout};
 
+const DEFAULT_SYNTHETIC_CONTEXT_LIMIT: u64 = 262_144;
+
 #[derive(Debug, Clone)]
 pub(crate) struct OpenCodeModelSelection {
     pub(crate) provider: String,
@@ -22,7 +24,7 @@ pub(super) fn resolve_opencode_model(
     require_local_override: bool,
 ) -> Result<OpenCodeModelSelection> {
     let require_local = require_local_override || config.require_local;
-    ensure_selected_local_model_in_opencode_config(root, config)?;
+    ensure_selected_model_in_opencode_config(root, config)?;
     let models = opencode_command(command, root)
         .arg("models")
         .stdout(Stdio::piped())
@@ -79,11 +81,9 @@ pub(super) fn resolve_opencode_model(
     })
 }
 
-fn ensure_selected_local_model_in_opencode_config(
-    root: &Path,
-    config: &OpenCodeConfig,
-) -> Result<()> {
-    if is_cloud_opencode_provider(&config.provider) {
+fn ensure_selected_model_in_opencode_config(root: &Path, config: &OpenCodeConfig) -> Result<()> {
+    let cloud_provider = is_cloud_opencode_provider(&config.provider);
+    if cloud_provider && config.model_output_token_limit.is_none() {
         return Ok(());
     }
     if config.model.trim().is_empty() {
@@ -100,6 +100,13 @@ fn ensure_selected_local_model_in_opencode_config(
     let Some(providers) = value.get_mut("provider").and_then(Value::as_object_mut) else {
         return Ok(());
     };
+    if !providers.contains_key(&config.provider) {
+        if cloud_provider {
+            providers.insert(config.provider.clone(), Value::Object(Map::new()));
+        } else {
+            return Ok(());
+        }
+    }
     let Some(provider) = providers.get_mut(&config.provider) else {
         return Ok(());
     };
@@ -112,19 +119,75 @@ fn ensure_selected_local_model_in_opencode_config(
     let Some(models) = models.as_object_mut() else {
         return Ok(());
     };
-    if models.contains_key(&config.model) {
+    let mut changed = false;
+    if !models.contains_key(&config.model) {
+        models.insert(
+            config.model.clone(),
+            json!({
+                "name": model_display_name(config),
+            }),
+        );
+        changed = true;
+    }
+    if let Some(output_limit) = config.model_output_token_limit {
+        let Some(model) = models.get_mut(&config.model) else {
+            return Ok(());
+        };
+        if !model.is_object() {
+            *model = json!({
+                "name": model_display_name(config),
+            });
+            changed = true;
+        }
+        let Some(model) = model.as_object_mut() else {
+            return Ok(());
+        };
+        if !model.contains_key("name") {
+            model.insert(
+                "name".to_string(),
+                Value::String(model_display_name(config)),
+            );
+            changed = true;
+        }
+        changed |= apply_output_token_limit(model, output_limit);
+    }
+    if !changed {
         return Ok(());
     }
-    models.insert(
-        config.model.clone(),
-        json!({
-            "name": local_model_display_name(&config.model),
-        }),
-    );
     let bytes =
         serde_json::to_vec_pretty(&value).context("failed to serialize updated OpenCode config")?;
     atomic_write(&path, &bytes).with_context(|| format!("failed to update {}", path.display()))?;
     Ok(())
+}
+
+fn apply_output_token_limit(model: &mut Map<String, Value>, output_limit: u64) -> bool {
+    if !model.get("limit").is_some_and(Value::is_object) {
+        model.insert("limit".to_string(), Value::Object(Map::new()));
+    }
+    let Some(limit) = model.get_mut("limit").and_then(Value::as_object_mut) else {
+        return false;
+    };
+    let mut changed = false;
+    if !limit.get("context").is_some_and(Value::is_number) {
+        limit.insert(
+            "context".to_string(),
+            Value::Number(DEFAULT_SYNTHETIC_CONTEXT_LIMIT.into()),
+        );
+        changed = true;
+    }
+    if limit.get("output").and_then(Value::as_u64) != Some(output_limit) {
+        limit.insert("output".to_string(), Value::Number(output_limit.into()));
+        changed = true;
+    }
+    changed
+}
+
+fn model_display_name(config: &OpenCodeConfig) -> String {
+    if is_cloud_opencode_provider(&config.provider) {
+        config.model.clone()
+    } else {
+        local_model_display_name(&config.model)
+    }
 }
 
 fn local_model_display_name(model: &str) -> String {
@@ -332,6 +395,41 @@ exit 1
         assert_eq!(selection.model, "qwen/qwen3.6-flash");
         assert_eq!(selection.model_arg, "openrouter/qwen/qwen3.6-flash");
         assert!(!selection.require_local);
+    }
+
+    #[test]
+    fn openrouter_worker_output_limit_is_written_to_opencode_config_before_lookup() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let opencode_config = opencode_config_path(root);
+        std::fs::create_dir_all(opencode_config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &opencode_config,
+            serde_json::to_string_pretty(&json!({
+                "$schema": "https://opencode.ai/config.json",
+                "provider": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let command = fake_opencode_with_models(root, "openrouter/minimax/minimax-m3");
+        let mut config = MixmodConfig::default();
+        ModelOverrides::new(None, Some("openrouter/minimax/minimax-m3".to_string()))
+            .apply_to_config(&mut config)
+            .unwrap();
+
+        let selection =
+            resolve_opencode_model(command.to_str().unwrap(), root, &config.opencode, false)
+                .unwrap();
+
+        assert_eq!(selection.provider, "openrouter");
+        assert_eq!(selection.model, "minimax/minimax-m3");
+        assert_eq!(selection.model_arg, "openrouter/minimax/minimax-m3");
+        let value: Value =
+            serde_json::from_str(&std::fs::read_to_string(opencode_config).unwrap()).unwrap();
+        let limit = &value["provider"]["openrouter"]["models"]["minimax/minimax-m3"]["limit"];
+        assert_eq!(limit["context"], json!(DEFAULT_SYNTHETIC_CONTEXT_LIMIT));
+        assert_eq!(limit["output"], json!(10_000));
     }
 
     #[test]

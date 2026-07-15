@@ -599,6 +599,7 @@ fn openrouter_worker_override_selects_non_local_worker() {
 
     assert_eq!(config.opencode.provider, "openrouter");
     assert_eq!(config.opencode.model, "qwen/qwen3.6-flash");
+    assert_eq!(config.opencode.model_output_token_limit, None);
     assert!(!config.opencode.require_local);
     assert!(!config.opencode.local_verification.enabled);
     assert!(
@@ -766,9 +767,11 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
     let guidance = config.worker_supervisor_guidance();
 
     assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
+    assert_eq!(config.opencode.model_output_token_limit, Some(10_000));
     assert_eq!(guidance.target_patch_lines, Some(180));
     assert_eq!(guidance.max_patch_lines, Some(450));
     assert_eq!(guidance.worker_timeout_seconds(), Some(0));
+    assert_eq!(guidance.opencode_output_token_limit, Some(10_000));
     assert!(!guidance.auto_followups_enabled());
     assert!(!guidance.worker_self_review_enabled());
     assert!(!guidance.forced_context_focus_enabled());
@@ -828,7 +831,9 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
     let guidance = config.worker_supervisor_guidance();
 
     assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
+    assert_eq!(config.opencode.model_output_token_limit, Some(10_000));
     assert_eq!(guidance.worker_timeout_seconds(), Some(0));
+    assert_eq!(guidance.opencode_output_token_limit, Some(10_000));
     assert!(!guidance.auto_followups_enabled());
     assert!(!guidance.worker_self_review_enabled());
     assert!(!guidance.forced_context_focus_enabled());
