@@ -629,7 +629,7 @@ fn known_openrouter_worker_slug_selects_openrouter_provider() {
 
     assert_eq!(config.opencode.provider, "openrouter");
     assert_eq!(config.opencode.model, "deepseek/deepseek-v4-flash");
-    assert_eq!(config.opencode.model_output_token_limit, Some(512));
+    assert_eq!(config.opencode.model_output_token_limit, None);
     assert!(!config.opencode.require_local);
     assert!(!config.opencode.local_verification.enabled);
     assert!(
@@ -892,11 +892,11 @@ fn openrouter_deepseek_v4_flash_worker_profile_is_selected_by_alias() {
     let guidance = config.worker_supervisor_guidance();
 
     assert_eq!(guidance.model, "openrouter/deepseek/deepseek-v4-flash");
-    assert_eq!(config.opencode.model_output_token_limit, Some(512));
+    assert_eq!(config.opencode.model_output_token_limit, None);
     assert_eq!(guidance.target_patch_lines, Some(220));
     assert_eq!(guidance.max_patch_lines, Some(550));
     assert_eq!(guidance.worker_timeout_seconds(), Some(0));
-    assert_eq!(guidance.opencode_output_token_limit, Some(512));
+    assert_eq!(guidance.opencode_output_token_limit, None);
     assert!(!guidance.auto_followups_enabled());
     assert!(!guidance.worker_self_review_enabled());
     assert!(!guidance.forced_context_focus_enabled());
@@ -946,7 +946,7 @@ fn openrouter_deepseek_v4_flash_worker_profile_is_selected_by_alias() {
     assert_eq!(config.opencode.model, "deepseek/deepseek-v4-flash");
     assert!(!config.opencode.require_local);
     assert_eq!(guidance.model, "openrouter/deepseek/deepseek-v4-flash");
-    assert_eq!(config.opencode.model_output_token_limit, Some(512));
+    assert_eq!(config.opencode.model_output_token_limit, None);
 }
 
 #[test]
