@@ -70,6 +70,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     let loop_summary = root.join(SUPERVISION_LOOP_SUMMARY_JSON);
     let tool_events = root.join(TOOL_EVENTS_JSONL);
     let patch_comparison = root.join(PATCH_COMPARISON);
+    let changes_patch = root.join(CHANGES_PATCH);
     atomic_write(&worker_brief, br#"{"worker_turn_shape":"patch_request"}"#).unwrap();
     atomic_write(
         &metrics,
@@ -83,6 +84,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     .unwrap();
     atomic_write(&tool_events, b"").unwrap();
     atomic_write(&patch_comparison, b"{}").unwrap();
+    atomic_write(&changes_patch, b"").unwrap();
 
     let prompt = supervisor_feedback_prompt(
         root,
@@ -92,6 +94,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
             loop_summary,
             tool_events,
             patch_comparison,
+            changes_patch,
         ],
         "decide",
         &WorkerSupervisorGuidance::default(),
@@ -100,11 +103,16 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
 
     assert!(prompt.contains("Use tool-events.jsonl as command/tool-call evidence"));
     assert!(prompt.contains("Patch request context"));
+    assert!(prompt.contains("No-diff patch-request context"));
     assert!(prompt.contains("Context-pressure context"));
     assert!(prompt.contains("Live-control context"));
     assert!(prompt.contains("Slice-sizing context"));
     assert!(prompt.contains("Patch checkpoint context"));
     assert!(prompt.contains("baseline candidate before the next slice"));
+    assert!(prompt.contains("The latest changes.patch appears empty"));
+    assert!(prompt.contains("prior request as likely too broad or under-anchored"));
+    assert!(prompt.contains("shrink at least one dimension"));
+    assert!(prompt.contains("Do not resend the same broad patch_request"));
     assert!(prompt.contains("apply the session economics policy"));
     assert!(prompt.contains("context_focus-favored signal"));
     assert!(prompt.contains("accept_current_baseline creates an internal checkpoint commit"));
@@ -162,6 +170,11 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(feedback_prompt.contains("Worker shape contract:"));
     assert!(feedback_prompt.contains("Patch-request decomposition contract"));
     assert!(feedback_prompt.contains("one bounded, reviewable implementation slice"));
+    assert!(feedback_prompt.contains("Implementation slice policy"));
+    assert!(feedback_prompt.contains("implementation surface, not only by end-user behavior"));
+    assert!(feedback_prompt.contains("One user-visible behavior can still be too broad"));
+    assert!(feedback_prompt.contains("parser/AST, runtime or environment state"));
+    assert!(feedback_prompt.contains("When generic task coherence conflicts"));
     assert!(feedback_prompt.contains("hand off the next slice only, not the full task"));
     assert!(feedback_prompt.contains("shape the worker request yourself before emitting JSON"));
     assert!(feedback_prompt.contains("Do not copy the list to the worker"));
@@ -200,7 +213,14 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Patch-request decomposition contract"));
     assert!(brief_prompt.contains("use worker_turn_shape=\"patch_request\""));
     assert!(brief_prompt.contains("Choose one bounded, reviewable implementation slice"));
+    assert!(brief_prompt.contains("do not treat one end-to-end behavior as one slice"));
     assert!(brief_prompt.contains("Do not emit worker_turn_shape=\"bounded_feature_slice\""));
+    assert!(brief_prompt.contains("Implementation slice policy"));
+    assert!(brief_prompt.contains("implementation surface, not only by end-user behavior"));
+    assert!(brief_prompt.contains("One user-visible behavior can still be too broad"));
+    assert!(brief_prompt.contains("A request crossing multiple layers is broad"));
+    assert!(brief_prompt.contains("source edits are combined with tests/checks"));
+    assert!(brief_prompt.contains("obey the profile by shrinking"));
     assert!(brief_prompt.contains("patch-size guidance as a decomposition budget"));
     assert!(brief_prompt.contains("one bounded, reviewable implementation slice"));
     assert!(brief_prompt.contains("hand off the next slice only, not the full task"));
@@ -216,7 +236,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("expected around 100 changed lines"));
     assert!(brief_prompt.contains("soft maximum around 250 changed lines"));
     assert!(brief_prompt.contains("worker_turn_shape=patch_request"));
-    assert!(brief_prompt.contains("smallest reviewable source behavior"));
+    assert!(brief_prompt.contains("smallest reviewable implementation slice"));
     assert!(brief_prompt.contains("files list as a likely read queue"));
     assert!(brief_prompt.contains("do not list large or generated files"));
     assert!(brief_prompt.contains("human-authored source edits"));
@@ -239,7 +259,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("worker_mode=context_focus"));
     assert!(brief_prompt.contains("repo-level evidence"));
     assert!(brief_prompt.contains("obey the worker shape contract"));
-    assert!(brief_prompt.contains("smallest reviewable request"));
+    assert!(brief_prompt.contains("smallest reviewable implementation slice"));
     assert!(brief_prompt.contains("broaden only when worker evidence shows"));
     assert!(brief_prompt.contains("Handoff requirements:"));
     assert!(brief_prompt.contains("exact_edits is optional"));
@@ -323,9 +343,14 @@ fn supervisor_worker_brief_debug_profile_fit_adds_audit_field() {
 
     assert!(prompt.contains("Debug profile-fit audit"));
     assert!(prompt.contains(r#"Include "profile_fit" on expected-patch handoffs"#));
+    assert!(prompt.contains("file_count, implementation layers"));
+    assert!(prompt.contains("generated_or_large_files"));
+    assert!(prompt.contains("expected_patch_fit"));
+    assert!(prompt.contains("profile_risk"));
+    assert!(prompt.contains("scope_adjustment"));
     assert!(prompt.contains("this exact turn_goal, file list, stop_condition, and checks"));
     assert!(prompt.contains("shrink the handoff to the next reviewable slice"));
-    assert!(prompt.contains(r#""profile_fit":"debug-only"#));
+    assert!(prompt.contains(r#""profile_fit":{"file_count":0"#));
 }
 
 #[test]
@@ -356,6 +381,7 @@ fn supervisor_prompt_uses_general_patch_request_decomposition_for_minimax() {
     assert!(prompt.contains("Patch-request decomposition contract"));
     assert!(prompt.contains(r#"use worker_turn_shape="patch_request""#));
     assert!(prompt.contains("one bounded, reviewable implementation slice"));
+    assert!(prompt.contains("implementation surface, not only by end-user behavior"));
     assert!(prompt.contains("multiple independent behaviors"));
     assert!(prompt.contains("hand off the next slice only, not the full task"));
     assert!(prompt.contains("worker-visible stop_condition"));
@@ -396,7 +422,8 @@ fn supervisor_prompt_uses_general_patch_request_decomposition_for_deepseek() {
     assert!(prompt.contains("Patch-request decomposition contract"));
     assert!(prompt.contains(r#"use worker_turn_shape="patch_request""#));
     assert!(prompt.contains("one bounded, reviewable implementation slice"));
-    assert!(prompt.contains("independent behaviors, layers, generated outputs"));
+    assert!(prompt.contains("do not treat one end-to-end behavior as one slice"));
+    assert!(prompt.contains("independent behaviors, parser/AST"));
     assert!(prompt.contains("verification steps"));
     assert!(prompt.contains("likely exceeds the worker patch budget"));
     assert!(prompt.contains("decompose it yourself before emitting JSON"));

@@ -13,7 +13,7 @@ pub(super) fn local_flash_profile() -> WorkerModelProfile {
         max_patch_lines: Some(400),
         supervisor_guidance: vec![
             "It tends to act readily, but can rewrite or delete too much when asked for broad source changes.".to_string(),
-            "For broad expected-patch tasks, prefer worker_turn_shape=patch_request with one source behavior, one focused file, a bounded goal, optional exact_edits when precision is needed, and no tests before editing.".to_string(),
+            "For broad expected-patch tasks, prefer worker_turn_shape=patch_request with one implementation slice, one focused file, a bounded goal, optional exact_edits when precision is needed, and no tests before editing.".to_string(),
             "For large functions or code-generation paths, include preservation constraints: preserve existing control flow and indentation, do not rewrite the whole function, do not delete or reindent unrelated branches, and edit only the focused block.".to_string(),
             "If generated output changes, watch for unrelated regenerated churn or transient tool sidecars; ask it to leave only intentional tracked outputs in the diff.".to_string(),
             "Prefer worker_mode=continue for revisions so it keeps accumulated file context; use context_focus only when the previous worker context is clearly harmful.".to_string(),

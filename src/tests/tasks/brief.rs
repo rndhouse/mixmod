@@ -97,7 +97,7 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("stop_condition"));
     assert!(prompt.contains("completion_gate"));
     assert!(prompt.contains("obey the worker shape contract"));
-    assert!(prompt.contains("smallest reviewable request"));
+    assert!(prompt.contains("smallest reviewable implementation slice"));
     assert!(prompt.contains("broaden only when worker evidence shows"));
     assert!(prompt.contains("If the route is clear"));
     assert!(prompt.contains("concrete source edits"));

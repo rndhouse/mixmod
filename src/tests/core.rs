@@ -847,7 +847,7 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("one coherent source behavior"))
+            .any(|item| item.contains("one coherent implementation slice"))
     );
     assert!(
         guidance

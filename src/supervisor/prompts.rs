@@ -50,6 +50,7 @@ fn supervisor_worker_brief_prompt_inner(
     let worker_guidance = render_worker_guidance(worker_guidance);
     let init_instructions = worker_brief_init_instructions(init_mode);
     let worktree_policy = supervisor_worktree_policy();
+    let slice_sizing_policy = supervisor_implementation_slice_policy();
     Ok(format!(
         r#"You are the Mixmod supervisor for a local worker.
 
@@ -66,12 +67,14 @@ Worker profile:
 Worker shape contract:
 {shape_contract}
 
+{slice_sizing_policy}
+
 Choose the cheapest reliable next worker handoff:
 - Use {{"handoff":"as_given"}} only when the original task already gives enough files, behavior, and checks; still include worker_turn_shape and related boundary fields when the selected worker shape contract requires them.
 - Use "guided" or "focused" for normal implementation work.
 - Use worker_turn_shape="planning_probe" with expect_patch=false only when a short worker investigation can save supervisor output or avoid a bad implementation handoff. Ask for a compact proposal, not edits.
 - For expected-patch implementation handoffs, obey the worker shape contract before choosing field detail.
-- Choose the smallest reviewable request that makes meaningful progress within the selected worker shape contract. Do not split into trivial mechanical steps; broaden only when worker evidence shows the selected profile can handle that source area cleanly and the broader request still fits the patch-size guidance.
+- Choose the smallest reviewable implementation slice that makes meaningful progress within the selected worker shape contract. Do not split into trivial mechanical steps; broaden only when worker evidence shows the selected profile can handle that implementation surface cleanly and the broader request still fits the patch-size guidance.
 - Treat worker profile patch-size guidance as a decomposition budget. If the full task likely crosses that budget or spans independent implementation slices, hand off only the next reviewable slice.
 - If the route is clear, hand off concrete source edits instead of spending GPT output explaining the whole solution.
 - For generated outputs, keep the request bounded to intentional repo outputs. Ask the worker to leave no transient generator/debug/build sidecars and to report broad unrelated generator churn instead of carrying it forward.
@@ -108,6 +111,7 @@ Candidate repo files:
         worktree_policy = worktree_policy,
         profile_fit_debug_requirements = profile_fit_debug.requirements,
         profile_fit_debug_json_field = profile_fit_debug.json_field,
+        slice_sizing_policy = slice_sizing_policy,
     ))
 }
 
@@ -150,10 +154,18 @@ fn supervisor_profile_fit_debug(
         requirements: r#"
 Debug profile-fit audit:
 - Include "profile_fit" on expected-patch handoffs.
-- profile_fit must justify why this exact turn_goal, file list, stop_condition, and checks fit the selected worker profile and patch-size guidance.
+- profile_fit must name file_count, implementation layers, generated_or_large_files, expected_patch_fit, profile_risk, and scope_adjustment for this exact turn_goal, file list, stop_condition, and checks.
 - If the justification would be weak, shrink the handoff to the next reviewable slice before emitting JSON."#,
-        json_field: r#","profile_fit":"debug-only: why this handoff fits the selected worker profile""#,
+        json_field: r#","profile_fit":{"file_count":0,"layers":["debug-only"],"generated_or_large_files":false,"expected_patch_fit":"debug-only","profile_risk":"debug-only","scope_adjustment":"debug-only"}"#,
     }
+}
+
+fn supervisor_implementation_slice_policy() -> &'static str {
+    r#"Implementation slice policy:
+- Size worker requests by implementation surface, not only by end-user behavior. One user-visible behavior can still be too broad for one worker turn.
+- Treat parser/AST, runtime or environment state, executor/VM, API surface, tests or verification, generated outputs, and migration-style updates as separate layers. A request crossing multiple layers is broad unless prior worker evidence and the selected profile's patch-size guidance support combining them.
+- Shrink before handoff when the file list is large, files span subsystems, generated or large files are included, source edits are combined with tests/checks, the route requires broad repo inspection, or anchors are unclear.
+- When generic task coherence conflicts with selected worker profile guidance, obey the profile by shrinking files, layers, checks, or anchors until the request fits."#
 }
 
 fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) -> &'static str {
@@ -169,7 +181,7 @@ fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) 
         .iter()
         .any(|item| item.contains("worker_turn_shape=patch_request"))
     {
-        return r#"Patch-request decomposition contract: for expected-patch implementation handoffs, use worker_turn_shape="patch_request". Choose one bounded, reviewable implementation slice expected to fit the worker patch-size guidance. When the overall task spans multiple independent behaviors, layers, generated outputs, verification steps, or likely exceeds the worker patch budget, decompose it yourself before emitting JSON: hand off the next slice only, not the full task. Use concrete file paths for that slice, normally a small authored-source set; include generated or large files only when they are part of that slice and name the command or boundary. Include a worker-visible stop_condition that tells the worker to stop after the slice has one useful tracked diff and return for supervisor review. Do not use broad or full-task patch_request scope unless the selected worker profile explicitly supports that scope; when it does, include scope_rationale explaining why the request remains within the profile's patch-size guidance, known file boundary, and acceptable worker-session risk. Do not emit worker_turn_shape="bounded_feature_slice" or "default" for expected-patch work. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
+        return r#"Patch-request decomposition contract: for expected-patch implementation handoffs, use worker_turn_shape="patch_request". Choose one bounded, reviewable implementation slice expected to fit the worker patch-size guidance; do not treat one end-to-end behavior as one slice when it crosses implementation layers. When the overall task spans multiple independent behaviors, parser/AST, runtime or environment state, executor/VM, API surface, generated outputs, verification steps, or likely exceeds the worker patch budget, decompose it yourself before emitting JSON: hand off the next slice only, not the full task. Use concrete file paths for that slice, normally a small authored-source set; include generated or large files only when they are part of that slice and name the command or boundary. Include a worker-visible stop_condition that tells the worker to stop after the slice has one useful tracked diff and return for supervisor review. Do not use broad or full-task patch_request scope unless the selected worker profile explicitly supports that scope; when it does, include scope_rationale explaining why the request remains within the profile's patch-size guidance, known file boundary, and acceptable worker-session risk. Do not emit worker_turn_shape="bounded_feature_slice" or "default" for expected-patch work. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
     }
     "No worker-specific default shape is selected. Choose one shape deliberately: planning_probe for no-patch investigation, patch_request for a focused edit, bounded_feature_slice for a coherent larger feature chunk, or default only when the task is already simple."
 }
@@ -215,6 +227,7 @@ pub(crate) fn supervisor_feedback_prompt(
     let session_context_economics = supervisor_feedback_session_context_economics();
     let worker_guidance = render_worker_guidance(worker_guidance);
     let worktree_policy = supervisor_worktree_policy();
+    let slice_sizing_policy = supervisor_implementation_slice_policy();
     Ok(format!(
         r#"You are a terse supervisor reviewing a local worker.
 {worktree_policy}
@@ -225,6 +238,8 @@ For ordinary worker-turn review, start with task context, compact metadata, and 
 {worker_guidance}
 Worker shape contract:
 {shape_contract}
+
+{slice_sizing_policy}
 
 {session_context_economics}
 
@@ -241,6 +256,7 @@ Artifact index:
 "#,
         work_dir = work_dir.display(),
         worktree_policy = worktree_policy,
+        slice_sizing_policy = slice_sizing_policy,
     ))
 }
 
@@ -279,6 +295,7 @@ pub(crate) fn supervisor_live_control_prompt(
     let snapshot_json = serde_json::to_string_pretty(snapshot)
         .context("failed to serialize live worker snapshot")?;
     let session_context_economics = supervisor_live_session_context_economics();
+    let slice_sizing_policy = supervisor_implementation_slice_policy();
     let worker_guidance = render_worker_guidance(worker_guidance);
     let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
@@ -287,6 +304,7 @@ pub(crate) fn supervisor_live_control_prompt(
 Do not run tests. Do not ask the user for approval.
 {worker_guidance}
 {session_context_economics}
+{slice_sizing_policy}
 
 Return only JSON matching this schema:
 {{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
@@ -299,7 +317,7 @@ Available actions:
 Base the action on the live evidence. Do not assume an intervention is required because a risk signal is present.
 Use new_delta_bytes, stdout_log_path, stderr_log_path, tool_events_path, context_overflow_count, worker_session_token_peak, worker_backend_telemetry, elapsed time, and last output age only as evidence for worker progress, confusion, or blockage.
 If you need detailed stdout, stderr, or tool-call history, inspect stdout_log_path, stderr_log_path, or tool_events_path yourself. Do not pass those artifact paths to the worker.
-If you interrupt, keep message_to_worker bounded to worker_instruction_excerpt, the live evidence, and the selected worker guidance. For patch_request workers, keep any interrupt patch-first: focused repo files, one concrete source behavior, deferred checks, and no broad feature instruction.
+If you interrupt, keep message_to_worker bounded to worker_instruction_excerpt, the live evidence, and the selected worker guidance. For patch_request workers, keep any interrupt patch-first: focused repo files, one concrete implementation slice, deferred checks, and no broad feature instruction.
 If the current worker_instruction_excerpt is a planning_probe and you choose interrupt_context_focus, restate enough of the original task goal, focused files, and planning questions in message_to_worker for a fresh worker session to answer without prior context.
 Do not solve the task yourself by editing source. Your job is process control: decide whether to keep waiting, interrupt, or abort the worker turn.
 The worker can read and edit only the working repo. It cannot read Mixmod task, state, log, or artifact paths.
@@ -315,7 +333,8 @@ Live worker snapshot:
 ```
 "#,
         work_dir = work_dir.display(),
-        worktree_policy = worktree_policy
+        worktree_policy = worktree_policy,
+        slice_sizing_policy = slice_sizing_policy
     ))
 }
 
@@ -325,6 +344,7 @@ struct SupervisorFeedbackPromptSignals {
     worker_turn_shape: Option<String>,
     context_overflow: bool,
     context_pressure: bool,
+    latest_delta_empty: bool,
     supervisor_control_seen: bool,
     patch_request_progress_streak: bool,
 }
@@ -337,10 +357,21 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Patch request context:
 - Treat a first non-empty delta as progress, not proof of completion.
-- If more work is needed, make the next revision one source behavior with a bounded patch goal; include exact_edits only when precision saves supervisor output.
+- If more work is needed, make the next revision one implementation slice with a bounded patch goal; include exact_edits only when precision saves supervisor output.
 - A useful incomplete active diff may be a baseline candidate before the next slice; apply the session economics policy when choosing worker_mode and patch_decision.
 - Otherwise revise from the current worktree and preserve useful existing edits.
 - Put checks in deferred_checks until a non-empty patch exists unless artifacts show the edit already exists."#
+                .to_string(),
+        );
+    }
+
+    if signals.worker_turn_shape.as_deref() == Some("patch_request") && signals.latest_delta_empty {
+        sections.push(
+            r#"No-diff patch-request context:
+- The latest changes.patch appears empty.
+- If worker artifacts show broad reading, generated-file inspection, tests-before-edit, invalid or unavailable tool churn, or no clear external blocker, treat the prior request as likely too broad or under-anchored.
+- A revise must shrink at least one dimension: fewer files, fewer implementation layers, fewer checks, or more concrete anchors/exact_edits.
+- Do not resend the same broad patch_request just because the worker reported tool problems."#
                 .to_string(),
         );
     }
@@ -349,7 +380,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Bounded-feature context:
 - Treat a useful incomplete patch as progress.
-- If more work is needed, ask for the next coherent behavior path rather than one mechanical edit.
+- If more work is needed, ask for the next coherent implementation path rather than one mechanical edit.
 - A bounded revision may include related source, API, and focused check work when those edits belong together."#
                 .to_string(),
         );
@@ -379,7 +410,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Slice-sizing context:
 - Multiple recent patch-request turns produced non-empty deltas without context overflow.
-- If the current source state is coherent but incomplete, the next patch_request may cover one larger anchored source behavior.
+- If the current source state is coherent but incomplete, the next patch_request may cover one larger anchored implementation slice.
 - Keep the selected worker profile's preferred shape unless the profile explicitly supports broadening."#
                 .to_string(),
         );
@@ -446,6 +477,11 @@ fn supervisor_feedback_prompt_signals(
             SUPERVISION_LOOP_SUMMARY_JSON => signals.update_from_loop_summary(path),
             WORKER_BRIEF_JSON => signals.update_from_worker_brief(path),
             _ => {}
+        }
+        if name == CHANGES_PATCH {
+            signals.latest_delta_empty |= fs::metadata(path)
+                .map(|metadata| metadata.len() == 0)
+                .unwrap_or(false);
         }
     }
     signals
@@ -581,7 +617,7 @@ fn render_worker_guidance(worker_guidance: &WorkerSupervisorGuidance) -> String 
         rendered.push_str(&target);
         rendered.push_str(" changed lines, with a soft maximum around ");
         rendered.push_str(&max);
-        rendered.push_str(" changed lines. This is supervisor planning guidance only, not a Mixmod gate; choose a coherent slice expected to fit it and intentionally exceed it only when that saves a useful worker turn.\n");
+        rendered.push_str(" changed lines. This is supervisor planning guidance only, not a Mixmod gate; choose an implementation slice expected to fit it and intentionally exceed it only when the selected profile and prior worker evidence justify the larger turn.\n");
     }
     for item in &worker_guidance.guidance {
         rendered.push_str("- ");
