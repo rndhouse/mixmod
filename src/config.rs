@@ -107,10 +107,40 @@ impl SupervisorInitMode {
     }
 }
 
+/// Default-strategy orchestration mode.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum DefaultStrategyMode {
+    /// Keep the supervisor in review/planning mode and delegate edits to workers.
+    #[default]
+    #[value(name = "supervised-worker")]
+    SupervisedWorker,
+    /// Use workers for baseline progress, then allow supervisor direct finish.
+    #[value(name = "worker-bootstrap")]
+    WorkerBootstrap,
+}
+
+impl DefaultStrategyMode {
+    /// Stable configuration and CLI label for this mode.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SupervisedWorker => "supervised-worker",
+            Self::WorkerBootstrap => "worker-bootstrap",
+        }
+    }
+
+    /// Return whether this mode permits supervisor-authored solution edits.
+    pub(crate) fn allows_supervisor_takeover(self) -> bool {
+        matches!(self, Self::WorkerBootstrap)
+    }
+}
+
 /// Strategy-level defaults for supervisor/worker orchestration.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct StrategyConfig {
+    /// Default orchestration mode.
+    pub mode: DefaultStrategyMode,
     /// Initial supervisor briefing style.
     pub supervisor_init: SupervisorInitMode,
     /// Periodic supervisor checks while a worker turn is still running.
@@ -122,6 +152,7 @@ pub struct StrategyConfig {
 impl Default for StrategyConfig {
     fn default() -> Self {
         Self {
+            mode: DefaultStrategyMode::SupervisedWorker,
             supervisor_init: SupervisorInitMode::Compact,
             live_supervision: LiveSupervisionConfig::default(),
             worker_self_review: false,

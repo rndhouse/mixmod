@@ -27,3 +27,16 @@ fn feedback_stop_is_preserved_as_codex_stop() {
     assert_eq!(get_str(&feedback, "verdict"), Some("stop"));
     assert_eq!(get_str(&feedback, "action"), Some("stop"));
 }
+
+#[test]
+fn feedback_takeover_is_preserved_as_supervisor_takeover() {
+    let (feedback, verdict) = normalize_feedback_value(json!({
+        "action": "take_over",
+        "takeover_reason": "Remaining work is localized edge-case repair.",
+        "direct_plan": ["Add focused tests", "Fix one runtime branch"]
+    }));
+
+    assert_eq!(verdict, SupervisorVerdict::TakeOver);
+    assert_eq!(get_str(&feedback, "verdict"), Some("take_over"));
+    assert_eq!(get_str(&feedback, "action"), Some("take_over"));
+}

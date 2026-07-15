@@ -6,11 +6,12 @@ use anyhow::{Result, anyhow};
 
 use crate::create_patch_baseline_checkpoint;
 use crate::{
-    BASELINE_ACTIVE_PATCH, LiveSupervisorAdvisor, METRICS_JSON, PREVIOUS_WORKTREE_PATCH,
-    PatchDecision, SUPERVISOR_CONTROL_LOG, SupervisorAdvisor, SupervisorBriefTurn,
-    SupervisorCompactionTurn, SupervisorContextTelemetry, SupervisorFeedbackTurn,
-    SupervisorVerdict, WORKTREE_PATCH, WorkerMode, append_patch_checkpoint_artifacts, env_bool,
-    env_u64, get_str, restore_previous_patch_checkpoint, supervisor_review_artifact_paths,
+    BASELINE_ACTIVE_PATCH, DefaultStrategyMode, LiveSupervisorAdvisor, METRICS_JSON,
+    PREVIOUS_WORKTREE_PATCH, PatchDecision, SUPERVISOR_CONTROL_LOG, SupervisorAdvisor,
+    SupervisorBriefTurn, SupervisorCompactionTurn, SupervisorContextTelemetry,
+    SupervisorDirectTurn, SupervisorFeedbackTurn, SupervisorVerdict, WORKTREE_PATCH, WorkerMode,
+    append_patch_checkpoint_artifacts, env_bool, env_u64, get_str,
+    restore_previous_patch_checkpoint, supervisor_review_artifact_paths,
 };
 
 /// Normalized terminal outcome fields shared by default-strategy metrics.
@@ -394,14 +395,40 @@ pub(crate) fn default_review_label(decision_index: u64) -> String {
     }
 }
 
-/// Build the final metrics outcome for a default-strategy run.
-pub(crate) fn default_strategy_outcome(
+/// Return the per-strategy instruction for a supervisor review turn.
+pub(crate) fn default_strategy_review_instruction(strategy: DefaultStrategyMode) -> &'static str {
+    match strategy {
+        DefaultStrategyMode::SupervisedWorker => {
+            "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not author task-solving source changes."
+        }
+        DefaultStrategyMode::WorkerBootstrap => {
+            "Decide the next worker-bootstrap action. Use approve only when the current source is acceptable. Use revise when the next work is still a substantial separable worker implementation slice. Use take_over when the current patch is a useful baseline and the remaining work is localized edge cases, focused tests, formatting, or debugging that you already understand well enough to finish directly. Use stop only when no useful worker or direct-supervisor path remains. Do not author task-solving source changes during this review turn."
+        }
+    }
+}
+
+/// Build final metrics outcome when supervisor direct finish may be present.
+pub(crate) fn default_strategy_outcome_with_direct_finish(
     final_decision: Option<&SupervisorFeedbackTurn>,
+    direct_finish: Option<&SupervisorDirectTurn>,
     stop_after_first_worker: bool,
     stop_after_first_review: bool,
     stop_after_worker_turns: Option<u64>,
     completed_worker_turns: u64,
 ) -> DefaultStrategyOutcome {
+    if let Some(direct_finish) = direct_finish {
+        let final_status = if direct_finish.action == "approve" {
+            "approved_by_supervisor_direct"
+        } else {
+            "stopped_by_supervisor_direct"
+        };
+        return DefaultStrategyOutcome {
+            final_verdict: direct_finish.action.clone(),
+            final_worker_mode: "supervisor_direct".to_string(),
+            final_status,
+        };
+    }
+
     let final_verdict = final_decision
         .map(|decision| decision.verdict.clone())
         .unwrap_or_else(|| "not_requested".to_string());
@@ -420,6 +447,7 @@ pub(crate) fn default_strategy_outcome(
         match final_decision.map(SupervisorFeedbackTurn::verdict_kind) {
             Some(SupervisorVerdict::Approve) => "approved_by_codex",
             Some(SupervisorVerdict::Stop) => "stopped_by_codex",
+            Some(SupervisorVerdict::TakeOver) => "needs_supervisor_direct",
             _ => "needs_review",
         }
     };
@@ -480,6 +508,8 @@ mod tests {
             revision_handoff: RevisionHandoff::default(),
             focus_files: Vec::new(),
             required_checks: Vec::new(),
+            takeover_reason: None,
+            direct_plan: Vec::new(),
             input_tokens: 0,
             output_tokens: 0,
             reasoning_tokens: 0,
@@ -530,5 +560,30 @@ mod tests {
             deferred.trigger,
             "supervisor_recommended_compact_after_next_worker"
         );
+    }
+
+    #[test]
+    fn direct_finish_outcome_records_supervisor_direct_approval() {
+        let direct = SupervisorDirectTurn {
+            record: json!({}),
+            action: "approve".to_string(),
+            input_tokens: 0,
+            output_tokens: 0,
+            reasoning_tokens: 0,
+            total_tokens: 0,
+            cached_input_tokens: 0,
+            input_bytes: 0,
+            output_bytes: 0,
+            thread_id: String::new(),
+            turn_id: String::new(),
+            token_usage_comparable: true,
+        };
+
+        let outcome =
+            default_strategy_outcome_with_direct_finish(None, Some(&direct), false, false, None, 2);
+
+        assert_eq!(outcome.final_verdict, "approve");
+        assert_eq!(outcome.final_worker_mode, "supervisor_direct");
+        assert_eq!(outcome.final_status, "approved_by_supervisor_direct");
     }
 }

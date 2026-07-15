@@ -222,6 +222,7 @@ pub(crate) fn supervisor_feedback_prompt(
     instruction: &str,
     worker_guidance: &WorkerSupervisorGuidance,
     context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
 ) -> Result<String> {
     let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
     let review_context = supervisor_feedback_review_context(artifact_paths);
@@ -232,12 +233,14 @@ pub(crate) fn supervisor_feedback_prompt(
     let worker_guidance = render_worker_guidance(worker_guidance);
     let worktree_policy = supervisor_worktree_policy();
     let slice_sizing_policy = supervisor_implementation_slice_policy();
+    let strategy_policy = supervisor_feedback_strategy_policy(strategy);
+    let action_schema = supervisor_feedback_action_schema(strategy);
     Ok(format!(
         r#"You are a terse supervisor reviewing a local worker.
 {worktree_policy}
 Do not ask the user for approval.
 Inspect the listed artifact files directly before deciding. Do not rely on this prompt as artifact content; it only names where the review evidence lives.
-Treat supervisor input tokens as scarce. Inspect only the artifacts needed for the next decision and stop reading once approve, revise, or stop is clear.
+Treat supervisor input tokens as scarce. Inspect only the artifacts needed for the next decision and stop reading once the next action is clear.
 For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on the full active diff.
 {worker_guidance}
 Worker shape contract:
@@ -247,6 +250,8 @@ Worker shape contract:
 
 {session_context_economics}
 
+{strategy_policy}
+
 Supervisor context telemetry:
 ```json
 {context_telemetry}
@@ -255,7 +260,7 @@ Supervisor context telemetry:
 If you choose revise, shape the worker request yourself before emitting JSON.
 Always include context_recommendation. Use action="compact_now" only at a clean semantic boundary where the next supervisor turn can rely on compacted history plus fresh artifacts. Use action="compact_after_next_worker" when the next worker turn should happen first but the following supervisor review should start from compacted history. Otherwise use action="continue". Mixmod makes the final compaction decision from this recommendation and hard telemetry.
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|accept_current_baseline|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","context_recommendation":{{"action":"continue|compact_now|compact_after_next_worker","reason":"max 20 words"}},"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"stop_condition":"worker-visible turn stop when required","completion_gate":"optional patch gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional worker limits"]}}
+{action_schema}
 Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}
@@ -267,6 +272,98 @@ Artifact index:
         work_dir = work_dir.display(),
         worktree_policy = worktree_policy,
         slice_sizing_policy = slice_sizing_policy,
+        strategy_policy = strategy_policy,
+        action_schema = action_schema,
+    ))
+}
+
+fn supervisor_feedback_strategy_policy(strategy: DefaultStrategyMode) -> &'static str {
+    match strategy {
+        DefaultStrategyMode::SupervisedWorker => {
+            r#"Strategy mode: supervised-worker.
+- The supervisor remains in review/planning mode. Do not use action=take_over.
+- Delegate further implementation, repair, or verification work to the worker when the result is not ready to approve."#
+        }
+        DefaultStrategyMode::WorkerBootstrap => {
+            r#"Strategy mode: worker-bootstrap.
+- Use the worker as much as possible while the next request is a substantial separable implementation slice with a clear file boundary.
+- Choose action=take_over only when the current patch is a useful baseline and the remaining work is localized edge cases, focused tests, formatting, or debugging that you already understand well enough to finish directly.
+- Takeover signals include: you would otherwise ask for small tweaks, semantic edge-case repairs, focused test additions, or verification-driven fixes; recent worker deltas are small; another worker message would mostly restate details already clear from artifacts.
+- Do not take over merely because progress exists, because the worker made one mistake, or because broad implementation work remains separable into a useful worker slice.
+- For take_over, include takeover_reason and direct_plan. Keep direct_plan focused on the exact tests/repairs you will perform after Mixmod compacts the supervisor context."#
+        }
+    }
+}
+
+fn supervisor_feedback_action_schema(strategy: DefaultStrategyMode) -> &'static str {
+    match strategy {
+        DefaultStrategyMode::SupervisedWorker => {
+            r#"{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|accept_current_baseline|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","context_recommendation":{"action":"continue|compact_now|compact_after_next_worker","reason":"max 20 words"},"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"stop_condition":"worker-visible turn stop when required","completion_gate":"optional patch gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional worker limits"]}"#
+        }
+        DefaultStrategyMode::WorkerBootstrap => {
+            r#"{"action":"approve|revise|take_over|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|accept_current_baseline|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","context_recommendation":{"action":"continue|compact_now|compact_after_next_worker","reason":"max 20 words"},"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"stop_condition":"worker-visible turn stop when required","completion_gate":"optional patch gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional worker limits"],"takeover_reason":"required for take_over; max 40 words","direct_plan":["required for take_over; focused direct supervisor edits/checks"]}"#
+        }
+    }
+}
+
+pub(crate) fn supervisor_direct_finish_prompt(
+    work_dir: &Path,
+    artifact_paths: &[PathBuf],
+    takeover_decision: &SupervisorFeedbackTurn,
+    context_telemetry: &SupervisorContextTelemetry,
+) -> Result<String> {
+    let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
+    let takeover_feedback = serde_json::to_string_pretty(&takeover_decision.feedback)
+        .context("failed to serialize takeover feedback")?;
+    let direct_plan = if takeover_decision.direct_plan.is_empty() {
+        "- no direct_plan provided; infer the smallest finish plan from artifacts".to_string()
+    } else {
+        takeover_decision
+            .direct_plan
+            .iter()
+            .map(|item| format!("- {}", item.trim()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let takeover_reason = takeover_decision
+        .takeover_reason
+        .as_deref()
+        .unwrap_or("worker-bootstrap takeover selected");
+    let context_telemetry = serde_json::to_string_pretty(&context_telemetry.to_prompt_json())
+        .context("failed to serialize supervisor context telemetry")?;
+    Ok(format!(
+        r#"You are the Mixmod supervisor in worker-bootstrap direct finish mode.
+You may now edit source and test files in the working repo directly. Do not ask the user for approval. Do not commit.
+Do not inspect /solution, verifier internals, or unlisted Mixmod state directories. You may inspect the listed artifacts and the repo source.
+
+Use the worker's current patch as the baseline. Preserve useful worker work. Finish only the localized remaining work you identified at takeover: edge cases, focused tests, formatting, or small semantic repairs. Do not rewrite broad subsystems unless the current patch is clearly unusable.
+
+Before approving, run the smallest relevant checks you can. If checks are too expensive or unavailable, record that explicitly.
+Return minified JSON only:
+{{"action":"approve|stop","summary":"max 60 words","changed_files":[],"checks":["commands run and result"],"risk":"max 30 words"}}
+Use action=approve only when the current source state appears to satisfy the original task. Use action=stop if blocked or inconclusive after direct work.
+
+Takeover reason: {takeover_reason}
+
+Direct plan:
+{direct_plan}
+
+Supervisor context telemetry:
+```json
+{context_telemetry}
+```
+
+Takeover feedback:
+```json
+{takeover_feedback}
+```
+
+Working repo: {work_dir}
+
+Artifact index:
+{artifact_index}
+"#,
+        work_dir = work_dir.display(),
     ))
 }
 
@@ -275,6 +372,7 @@ pub(crate) fn supervisor_feedback_approval_consistency_repair_prompt(
     artifact_paths: &[PathBuf],
     worker_guidance: &WorkerSupervisorGuidance,
     context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
     previous_feedback: &Value,
     rejection_reason: &str,
 ) -> Result<String> {
@@ -301,6 +399,7 @@ Do not approve while listing checks that still need to run. Do not solve by auth
         &instruction,
         worker_guidance,
         context_telemetry,
+        strategy,
     )
 }
 

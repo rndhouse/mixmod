@@ -10,6 +10,8 @@ pub(crate) struct DefaultStrategyOptions {
     pub(crate) model_overrides: ModelOverrides,
     /// Optional override for the first supervisor handoff mode.
     pub(crate) supervisor_init: Option<SupervisorInitMode>,
+    /// Optional override for the default-strategy orchestration mode.
+    pub(crate) strategy: Option<DefaultStrategyMode>,
     /// Stop after the proposal worker run and leave artifacts for inspection.
     pub(crate) stop_after_first_worker: bool,
     /// Stop after the first supervisor review and leave artifacts for inspection.
@@ -77,6 +79,7 @@ impl DefaultStrategyRun<'_> {
         let supervisor_init = options
             .supervisor_init
             .unwrap_or(config.strategy.supervisor_init);
+        let strategy = options.strategy.unwrap_or(config.strategy.mode);
         let live_supervision = config.strategy.live_supervision.clone();
         let worker_guidance = config
             .worker_supervisor_guidance()
@@ -165,6 +168,8 @@ impl DefaultStrategyRun<'_> {
         let mut supervisor_context = SupervisorCompactionState::default();
         supervisor_context.record_brief(&worker_brief);
         let mut supervisor_compactions = Vec::new();
+        let mut supervisor_takeover_decision = None;
+        let mut supervisor_direct_finish = None;
         let mut final_decision = None;
         if !should_stop_before_next_review(&options, opencode_calls) {
             loop {
@@ -212,9 +217,10 @@ impl DefaultStrategyRun<'_> {
                             &out_dir,
                             &label,
                             &artifact_paths,
-                            "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not author task-solving source changes.",
+                            default_strategy_review_instruction(strategy),
                             &worker_guidance,
                             &context_telemetry,
+                            strategy,
                         )?
                     };
                     supervisor_samples.push(decision.usage_sample());
@@ -233,7 +239,63 @@ impl DefaultStrategyRun<'_> {
                 }
                 append_jsonl(&feedback_path, &decision.feedback)?;
 
-                if decision.verdict_kind().is_terminal() {
+                if decision.verdict_kind() == SupervisorVerdict::TakeOver
+                    && strategy.allows_supervisor_takeover()
+                {
+                    let takeover_decision = decision.clone();
+                    let preparation =
+                        prepare_default_revision_decision(root, &final_out, &takeover_decision)?;
+                    if preparation.created_internal_baseline {
+                        internal_patch_baselines += 1;
+                    }
+                    supervisor_takeover_decision = Some(takeover_decision.feedback.clone());
+                    let artifact_paths = default_strategy_review_artifacts(&out_dir, &final_out)?;
+                    let context_telemetry = supervisor_context.telemetry(&artifact_paths);
+                    if context_telemetry.compaction_enabled {
+                        let compact = {
+                            let mut supervisor_session =
+                                supervisor_session.lock().map_err(|_| {
+                                    anyhow!("supervisor Codex session lock was poisoned")
+                                })?;
+                            run_supervisor_compaction(
+                                &mut supervisor_session,
+                                &out_dir,
+                                &format!("supervisor-compact-before-takeover-{decision_index}"),
+                                "worker_bootstrap_takeover",
+                                &json!({
+                                    "action": "compact_now",
+                                    "reason": "worker-bootstrap supervisor takeover"
+                                }),
+                                &context_telemetry,
+                            )?
+                        };
+                        append_jsonl(&feedback_path, &compact.record)?;
+                        supervisor_samples.push(compact.usage_sample());
+                        supervisor_context.record_compaction(&compact);
+                        supervisor_compactions.push(compact.record.clone());
+                    }
+                    let artifact_paths = default_strategy_review_artifacts(&out_dir, &final_out)?;
+                    let context_telemetry = supervisor_context.telemetry(&artifact_paths);
+                    let direct = {
+                        let mut supervisor_session = supervisor_session
+                            .lock()
+                            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
+                        run_supervisor_direct_finish_turn(
+                            &mut supervisor_session,
+                            root,
+                            &out_dir,
+                            &format!("supervisor-direct-finish-{decision_index}"),
+                            &artifact_paths,
+                            &takeover_decision,
+                            &context_telemetry,
+                        )?
+                    };
+                    append_jsonl(&feedback_path, &direct.record)?;
+                    supervisor_samples.push(direct.usage_sample());
+                    supervisor_direct_finish = Some(direct);
+                    final_decision = Some(takeover_decision);
+                    break;
+                } else if decision.verdict_kind().is_terminal() {
                     final_decision = Some(decision);
                     break;
                 } else {
@@ -338,8 +400,9 @@ impl DefaultStrategyRun<'_> {
         }
         let supervisor_usage = aggregate_supervisor_usage(&supervisor_samples);
         let worker_summary = WorkerMetricsSummary::from_metrics(&worker_metrics);
-        let outcome = default_strategy_outcome(
+        let outcome = default_strategy_outcome_with_direct_finish(
             final_decision.as_ref(),
+            supervisor_direct_finish.as_ref(),
             options.stop_after_first_worker,
             options.stop_after_first_review,
             options.stop_after_worker_turns,
@@ -347,12 +410,31 @@ impl DefaultStrategyRun<'_> {
         );
         let supervisor_token_usage =
             supervisor_token_usage_labels(supervisor_usage.token_usage_comparable);
+        let strategy_phases = if supervisor_direct_finish.is_some() {
+            json!([
+                "codex_worker_brief",
+                "codex_worker_decision_loop",
+                "codex_supervisor_direct_finish"
+            ])
+        } else {
+            json!(["codex_worker_brief", "codex_worker_decision_loop"])
+        };
+        let strategy_note = if strategy.allows_supervisor_takeover() {
+            "In worker-bootstrap mode, the supervisor may choose take_over when the worker has produced a useful baseline and the remaining work is localized direct-finish work."
+        } else {
+            "The supervisor controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy."
+        };
+        let supervisor_direct_finish_record = supervisor_direct_finish
+            .as_ref()
+            .map(|turn| turn.record.clone())
+            .unwrap_or(Value::Null);
         let worker_run_dirs = worker_run_dirs
             .iter()
             .map(|dir| display_path(root, dir))
             .collect::<Vec<_>>();
         let metrics = json!({
             "kind": "mixmod-default-strategy",
+            "strategy": strategy.as_str(),
             "recorded_at": Utc::now().to_rfc3339(),
             "start_timestamp": run_start.to_rfc3339(),
             "end_timestamp": Utc::now().to_rfc3339(),
@@ -384,8 +466,11 @@ impl DefaultStrategyRun<'_> {
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
             "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
-            "strategy_phases": ["codex_worker_brief", "codex_worker_decision_loop"],
+            "strategy_phases": strategy_phases,
             "codex_loop_exit": outcome.final_verdict.clone(),
+            "supervisor_takeover": supervisor_takeover_decision.is_some(),
+            "supervisor_takeover_decision": supervisor_takeover_decision,
+            "supervisor_direct_finish": supervisor_direct_finish_record,
             "final_worker_mode": outcome.final_worker_mode,
             "worker_modes": worker_modes,
             "patch_checkpoints": patch_checkpoint_metrics,
@@ -463,7 +548,7 @@ impl DefaultStrategyRun<'_> {
             "needs_worker_revision": false,
             "notes": [
                 "Default strategy reused one supervisor app-server thread across worker handoff, review, repair, compaction, and live-control turns.",
-                "The supervisor controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
+                strategy_note,
                 "The worker backend was selected through the Mixmod worker settings."
             ]
         });

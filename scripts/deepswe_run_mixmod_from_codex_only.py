@@ -150,6 +150,9 @@ def mixmod_summary_fields(reward_path: Path) -> dict[str, Any]:
         "final_status",
         "final_verdict",
         "worker_session_token_peak",
+        "strategy",
+        "supervisor_takeover",
+        "supervisor_compaction_count",
     ]
     values = {
         key: summary[key]
@@ -297,6 +300,8 @@ def build_pier_command(
             f"mixmod_timeout_sec={args.mixmod_timeout_seconds}",
         ]
     )
+    if args.strategy:
+        cmd.extend(["--agent-kwarg", f"strategy={args.strategy}"])
     if args.worker_target_patch_lines is not None:
         cmd.extend(
             [
@@ -356,6 +361,11 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--supervisor-model", default=DEFAULT_SUPERVISOR_MODEL)
     parser.add_argument("--worker-model", default=DEFAULT_WORKER_MODEL)
+    parser.add_argument(
+        "--strategy",
+        choices=["supervised-worker", "worker-bootstrap"],
+        default=None,
+    )
     parser.add_argument(
         "--supervisor-init",
         choices=["compact", "investigate"],
@@ -439,6 +449,7 @@ def main() -> int:
         "supervisor_model": args.supervisor_model,
         "worker_model": args.worker_model,
         "worker_backend": "opencode",
+        "strategy": args.strategy,
         "supervisor_init": args.supervisor_init,
         "stop_after_first_worker": args.stop_after_first_worker,
         "stop_after_first_review": args.stop_after_first_review,

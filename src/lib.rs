@@ -65,13 +65,15 @@ pub(crate) use checkpoint::{
 pub use cli::{Cli, Commands, ControlCommand, DelegationMode, ExperimentCommand};
 pub(crate) use config::is_cloud_opencode_provider;
 pub use config::{
-    LiveSupervisionConfig, LocalVerificationConfig, MixmodConfig, ModelOverrides, OpenCodeConfig,
-    StrategyConfig, SupervisorConfig, SupervisorInitMode, WorkerBackend, WorkerConfig,
+    DefaultStrategyMode, LiveSupervisionConfig, LocalVerificationConfig, MixmodConfig,
+    ModelOverrides, OpenCodeConfig, StrategyConfig, SupervisorConfig, SupervisorInitMode,
+    WorkerBackend, WorkerConfig,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub(crate) use default_strategy_support::{
     SupervisorCompactionState, default_review_label, default_revision_resume_session_id,
-    default_strategy_outcome, default_strategy_review_artifacts, live_supervisor_advisor,
+    default_strategy_outcome_with_direct_finish, default_strategy_review_artifacts,
+    default_strategy_review_instruction, live_supervisor_advisor,
     prepare_default_revision_decision, supervisor_token_usage_labels,
 };
 pub use diff::patch_stats;
@@ -135,9 +137,9 @@ pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, PatchDecision, RevisionHandoff, SupervisorBriefTurn,
     SupervisorCodexSession, SupervisorCompactionTurn, SupervisorContextTelemetry,
-    SupervisorFeedbackTurn, SupervisorVerdict, WorkerMode, aggregate_supervisor_usage,
-    normalize_worker_mode, run_supervisor_brief_turn, run_supervisor_compaction,
-    run_supervisor_feedback_turn,
+    SupervisorDirectTurn, SupervisorFeedbackTurn, SupervisorVerdict, WorkerMode,
+    aggregate_supervisor_usage, normalize_worker_mode, run_supervisor_brief_turn,
+    run_supervisor_compaction, run_supervisor_direct_finish_turn, run_supervisor_feedback_turn,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{
@@ -191,6 +193,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
             supervisor_model,
             worker_model,
             worker_backend,
+            strategy,
             supervisor_init,
             stop_after_first_worker,
             stop_after_first_review,
@@ -212,6 +215,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 DefaultStrategyOptions {
                     resume_session,
                     model_overrides,
+                    strategy,
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
@@ -316,6 +320,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     supervisor_model,
                     worker_model,
                     worker_backend,
+                    strategy,
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
@@ -331,6 +336,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                             require_local,
                             model_overrides: ModelOverrides::new(supervisor_model, worker_model)
                                 .with_worker_backend(worker_backend),
+                            strategy,
                             supervisor_init,
                             stop_after_first_worker,
                             stop_after_first_review,
@@ -346,6 +352,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                     supervisor_model,
                     worker_model,
                     worker_backend,
+                    strategy,
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
@@ -361,6 +368,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                             require_local,
                             model_overrides: ModelOverrides::new(supervisor_model, worker_model)
                                 .with_worker_backend(worker_backend),
+                            strategy,
                             supervisor_init,
                             stop_after_first_worker,
                             stop_after_first_review,

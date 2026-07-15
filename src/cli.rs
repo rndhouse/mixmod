@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
-use crate::config::{SupervisorInitMode, WorkerBackend};
+use crate::config::{DefaultStrategyMode, SupervisorInitMode, WorkerBackend};
 
 #[derive(Debug, Parser)]
 #[command(name = "mixmod")]
@@ -42,6 +42,9 @@ pub enum Commands {
         /// Worker backend used for repository-editing turns.
         #[arg(long, value_enum)]
         worker_backend: Option<WorkerBackend>,
+        /// Default-strategy orchestration mode.
+        #[arg(long, value_enum)]
+        strategy: Option<DefaultStrategyMode>,
         /// Initial supervisor briefing style.
         #[arg(long, value_enum)]
         supervisor_init: Option<SupervisorInitMode>,
@@ -196,6 +199,9 @@ pub enum ExperimentCommand {
         worker_model: Option<String>,
         #[arg(long, value_enum)]
         worker_backend: Option<WorkerBackend>,
+        /// Default-strategy orchestration mode.
+        #[arg(long, value_enum)]
+        strategy: Option<DefaultStrategyMode>,
         /// Initial supervisor briefing style.
         #[arg(long, value_enum)]
         supervisor_init: Option<SupervisorInitMode>,
@@ -227,6 +233,9 @@ pub enum ExperimentCommand {
         worker_model: Option<String>,
         #[arg(long, value_enum)]
         worker_backend: Option<WorkerBackend>,
+        /// Default-strategy orchestration mode.
+        #[arg(long, value_enum)]
+        strategy: Option<DefaultStrategyMode>,
         /// Initial supervisor briefing style.
         #[arg(long, value_enum)]
         supervisor_init: Option<SupervisorInitMode>,

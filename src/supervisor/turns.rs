@@ -12,12 +12,12 @@ use super::normalize::{
     normalize_worker_mode_kind, parse_feedback_json,
 };
 use super::prompts::{
-    supervisor_feedback_approval_consistency_repair_prompt, supervisor_feedback_prompt,
-    supervisor_worker_brief_prompt,
+    supervisor_direct_finish_prompt, supervisor_feedback_approval_consistency_repair_prompt,
+    supervisor_feedback_prompt, supervisor_worker_brief_prompt,
 };
 use super::types::{
     RevisionHandoff, SupervisorBriefTurn, SupervisorCompactionTurn, SupervisorContextTelemetry,
-    SupervisorFeedbackTurn, SupervisorVerdict,
+    SupervisorDirectTurn, SupervisorFeedbackTurn, SupervisorVerdict,
 };
 
 pub(crate) fn run_supervisor_brief_turn(
@@ -216,6 +216,7 @@ pub(crate) fn run_supervisor_feedback_turn(
     instruction: &str,
     worker_guidance: &WorkerSupervisorGuidance,
     context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
 ) -> Result<SupervisorFeedbackTurn> {
     let prompt = supervisor_feedback_prompt(
         work_dir,
@@ -223,6 +224,7 @@ pub(crate) fn run_supervisor_feedback_turn(
         instruction,
         worker_guidance,
         context_telemetry,
+        strategy,
     )?;
     let result = session.run_turn(budgeted_dir, label, &prompt)?;
     let parsed_feedback = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
@@ -256,6 +258,7 @@ pub(crate) fn run_supervisor_feedback_turn(
             artifact_paths,
             worker_guidance,
             context_telemetry,
+            strategy,
             &parsed_feedback,
             &rejection_reason,
         )?;
@@ -335,6 +338,8 @@ pub(crate) fn run_supervisor_feedback_turn(
         revision_handoff,
         focus_files: typed_feedback.focus_files,
         required_checks: typed_feedback.required_checks,
+        takeover_reason: typed_feedback.takeover_reason,
+        direct_plan: typed_feedback.direct_plan,
         feedback: json!({
             "label": label,
             "timestamp": Utc::now().to_rfc3339(),
@@ -368,6 +373,86 @@ pub(crate) fn run_supervisor_feedback_turn(
         token_usage_comparable,
     };
     Ok(turn)
+}
+
+pub(crate) fn run_supervisor_direct_finish_turn(
+    session: &mut SupervisorCodexSession,
+    work_dir: &Path,
+    artifact_dir: &Path,
+    label: &str,
+    artifact_paths: &[PathBuf],
+    takeover_decision: &SupervisorFeedbackTurn,
+    context_telemetry: &SupervisorContextTelemetry,
+) -> Result<SupervisorDirectTurn> {
+    let prompt = supervisor_direct_finish_prompt(
+        work_dir,
+        artifact_paths,
+        takeover_decision,
+        context_telemetry,
+    )?;
+    let result = session.run_turn(artifact_dir, label, &prompt)?;
+    let parsed_decision = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
+        json!({
+            "action": "stop",
+            "summary": truncate_for_report(&result.last_message, 180),
+            "checks": [],
+            "risk": "direct supervisor turn did not return parseable JSON"
+        })
+    });
+    let action = normalize_direct_finish_action(get_str(&parsed_decision, "action"));
+    let mut final_decision = parsed_decision;
+    if let Value::Object(map) = &mut final_decision {
+        map.insert("action".to_string(), json!(action.clone()));
+    }
+    let record = json!({
+        "label": label,
+        "timestamp": Utc::now().to_rfc3339(),
+        "type": "supervisor_direct_finish",
+        "decision": final_decision,
+        "takeover_feedback": takeover_decision.feedback,
+        "codex_exit_status": result.exit_status,
+        "supervisor_model": result.model.clone(),
+        "supervisor_reasoning_effort": result.reasoning_effort.clone(),
+        "supervisor_input_tokens": result.usage.input_tokens,
+        "supervisor_output_tokens": result.usage.output_tokens,
+        "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
+        "supervisor_total_tokens": result.usage.total_tokens,
+        "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
+        "supervisor_token_usage_scope": if result.token_usage_comparable { "turn_group_delta" } else { "incomplete" },
+        "supervisor_token_usage_comparable": result.token_usage_comparable,
+        "input_bytes": result.input_bytes,
+        "output_bytes": result.output_bytes,
+        "auth_copied_then_removed": result.auth_copied_then_removed,
+        "codex_app_server_thread_id": result.thread_id.clone(),
+        "codex_app_server_turn_id": result.turn_id.clone()
+    });
+    Ok(SupervisorDirectTurn {
+        record,
+        action,
+        input_tokens: result.usage.input_tokens,
+        output_tokens: result.usage.output_tokens,
+        reasoning_tokens: result.usage.reasoning_tokens,
+        total_tokens: result.usage.total_tokens,
+        cached_input_tokens: result.usage.cached_input_tokens,
+        input_bytes: result.input_bytes,
+        output_bytes: result.output_bytes,
+        thread_id: result.thread_id,
+        turn_id: result.turn_id,
+        token_usage_comparable: result.token_usage_comparable,
+    })
+}
+
+fn normalize_direct_finish_action(value: Option<&str>) -> String {
+    match value
+        .unwrap_or("stop")
+        .trim()
+        .to_ascii_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "approve" | "approved" | "done" | "success" => "approve".to_string(),
+        _ => "stop".to_string(),
+    }
 }
 
 pub(crate) fn run_supervisor_compaction(

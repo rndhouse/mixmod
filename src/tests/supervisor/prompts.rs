@@ -10,6 +10,7 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
         "decide",
         &WorkerSupervisorGuidance::default(),
         &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::SupervisedWorker,
     )
     .unwrap();
 
@@ -67,6 +68,33 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
 }
 
 #[test]
+fn worker_bootstrap_feedback_prompt_allows_takeover_at_edge_case_phase() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let prompt = supervisor_feedback_prompt(
+        root,
+        &[root.join("missing-report.md")],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+        &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::WorkerBootstrap,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Strategy mode: worker-bootstrap"));
+    assert!(prompt.contains("Use the worker as much as possible"));
+    assert!(prompt.contains("substantial separable implementation slice"));
+    assert!(prompt.contains("Choose action=take_over only when"));
+    assert!(prompt.contains("current patch is a useful baseline"));
+    assert!(prompt.contains("localized edge cases"));
+    assert!(prompt.contains("focused tests"));
+    assert!(prompt.contains("another worker message would mostly restate"));
+    assert!(prompt.contains("\"action\":\"approve|revise|take_over|stop\""));
+    assert!(prompt.contains("\"takeover_reason\""));
+    assert!(prompt.contains("\"direct_plan\""));
+}
+
+#[test]
 fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -104,6 +132,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
         "decide",
         &WorkerSupervisorGuidance::default(),
         &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::SupervisedWorker,
     )
     .unwrap();
 
@@ -148,6 +177,7 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
         "decide",
         &WorkerSupervisorGuidance::default(),
         &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::SupervisedWorker,
     )
     .unwrap();
 
@@ -175,6 +205,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
         "decide",
         &guidance,
         &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::SupervisedWorker,
     )
     .unwrap();
 

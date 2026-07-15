@@ -87,6 +87,10 @@ pub struct SupervisorFeedback {
     pub completion_gate: Option<String>,
     #[serde(default)]
     pub forbidden_actions: Vec<String>,
+    #[serde(default)]
+    pub takeover_reason: Option<String>,
+    #[serde(default)]
+    pub direct_plan: Vec<String>,
 }
 
 impl SupervisorFeedback {

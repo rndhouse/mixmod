@@ -154,6 +154,8 @@ fn worker_context_overflow_forces_next_revision_context_focus() {
         revision_handoff: RevisionHandoff::default(),
         focus_files: vec![],
         required_checks: vec![],
+        takeover_reason: None,
+        direct_plan: Vec::new(),
         input_tokens: 0,
         output_tokens: 0,
         reasoning_tokens: 0,
@@ -310,6 +312,7 @@ fn exec_command_is_public_cli_surface() {
             supervisor_model,
             worker_model,
             worker_backend,
+            strategy,
             supervisor_init,
             stop_after_first_worker,
             stop_after_first_review,
@@ -324,6 +327,7 @@ fn exec_command_is_public_cli_surface() {
             assert!(supervisor_model.is_none());
             assert!(worker_model.is_none());
             assert!(worker_backend.is_none());
+            assert!(strategy.is_none());
             assert!(supervisor_init.is_none());
             assert!(!stop_after_first_worker);
             assert!(!stop_after_first_review);
@@ -424,6 +428,8 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         "gpt-5.5:high",
         "--worker-backend",
         "codex",
+        "--strategy",
+        "worker-bootstrap",
         "--worker-model",
         "gpt-5.4:medium",
         "--supervisor-init",
@@ -442,6 +448,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
             supervisor_model,
             worker_model,
             worker_backend,
+            strategy,
             supervisor_init,
             stop_after_first_worker,
             stop_after_first_review,
@@ -454,6 +461,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         } => {
             assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
             assert_eq!(worker_backend, Some(WorkerBackend::Codex));
+            assert_eq!(strategy, Some(DefaultStrategyMode::WorkerBootstrap));
             assert_eq!(worker_model, Some("gpt-5.4:medium".to_string()));
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
             assert!(!stop_after_first_worker);
@@ -479,6 +487,8 @@ fn experiment_run_default_accepts_model_override_flags() {
         "gpt-5.5:high",
         "--worker-backend",
         "opencode",
+        "--strategy",
+        "worker-bootstrap",
         "--worker-model",
         "openrouter/qwen/qwen3.6-flash",
         "--supervisor-init",
@@ -500,6 +510,7 @@ fn experiment_run_default_accepts_model_override_flags() {
                     supervisor_model,
                     worker_model,
                     worker_backend,
+                    strategy,
                     supervisor_init,
                     stop_after_first_worker,
                     stop_after_first_review,
@@ -512,6 +523,7 @@ fn experiment_run_default_accepts_model_override_flags() {
             assert!(!require_local);
             assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
             assert_eq!(worker_backend, Some(WorkerBackend::OpenCode));
+            assert_eq!(strategy, Some(DefaultStrategyMode::WorkerBootstrap));
             assert_eq!(
                 worker_model,
                 Some("openrouter/qwen/qwen3.6-flash".to_string())
@@ -1040,6 +1052,8 @@ fn supervisor_reuse_metrics_are_derived_from_thread_ids() {
             revision_handoff: RevisionHandoff::default(),
             focus_files: vec![],
             required_checks: vec![],
+            takeover_reason: None,
+            direct_plan: Vec::new(),
             input_tokens: 1,
             output_tokens: 1,
             reasoning_tokens: 0,

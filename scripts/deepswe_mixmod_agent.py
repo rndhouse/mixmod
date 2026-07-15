@@ -76,6 +76,7 @@ class MixmodAgent(BaseInstalledAgent):
         supervisor_model: str = "gpt-5.5:high",
         worker_model: str = "llama.cpp/qwen/qwen3.6-27b",
         worker_backend: str = "opencode",
+        strategy: str | None = None,
         supervisor_init: str = "compact",
         stop_after_first_worker: bool | str = False,
         stop_after_first_review: bool | str = False,
@@ -95,6 +96,7 @@ class MixmodAgent(BaseInstalledAgent):
         self.supervisor_model = supervisor_model
         self.worker_model = worker_model
         self.worker_backend = worker_backend
+        self.strategy = strategy
         self.supervisor_init = supervisor_init
         self.stop_after_first_worker = _truthy(stop_after_first_worker)
         self.stop_after_first_review = _truthy(stop_after_first_review)
@@ -252,10 +254,11 @@ class MixmodAgent(BaseInstalledAgent):
                 self.worker_backend,
                 "--worker-model",
                 self.worker_model,
-                "--supervisor-init",
-                self.supervisor_init,
             ]
         )
+        if self.strategy:
+            run_default_args.extend(["--strategy", self.strategy])
+        run_default_args.extend(["--supervisor-init", self.supervisor_init])
         if self.stop_after_first_worker:
             run_default_args.append("--stop-after-first-worker")
         if self.stop_after_first_review:
@@ -583,6 +586,17 @@ except OSError:
 
 summary = {{
     "snapshot_status": "final" if metrics else "in_progress_or_interrupted",
+    "strategy": metrics.get("strategy"),
+    "supervisor_takeover": metrics.get("supervisor_takeover")
+        if metrics.get("supervisor_takeover") is not None
+        else any(
+            (record.get("feedback") or {{}}).get("action") == "take_over"
+            for record in feedback
+        ),
+    "supervisor_compaction_count": metrics.get("supervisor_compaction_count")
+        if metrics.get("supervisor_compaction_count") is not None
+        else sum(1 for record in feedback if record.get("type") == "supervisor_compaction"),
+    "supervisor_direct_finish": metrics.get("supervisor_direct_finish"),
     "worker_backend": metrics.get("worker_backend") or latest_completed_worker.get("worker_backend"),
     "supervisor_stdout_bytes": file_len(agent_dir / "logs" / "codex.stdout.jsonl"),
     "supervisor_stderr_bytes": file_len(agent_dir / "logs" / "codex.stderr.txt"),
