@@ -163,7 +163,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(feedback_prompt.contains("Patch-request decomposition contract"));
     assert!(feedback_prompt.contains("one bounded, reviewable implementation slice"));
     assert!(feedback_prompt.contains("hand off the next slice only, not the full task"));
-    assert!(feedback_prompt.contains("Mixmod will not repair or reshape the revision"));
+    assert!(feedback_prompt.contains("shape the worker request yourself before emitting JSON"));
     assert!(feedback_prompt.contains("Do not copy the list to the worker"));
     assert!(feedback_prompt.contains("Use relevant bullets as constraints"));
     assert!(feedback_prompt.contains("handoff shape"));
@@ -198,9 +198,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("still include worker_turn_shape and related boundary fields"));
     assert!(brief_prompt.contains("Worker shape contract:"));
     assert!(brief_prompt.contains("Patch-request decomposition contract"));
-    assert!(brief_prompt.contains("Mixmod will not run an automatic repair turn"));
-    assert!(brief_prompt.contains("Mixmod will not repair or reshape a broad handoff"));
     assert!(brief_prompt.contains("use worker_turn_shape=\"patch_request\""));
+    assert!(brief_prompt.contains("Choose one bounded, reviewable implementation slice"));
     assert!(brief_prompt.contains("Do not emit worker_turn_shape=\"bounded_feature_slice\""));
     assert!(brief_prompt.contains("patch-size guidance as a decomposition budget"));
     assert!(brief_prompt.contains("one bounded, reviewable implementation slice"));
