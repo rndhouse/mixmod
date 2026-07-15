@@ -9,6 +9,7 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
         &[root.join("missing-report.md")],
         "decide",
         &WorkerSupervisorGuidance::default(),
+        &SupervisorContextTelemetry::default(),
     )
     .unwrap();
 
@@ -34,6 +35,10 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("Do not author task-solving source edits"));
     assert!(prompt.contains("Do not ask the user for approval."));
     assert!(prompt.contains("Treat supervisor input tokens as scarce"));
+    assert!(prompt.contains("Supervisor context telemetry:"));
+    assert!(prompt.contains("context_recommendation"));
+    assert!(prompt.contains("compact_now"));
+    assert!(prompt.contains("compact_after_next_worker"));
     assert!(prompt.contains("worker_turn_shape=\"planning_probe\""));
     assert!(prompt.contains("After a planning_probe result"));
     assert!(prompt.contains("fresh worker session"));
@@ -98,6 +103,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
         ],
         "decide",
         &WorkerSupervisorGuidance::default(),
+        &SupervisorContextTelemetry::default(),
     )
     .unwrap();
 
@@ -141,6 +147,7 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
         &[report.clone(), patch.clone(), tool_events.clone()],
         "decide",
         &WorkerSupervisorGuidance::default(),
+        &SupervisorContextTelemetry::default(),
     )
     .unwrap();
 
@@ -162,9 +169,14 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let guidance = MixmodConfig::default().worker_supervisor_guidance();
-    let feedback_prompt =
-        supervisor_feedback_prompt(root, &[root.join("missing-report.md")], "decide", &guidance)
-            .unwrap();
+    let feedback_prompt = supervisor_feedback_prompt(
+        root,
+        &[root.join("missing-report.md")],
+        "decide",
+        &guidance,
+        &SupervisorContextTelemetry::default(),
+    )
+    .unwrap();
 
     assert!(feedback_prompt.contains("Supervisor-only worker-model guidance"));
     assert!(feedback_prompt.contains("Worker shape contract:"));

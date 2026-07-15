@@ -28,6 +28,11 @@ impl SupervisorCodexSession {
     ) -> Result<CodexTurnResult> {
         self.server.run_turn(artifact_dir, label, prompt)
     }
+
+    /// Compact the active supervisor app-server thread.
+    pub(crate) fn compact(&mut self, artifact_dir: &Path, label: &str) -> Result<CodexTurnResult> {
+        self.server.compact_thread(artifact_dir, label)
+    }
 }
 
 fn supervisor_codex_sandbox_from_env() -> Result<CodexSandbox> {

@@ -16,7 +16,8 @@ use super::prompts::{
     supervisor_worker_brief_prompt,
 };
 use super::types::{
-    RevisionHandoff, SupervisorBriefTurn, SupervisorFeedbackTurn, SupervisorVerdict,
+    RevisionHandoff, SupervisorBriefTurn, SupervisorCompactionTurn, SupervisorContextTelemetry,
+    SupervisorFeedbackTurn, SupervisorVerdict,
 };
 
 pub(crate) fn run_supervisor_brief_turn(
@@ -214,9 +215,15 @@ pub(crate) fn run_supervisor_feedback_turn(
     artifact_paths: &[PathBuf],
     instruction: &str,
     worker_guidance: &WorkerSupervisorGuidance,
+    context_telemetry: &SupervisorContextTelemetry,
 ) -> Result<SupervisorFeedbackTurn> {
-    let prompt =
-        supervisor_feedback_prompt(work_dir, artifact_paths, instruction, worker_guidance)?;
+    let prompt = supervisor_feedback_prompt(
+        work_dir,
+        artifact_paths,
+        instruction,
+        worker_guidance,
+        context_telemetry,
+    )?;
     let result = session.run_turn(budgeted_dir, label, &prompt)?;
     let parsed_feedback = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
@@ -248,6 +255,7 @@ pub(crate) fn run_supervisor_feedback_turn(
             work_dir,
             artifact_paths,
             worker_guidance,
+            context_telemetry,
             &parsed_feedback,
             &rejection_reason,
         )?;
@@ -360,4 +368,53 @@ pub(crate) fn run_supervisor_feedback_turn(
         token_usage_comparable,
     };
     Ok(turn)
+}
+
+pub(crate) fn run_supervisor_compaction(
+    session: &mut SupervisorCodexSession,
+    artifact_dir: &Path,
+    label: &str,
+    trigger: &str,
+    recommendation: &Value,
+    telemetry: &SupervisorContextTelemetry,
+) -> Result<SupervisorCompactionTurn> {
+    let result = session.compact(artifact_dir, label)?;
+    let telemetry = telemetry.to_prompt_json();
+    let record = json!({
+        "label": label,
+        "timestamp": Utc::now().to_rfc3339(),
+        "type": "supervisor_compaction",
+        "trigger": trigger,
+        "context_recommendation": recommendation,
+        "context_telemetry": telemetry,
+        "codex_exit_status": result.exit_status,
+        "supervisor_model": result.model.clone(),
+        "supervisor_reasoning_effort": result.reasoning_effort.clone(),
+        "supervisor_input_tokens": result.usage.input_tokens,
+        "supervisor_output_tokens": result.usage.output_tokens,
+        "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
+        "supervisor_total_tokens": result.usage.total_tokens,
+        "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
+        "supervisor_token_usage_source": result.token_usage_source.clone(),
+        "supervisor_token_usage_scope": result.token_usage_scope.clone(),
+        "supervisor_token_usage_comparable": result.token_usage_comparable,
+        "input_bytes": result.input_bytes,
+        "output_bytes": result.output_bytes,
+        "auth_copied_then_removed": result.auth_copied_then_removed,
+        "codex_app_server_thread_id": result.thread_id.clone(),
+        "codex_app_server_turn_id": result.turn_id.clone()
+    });
+    Ok(SupervisorCompactionTurn {
+        record,
+        input_tokens: result.usage.input_tokens,
+        output_tokens: result.usage.output_tokens,
+        reasoning_tokens: result.usage.reasoning_tokens,
+        total_tokens: result.usage.total_tokens,
+        cached_input_tokens: result.usage.cached_input_tokens,
+        input_bytes: result.input_bytes,
+        output_bytes: result.output_bytes,
+        thread_id: result.thread_id,
+        turn_id: result.turn_id,
+        token_usage_comparable: result.token_usage_comparable,
+    })
 }

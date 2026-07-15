@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use super::types::SupervisorContextTelemetry;
 use crate::*;
 
 const DEBUG_PROFILE_FIT_ENV: &str = "MIXMOD_DEBUG_PROFILE_FIT";
@@ -220,11 +221,14 @@ pub(crate) fn supervisor_feedback_prompt(
     artifact_paths: &[PathBuf],
     instruction: &str,
     worker_guidance: &WorkerSupervisorGuidance,
+    context_telemetry: &SupervisorContextTelemetry,
 ) -> Result<String> {
     let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
     let review_context = supervisor_feedback_review_context(artifact_paths);
     let shape_contract = supervisor_worker_shape_contract(worker_guidance);
     let session_context_economics = supervisor_feedback_session_context_economics();
+    let context_telemetry = serde_json::to_string_pretty(&context_telemetry.to_prompt_json())
+        .context("failed to serialize supervisor context telemetry")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
     let worktree_policy = supervisor_worktree_policy();
     let slice_sizing_policy = supervisor_implementation_slice_policy();
@@ -243,9 +247,15 @@ Worker shape contract:
 
 {session_context_economics}
 
+Supervisor context telemetry:
+```json
+{context_telemetry}
+```
+
 If you choose revise, shape the worker request yourself before emitting JSON.
+Always include context_recommendation. Use action="compact_now" only at a clean semantic boundary where the next supervisor turn can rely on compacted history plus fresh artifacts. Use action="compact_after_next_worker" when the next worker turn should happen first but the following supervisor review should start from compacted history. Otherwise use action="continue". Mixmod makes the final compaction decision from this recommendation and hard telemetry.
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|accept_current_baseline|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"stop_condition":"worker-visible turn stop when required","completion_gate":"optional patch gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional worker limits"]}}
+{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|accept_current_baseline|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","context_recommendation":{{"action":"continue|compact_now|compact_after_next_worker","reason":"max 20 words"}},"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"stop_condition":"worker-visible turn stop when required","completion_gate":"optional patch gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional worker limits"]}}
 Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}
@@ -264,6 +274,7 @@ pub(crate) fn supervisor_feedback_approval_consistency_repair_prompt(
     work_dir: &Path,
     artifact_paths: &[PathBuf],
     worker_guidance: &WorkerSupervisorGuidance,
+    context_telemetry: &SupervisorContextTelemetry,
     previous_feedback: &Value,
     rejection_reason: &str,
 ) -> Result<String> {
@@ -284,7 +295,13 @@ Repair only the supervisor decision. Return either:
 Do not approve while listing checks that still need to run. Do not solve by authoring source changes."#
     );
 
-    supervisor_feedback_prompt(work_dir, artifact_paths, &instruction, worker_guidance)
+    supervisor_feedback_prompt(
+        work_dir,
+        artifact_paths,
+        &instruction,
+        worker_guidance,
+        context_telemetry,
+    )
 }
 
 pub(crate) fn supervisor_live_control_prompt(

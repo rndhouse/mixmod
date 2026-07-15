@@ -169,6 +169,9 @@ impl DefaultExperimentRun<'_> {
         let mut final_out = proposal_out;
         let mut internal_patch_baselines = 0_u64;
         let mut supervisor_samples = vec![worker_brief.usage_sample()];
+        let mut supervisor_context = SupervisorCompactionState::default();
+        supervisor_context.record_brief(&worker_brief);
+        let mut supervisor_compactions = Vec::new();
         let mut final_decision = None;
         if !should_stop_before_next_review(&options, opencode_calls) {
             loop {
@@ -176,12 +179,37 @@ impl DefaultExperimentRun<'_> {
                     break;
                 }
                 let decision_index = opencode_calls;
+                if let Some(request) = supervisor_context.take_before_review_request() {
+                    let label = format!(
+                        "supervisor-compact-before-{}",
+                        default_review_label(decision_index)
+                    );
+                    let compact = {
+                        let mut supervisor_session = supervisor_session
+                            .lock()
+                            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
+                        run_supervisor_compaction(
+                            &mut supervisor_session,
+                            &default_dir,
+                            &label,
+                            &request.trigger,
+                            &request.recommendation,
+                            &request.telemetry,
+                        )?
+                    };
+                    append_jsonl(&feedback_path, &compact.record)?;
+                    supervisor_samples.push(compact.usage_sample());
+                    supervisor_context.record_compaction(&compact);
+                    supervisor_compactions.push(compact.record.clone());
+                }
+                let mut compaction_request = None;
                 let mut decision = if let Some(decision) = pending_supervisor_control.take() {
                     decision
                 } else {
                     let label = default_review_label(decision_index);
                     let artifact_paths =
                         default_strategy_review_artifacts(&default_dir, &final_out)?;
+                    let context_telemetry = supervisor_context.telemetry(&artifact_paths);
                     let decision = {
                         let mut supervisor_session = supervisor_session
                             .lock()
@@ -194,9 +222,12 @@ impl DefaultExperimentRun<'_> {
                             &artifact_paths,
                             "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not author task-solving source changes.",
                             &worker_guidance,
+                            &context_telemetry,
                         )?
                     };
                     supervisor_samples.push(decision.usage_sample());
+                    supervisor_context.record_feedback(&decision);
+                    compaction_request = supervisor_context.request_after_feedback(&decision);
                     decision
                 };
                 if options.stop_after_first_review && decision_index == 1 {
@@ -214,6 +245,27 @@ impl DefaultExperimentRun<'_> {
                     final_decision = Some(decision);
                     break;
                 } else {
+                    if let Some(request) = compaction_request {
+                        let label = format!("supervisor-compact-{decision_index}");
+                        let compact = {
+                            let mut supervisor_session =
+                                supervisor_session.lock().map_err(|_| {
+                                    anyhow!("supervisor Codex session lock was poisoned")
+                                })?;
+                            run_supervisor_compaction(
+                                &mut supervisor_session,
+                                &default_dir,
+                                &label,
+                                &request.trigger,
+                                &request.recommendation,
+                                &request.telemetry,
+                            )?
+                        };
+                        append_jsonl(&feedback_path, &compact.record)?;
+                        supervisor_samples.push(compact.usage_sample());
+                        supervisor_context.record_compaction(&compact);
+                        supervisor_compactions.push(compact.record.clone());
+                    }
                     let revision_preparation =
                         prepare_default_revision_decision(&work_dir, &final_out, &decision)?;
                     let worker_decision = revision_preparation.worker_decision;
@@ -338,6 +390,8 @@ impl DefaultExperimentRun<'_> {
             "supervisor_token_usage_comparable": supervisor_usage.token_usage_comparable,
             "supervisor_session_reused": supervisor_usage.session_reused(),
             "supervisor_resume_count": supervisor_usage.thread_reuse_count(),
+            "supervisor_compaction_count": supervisor_compactions.len() as u64,
+            "supervisor_compactions": supervisor_compactions,
             "did_codex_read_full_mixmod_session": false,
             "did_codex_read_raw_logs": false,
             "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
@@ -406,7 +460,7 @@ impl DefaultExperimentRun<'_> {
             "terminal_reject": false,
             "needs_worker_revision": false,
             "notes": [
-                "Default strategy reused one supervisor app-server thread across worker handoff, review, repair, and live-control turns.",
+                "Default strategy reused one supervisor app-server thread across worker handoff, review, repair, compaction, and live-control turns.",
                 "The supervisor controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy.",
                 "The worker backend was selected through the Mixmod worker settings.",
                 "If the worker times out, run `mixmod experiment recover <name> --require-local` to restart from worker-task.json."

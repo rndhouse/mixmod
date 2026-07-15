@@ -70,9 +70,9 @@ pub use config::{
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
 pub(crate) use default_strategy_support::{
-    default_review_label, default_revision_resume_session_id, default_strategy_outcome,
-    default_strategy_review_artifacts, live_supervisor_advisor, prepare_default_revision_decision,
-    supervisor_token_usage_labels,
+    SupervisorCompactionState, default_review_label, default_revision_resume_session_id,
+    default_strategy_outcome, default_strategy_review_artifacts, live_supervisor_advisor,
+    prepare_default_revision_decision, supervisor_token_usage_labels,
 };
 pub use diff::patch_stats;
 pub use experiment::{
@@ -133,9 +133,11 @@ pub(crate) use run::{
 pub(crate) use state::state_layout;
 pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
-    LiveSupervisorAdvisor, PatchDecision, RevisionHandoff, SupervisorCodexSession,
+    LiveSupervisorAdvisor, PatchDecision, RevisionHandoff, SupervisorBriefTurn,
+    SupervisorCodexSession, SupervisorCompactionTurn, SupervisorContextTelemetry,
     SupervisorFeedbackTurn, SupervisorVerdict, WorkerMode, aggregate_supervisor_usage,
-    normalize_worker_mode, run_supervisor_brief_turn, run_supervisor_feedback_turn,
+    normalize_worker_mode, run_supervisor_brief_turn, run_supervisor_compaction,
+    run_supervisor_feedback_turn,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{

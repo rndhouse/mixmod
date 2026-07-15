@@ -500,6 +500,115 @@ impl CodexAppServer {
         })
     }
 
+    /// Compact the active app-server thread and wait for the compact turn.
+    pub(crate) fn compact_thread(
+        &mut self,
+        artifact_dir: &Path,
+        label: &str,
+    ) -> Result<CodexTurnResult> {
+        let logs_dir = artifact_dir.join("logs");
+        fs::create_dir_all(&logs_dir)
+            .with_context(|| format!("failed to create Codex logs dir {}", logs_dir.display()))?;
+        atomic_write(
+            &artifact_dir.join(format!("{label}-prompt.md")),
+            b"thread/compact/start\n",
+        )?;
+
+        let request_id = self.next_request_id;
+        self.next_request_id += 1;
+        self.write_json(&json!({
+            "id": request_id,
+            "method": "thread/compact/start",
+            "params": {
+                "threadId": self.thread_id.clone()
+            }
+        }))?;
+
+        let mut events = Vec::new();
+        let mut request_completed = false;
+        let mut compact = CompactProgress::default();
+        loop {
+            let message = self.read_message()?;
+            if self.handle_server_request(&message)? {
+                events.push(message);
+                continue;
+            }
+
+            if message.get("id").and_then(Value::as_u64) == Some(request_id)
+                && (message.get("result").is_some() || message.get("error").is_some())
+            {
+                if let Some(error) = message.get("error") {
+                    bail!("Codex app-server `thread/compact/start` request failed: {error}");
+                }
+                request_completed = true;
+            } else {
+                compact.observe(&message, &self.thread_id);
+            }
+            events.push(message);
+
+            if request_completed && compact.completed {
+                break;
+            }
+        }
+
+        let (usage, token_usage_source, token_usage_scope, token_usage_comparable) =
+            if let Some(total_usage) = compact.cumulative_usage {
+                let usage = total_usage.delta_since(&self.total_usage);
+                self.total_usage = total_usage;
+                (
+                    usage,
+                    "codex_app_server_total_token_usage".to_string(),
+                    "turn_delta_from_cumulative".to_string(),
+                    true,
+                )
+            } else if let Some(last_request_usage) = compact.fallback_last_request_usage {
+                (
+                    last_request_usage,
+                    "codex_app_server_last_token_usage".to_string(),
+                    "last_request".to_string(),
+                    false,
+                )
+            } else {
+                (
+                    CodexUsage::default(),
+                    "codex_app_server_missing_token_usage".to_string(),
+                    "unavailable".to_string(),
+                    false,
+                )
+            };
+
+        let event_log = jsonl_bytes(&events)?;
+        let stderr = self.stderr_snapshot();
+        atomic_write(&logs_dir.join(format!("codex-{label}.jsonl")), &event_log)?;
+        atomic_write(&logs_dir.join(format!("codex-{label}.stderr.txt")), &stderr)?;
+        append_file(&logs_dir.join("codex.stdout.jsonl"), &event_log)?;
+        append_file(&logs_dir.join("codex.stderr.txt"), &stderr)?;
+        atomic_write(
+            &artifact_dir.join(format!("{label}-last-message.json")),
+            b"",
+        )?;
+
+        Ok(CodexTurnResult {
+            exit_status: compact.exit_status,
+            stderr,
+            output_bytes: event_log.len() as u64,
+            last_message: String::new(),
+            turn_status: compact.turn_status,
+            error_info: compact.error_info,
+            error_message: compact.error_message,
+            usage,
+            input_bytes: 0,
+            model: self.model.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+            auth_copied_then_removed: self.copied_auth,
+            thread_id: self.thread_id.clone(),
+            turn_id: compact.turn_id.unwrap_or_default(),
+            token_usage_source,
+            token_usage_scope,
+            token_usage_comparable,
+        })
+    }
+
     fn initialize(&mut self) -> Result<()> {
         let mut events = Vec::new();
         self.request(
@@ -658,6 +767,89 @@ impl CodexAppServer {
             .map(|guard| guard.clone())
             .unwrap_or_default()
     }
+}
+
+#[derive(Default)]
+struct CompactProgress {
+    turn_id: Option<String>,
+    completed: bool,
+    exit_status: Option<i32>,
+    turn_status: Option<String>,
+    error_info: Option<String>,
+    error_message: Option<String>,
+    cumulative_usage: Option<CodexUsage>,
+    fallback_last_request_usage: Option<CodexUsage>,
+}
+
+impl CompactProgress {
+    fn observe(&mut self, message: &Value, thread_id: &str) {
+        let Some(method) = get_str(message, "method") else {
+            return;
+        };
+        let params = message.get("params").unwrap_or(&Value::Null);
+        if get_str(params, "threadId") != Some(thread_id) {
+            return;
+        }
+        match method {
+            "turn/started" => {
+                if self.turn_id.is_none()
+                    && let Some(turn_id) = turn_id_from_params(params)
+                {
+                    self.turn_id = Some(turn_id.to_string());
+                }
+            }
+            "thread/compacted" => {
+                if let Some(turn_id) = get_str(params, "turnId") {
+                    self.turn_id = Some(turn_id.to_string());
+                }
+            }
+            "thread/tokenUsage/updated" if self.message_matches_turn(params) => {
+                if let Some(token_usage) = params.get("tokenUsage") {
+                    if let Some(total) = codex_app_server_cumulative_usage(token_usage) {
+                        self.cumulative_usage = Some(total);
+                    }
+                    if let Some(last) = codex_app_server_last_request_usage(token_usage) {
+                        self.fallback_last_request_usage = Some(last);
+                    }
+                }
+            }
+            "turn/completed" if self.message_matches_turn(params) => {
+                if let Some(turn_id) = turn_id_from_params(params) {
+                    self.turn_id = Some(turn_id.to_string());
+                }
+                if let Some(turn) = params.get("turn") {
+                    self.turn_status = get_str(turn, "status").map(ToOwned::to_owned);
+                    self.error_info = turn
+                        .get("error")
+                        .and_then(|error| get_str(error, "codexErrorInfo"))
+                        .map(ToOwned::to_owned);
+                    self.error_message = turn
+                        .get("error")
+                        .and_then(|error| get_str(error, "message"))
+                        .map(ToOwned::to_owned);
+                    self.exit_status = match get_str(turn, "status") {
+                        Some("completed") => Some(0),
+                        _ => Some(1),
+                    };
+                } else {
+                    self.exit_status = Some(0);
+                }
+                self.completed = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn message_matches_turn(&self, params: &Value) -> bool {
+        let Some(expected) = self.turn_id.as_deref() else {
+            return true;
+        };
+        turn_id_from_params(params) == Some(expected)
+    }
+}
+
+fn turn_id_from_params(params: &Value) -> Option<&str> {
+    get_str(params, "turnId").or_else(|| params.get("turn").and_then(|turn| get_str(turn, "id")))
 }
 
 impl Drop for CodexAppServer {

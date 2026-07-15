@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::SupervisorFeedback;
 
@@ -170,6 +170,47 @@ pub(crate) struct SupervisorFeedbackTurn {
 }
 
 #[derive(Clone, Debug, Default)]
+pub(crate) struct SupervisorContextTelemetry {
+    pub(crate) supervisor_turns_since_last_compact: u64,
+    pub(crate) supervisor_compaction_count: u64,
+    pub(crate) latest_supervisor_input_tokens: u64,
+    pub(crate) latest_supervisor_cached_input_tokens: u64,
+    pub(crate) latest_supervisor_total_tokens: u64,
+    pub(crate) supervisor_input_tokens_since_last_compact: u64,
+    pub(crate) supervisor_cached_input_tokens_since_last_compact: u64,
+    pub(crate) supervisor_total_tokens_since_last_compact: u64,
+    pub(crate) review_artifact_bytes: u64,
+    pub(crate) compact_moderate_input_threshold: u64,
+    pub(crate) compact_moderate_total_threshold: u64,
+    pub(crate) compact_force_input_threshold: u64,
+    pub(crate) compact_force_total_threshold: u64,
+    pub(crate) compact_min_turns_threshold: u64,
+    pub(crate) compaction_enabled: bool,
+}
+
+impl SupervisorContextTelemetry {
+    pub(crate) fn to_prompt_json(&self) -> Value {
+        json!({
+            "supervisor_turns_since_last_compact": self.supervisor_turns_since_last_compact,
+            "supervisor_compaction_count": self.supervisor_compaction_count,
+            "latest_supervisor_input_tokens": self.latest_supervisor_input_tokens,
+            "latest_supervisor_cached_input_tokens": self.latest_supervisor_cached_input_tokens,
+            "latest_supervisor_total_tokens": self.latest_supervisor_total_tokens,
+            "supervisor_input_tokens_since_last_compact": self.supervisor_input_tokens_since_last_compact,
+            "supervisor_cached_input_tokens_since_last_compact": self.supervisor_cached_input_tokens_since_last_compact,
+            "supervisor_total_tokens_since_last_compact": self.supervisor_total_tokens_since_last_compact,
+            "review_artifact_bytes": self.review_artifact_bytes,
+            "compact_moderate_input_threshold": self.compact_moderate_input_threshold,
+            "compact_moderate_total_threshold": self.compact_moderate_total_threshold,
+            "compact_force_input_threshold": self.compact_force_input_threshold,
+            "compact_force_total_threshold": self.compact_force_total_threshold,
+            "compact_min_turns_threshold": self.compact_min_turns_threshold,
+            "compaction_enabled": self.compaction_enabled,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Default)]
 pub(crate) struct RevisionHandoff {
     pub(crate) expect_patch: Option<bool>,
     pub(crate) worker_turn_shape: Option<String>,
@@ -257,6 +298,21 @@ pub(crate) struct SupervisorBriefTurn {
     pub(crate) token_usage_comparable: bool,
 }
 
+#[derive(Debug)]
+pub(crate) struct SupervisorCompactionTurn {
+    pub(crate) record: Value,
+    pub(crate) input_tokens: u64,
+    pub(crate) output_tokens: u64,
+    pub(crate) reasoning_tokens: u64,
+    pub(crate) total_tokens: u64,
+    pub(crate) cached_input_tokens: u64,
+    pub(crate) input_bytes: u64,
+    pub(crate) output_bytes: u64,
+    pub(crate) thread_id: String,
+    pub(crate) turn_id: String,
+    pub(crate) token_usage_comparable: bool,
+}
+
 #[derive(Clone)]
 pub(crate) struct SupervisorUsageSample {
     pub(super) input_tokens: u64,
@@ -289,6 +345,23 @@ impl SupervisorFeedbackTurn {
 }
 
 impl SupervisorBriefTurn {
+    pub(crate) fn usage_sample(&self) -> SupervisorUsageSample {
+        SupervisorUsageSample {
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            reasoning_tokens: self.reasoning_tokens,
+            total_tokens: self.total_tokens,
+            cached_input_tokens: self.cached_input_tokens,
+            input_bytes: self.input_bytes,
+            output_bytes: self.output_bytes,
+            thread_id: self.thread_id.clone(),
+            turn_id: self.turn_id.clone(),
+            token_usage_comparable: self.token_usage_comparable,
+        }
+    }
+}
+
+impl SupervisorCompactionTurn {
     pub(crate) fn usage_sample(&self) -> SupervisorUsageSample {
         SupervisorUsageSample {
             input_tokens: self.input_tokens,

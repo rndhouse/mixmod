@@ -17,8 +17,11 @@ pub(crate) use prompts::{
     supervisor_feedback_prompt, supervisor_live_control_prompt, supervisor_worker_brief_prompt,
     supervisor_worker_brief_prompt_with_debug_profile_fit,
 };
-pub(crate) use turns::{run_supervisor_brief_turn, run_supervisor_feedback_turn};
+pub(crate) use turns::{
+    run_supervisor_brief_turn, run_supervisor_compaction, run_supervisor_feedback_turn,
+};
 pub(crate) use types::{
-    PatchDecision, RevisionHandoff, SupervisorFeedbackTurn, SupervisorVerdict, WorkerMode,
+    PatchDecision, RevisionHandoff, SupervisorBriefTurn, SupervisorCompactionTurn,
+    SupervisorContextTelemetry, SupervisorFeedbackTurn, SupervisorVerdict, WorkerMode,
     aggregate_supervisor_usage,
 };
