@@ -55,6 +55,7 @@ pub(super) struct RevisionTaskDetails<'a> {
     pub(super) edit_plan: &'a [String],
     pub(super) deferred_checks: &'a [String],
     pub(super) defer_checks_until_patch_exists: Option<bool>,
+    pub(super) stop_condition: Option<&'a str>,
     pub(super) completion_gate: Option<&'a str>,
     pub(super) forbidden_actions: &'a [String],
     pub(super) focus_files: &'a [String],

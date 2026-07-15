@@ -281,6 +281,9 @@ fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
             edit_plan: vec![],
             deferred_checks: vec!["python -m unittest test_checkout.py -q".to_string()],
             defer_checks_until_patch_exists: Some(true),
+            stop_condition: Some(
+                "return after the nested discount branch and one focused assertion".to_string(),
+            ),
             completion_gate: Some("git diff --stat must be non-empty".to_string()),
             forbidden_actions: vec!["run broad tests before editing".to_string()],
         },
@@ -320,6 +323,8 @@ fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
     assert!(instructions.contains("nested item discount branch"));
     assert!(instructions.contains("add one assertion for a nested discounted item"));
     assert!(instructions.contains("Do not run broad tests before editing."));
+    assert!(instructions.contains("Supervisor stop condition:"));
+    assert!(instructions.contains("return after the nested discount branch"));
     assert!(instructions.contains("Supervisor completion gate:"));
     assert!(instructions.contains("git diff --stat must be non-empty"));
     assert!(!instructions.contains("After editing, run exactly: git diff --stat"));
@@ -365,6 +370,7 @@ fn patch_request_revision_task_allows_goal_without_exact_edits() {
             edit_plan: vec![],
             deferred_checks: vec![],
             defer_checks_until_patch_exists: Some(true),
+            stop_condition: None,
             completion_gate: None,
             forbidden_actions: vec![],
         },

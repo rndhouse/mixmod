@@ -795,6 +795,18 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
         guidance
             .guidance
             .iter()
+            .any(|item| item.contains("stop_condition"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("scope_rationale"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
             .any(|item| item.contains("one coherent source behavior"))
     );
     assert!(

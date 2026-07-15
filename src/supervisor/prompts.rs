@@ -57,12 +57,14 @@ Handoff requirements:
 - If exact_edits is present, use immediately executable edit instructions; do not use broad "investigate/understand/design" wording there.
 - Put checks in deferred_checks when they should run only after a non-empty diff exists.
 - edit_packet/source_snippets are optional and sparse. Omit them by default; include them only when you already have a cheap anchor/snippet and it will likely save more worker exploration than it costs in supervisor output.
+- stop_condition is the worker-visible point where this turn should stop and return for supervisor review.
 - completion_gate is only for acceptance criteria not already covered by the patch request or deferred_checks.
+- scope_rationale is only for a compact supervisor-visible justification when you intentionally choose a broad or full-task worker scope despite the selected worker contract.
 - forbidden_actions is only for task-specific limits beyond normal noninteractive worker behavior.
 - Omit optional fields unless they reduce worker confusion or supervisor output.
 
 JSON shape:
-{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["optional concrete edit"],"edit_packet":["optional cost-justified anchor"],"source_snippets":["optional cost-justified snippet"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"completion_gate":"optional gate","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
+{{"handoff":"guided","expect_patch":true,"worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"one-turn goal","message_to_worker":"short worker instruction","files":["repo/path"],"exact_edits":["optional concrete edit"],"edit_packet":["optional cost-justified anchor"],"source_snippets":["optional cost-justified snippet"],"edit_plan":["optional short steps"],"checks":["optional checks"],"deferred_checks":["checks after patch"],"defer_checks_until_patch_exists":true,"stop_condition":"optional worker-visible turn stop","completion_gate":"optional gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional limits"],"investigation_summary":"optional short finding","evidence":["optional file/function clues"],"avoid":["optional constraints"],"risk":"optional short risk"}}
 Working repo: {work_dir}
 
 Task JSON:
@@ -99,6 +101,9 @@ fn supervisor_candidate_file_index(work_dir: &Path, task: &Value) -> String {
 }
 
 fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) -> &'static str {
+    if is_minimax_m3_guidance(worker_guidance) {
+        return r#"MiniMax first expected-patch implementation handoff contract: normally use worker_turn_shape="patch_request". Cover one implementation phase only, such as AST/parser source support, VM/env enforcement, or tests/verification; do not bundle multiple phases into the first implementation turn. Include a worker-visible stop_condition that tells MiniMax when to stop and return for supervisor review. If you intentionally ask for full-task or multi-phase scope, include scope_rationale with a compact justification. The boundary should be evident from turn_goal, files, message_to_worker, stop_condition, and scope_rationale when present. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
+    }
     if worker_guidance
         .guidance
         .iter()
@@ -114,6 +119,13 @@ fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) 
         return r#"Profile-selected shape: for expected-patch implementation handoffs, use worker_turn_shape="patch_request". This is your responsibility before emitting JSON; Mixmod will not run an automatic repair turn. Do not emit worker_turn_shape="bounded_feature_slice" or "default" for expected-patch work. Use planning_probe with expect_patch=false only when bounded worker investigation is cheaper than supervisor investigation."#;
     }
     "No worker-specific default shape is selected. Choose one shape deliberately: planning_probe for no-patch investigation, patch_request for a focused edit, bounded_feature_slice for a coherent larger feature chunk, or default only when the task is already simple."
+}
+
+fn is_minimax_m3_guidance(worker_guidance: &WorkerSupervisorGuidance) -> bool {
+    worker_guidance
+        .model
+        .to_ascii_lowercase()
+        .contains("minimax")
 }
 
 fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
@@ -147,7 +159,7 @@ For ordinary worker-turn review, start with task context, compact metadata, and 
 {worker_guidance}
 If you choose revise, shape the worker request yourself before emitting JSON. Mixmod will not repair or reshape the revision to fit the worker profile.
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
+{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"stop_condition":"optional worker-visible turn stop","completion_gate":"optional patch gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional worker limits"]}}
 Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}

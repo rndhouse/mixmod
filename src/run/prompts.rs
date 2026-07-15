@@ -223,6 +223,12 @@ fn build_patch_request_revision_noop_followup_instruction(
         .as_deref()
         .map(str::trim)
         .filter(|gate| !gate.is_empty());
+    let stop_condition = revision
+        .revision_handoff
+        .stop_condition
+        .as_deref()
+        .map(str::trim)
+        .filter(|condition| !condition.is_empty());
     let mut hard_rules = Vec::new();
     for action in &revision.revision_handoff.forbidden_actions {
         let action = action.trim().trim_end_matches('.');
@@ -249,6 +255,9 @@ fn build_patch_request_revision_noop_followup_instruction(
     let completion_gate_note = completion_gate
         .map(|gate| format!("\nSupervisor completion gate:\n{gate}\n"))
         .unwrap_or_default();
+    let stop_condition_note = stop_condition
+        .map(|condition| format!("\nSupervisor stop condition:\n{condition}\n"))
+        .unwrap_or_default();
 
     format!(
         r#"# Revision No-Op Follow-Up
@@ -272,6 +281,7 @@ Focus files:
 {files}
 
 Do not expand beyond this request. Do not implement neighboring behavior, validation, aliases, serialization/deserialization variants, or tests unless the supervisor request explicitly requires it.
+{stop_condition_note}
 {completion_gate_note}
 
 Final response format:
@@ -279,6 +289,7 @@ Changed files: <comma-separated list>
 "#,
         mode = mode,
         hard_rules_note = hard_rules_note,
+        stop_condition_note = stop_condition_note,
         completion_gate_note = completion_gate_note,
     )
 }
@@ -480,6 +491,7 @@ mod tests {
                 edit_plan: vec![],
                 deferred_checks: vec![],
                 defer_checks_until_patch_exists: Some(true),
+                stop_condition: Some("return after making the requested edit".to_string()),
                 completion_gate: Some("worker-visible gate from supervisor".to_string()),
                 forbidden_actions: vec!["run tests before editing".to_string()],
             },

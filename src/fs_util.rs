@@ -224,6 +224,7 @@ fn revision_handoff_from_supervisor_control(
         deferred_checks: get_string_array(control, "deferred_checks"),
         defer_checks_until_patch_exists: get_bool(control, "defer_checks_until_patch_exists")
             .or_else(|| no_delta_recovery.then_some(true)),
+        stop_condition: get_str(control, "stop_condition").map(ToOwned::to_owned),
         completion_gate: get_str(control, "completion_gate").map(ToOwned::to_owned),
         forbidden_actions: {
             let mut actions = get_string_array(control, "forbidden_actions");

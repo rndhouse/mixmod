@@ -59,6 +59,12 @@ pub(crate) fn write_revision_task(
         .as_deref()
         .map(str::trim)
         .filter(|gate| !gate.is_empty());
+    let explicit_stop_condition = decision
+        .revision_handoff
+        .stop_condition
+        .as_deref()
+        .map(str::trim)
+        .filter(|condition| !condition.is_empty());
     let acceptance = if !expect_patch {
         Vec::new()
     } else if patch_request {
@@ -121,6 +127,7 @@ pub(crate) fn write_revision_task(
             decision,
             focus_files: &focus_files,
             focus_note: &focus_note,
+            stop_condition: explicit_stop_condition,
             completion_gate: explicit_completion_gate,
             patch_decision_note,
         })
@@ -179,6 +186,7 @@ pub(crate) fn write_revision_task(
                 defer_checks_until_patch_exists: decision
                     .revision_handoff
                     .defer_checks_until_patch_exists,
+                stop_condition: decision.revision_handoff.stop_condition.as_deref(),
                 completion_gate: decision.revision_handoff.completion_gate.as_deref(),
                 forbidden_actions: &decision.revision_handoff.forbidden_actions,
                 focus_files: &decision.focus_files,
@@ -277,6 +285,7 @@ struct PatchRequestRevisionInput<'a> {
     decision: &'a SupervisorFeedbackTurn,
     focus_files: &'a [String],
     focus_note: &'a str,
+    stop_condition: Option<&'a str>,
     completion_gate: Option<&'a str>,
     patch_decision_note: &'a str,
 }
@@ -288,6 +297,7 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
         decision,
         focus_files,
         focus_note,
+        stop_condition,
         completion_gate,
         patch_decision_note,
     } = input;
@@ -338,6 +348,7 @@ fn patch_request_revision_instructions(input: PatchRequestRevisionInput<'_>) -> 
         format!("\nSupervisor-provided checks:\n{}", bullet_list(&checks))
     };
     let hard_rules_note = optional_bullet_section("Supervisor worker limits", &hard_rules);
+    let stop_condition_note = optional_text_section("Supervisor stop condition", stop_condition);
     let completion_gate_note = optional_text_section("Supervisor completion gate", completion_gate);
     let exact_edits_note =
         optional_numbered_section("Supervisor-provided edit details", &exact_edits);
@@ -374,6 +385,7 @@ Do not read an entire large file before the first edit unless focused anchor sea
 Do not expand beyond this patch request unless the supervisor request requires it.
 If a listed file is missing, continue with the remaining request; create a missing file only when the request requires it.
 {checks_note}
+{stop_condition_note}
 {completion_gate_note}
 
 Final response format:
@@ -382,6 +394,7 @@ Changed files: <comma-separated list>
         hard_rules_note = hard_rules_note,
         exact_edits_note = exact_edits_note,
         edit_packet_note = edit_packet_note,
+        stop_condition_note = stop_condition_note,
         completion_gate_note = completion_gate_note,
     )
 }

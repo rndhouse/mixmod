@@ -111,6 +111,7 @@ pub(crate) fn live_control(
         edit_plan: Vec::new(),
         deferred_checks: Vec::new(),
         defer_checks_until_patch_exists: None,
+        stop_condition: None,
         completion_gate: None,
         forbidden_actions: Vec::new(),
     };

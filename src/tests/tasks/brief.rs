@@ -94,6 +94,7 @@ fn worker_brief_prompt_prioritizes_compact_executable_handoff() {
     assert!(prompt.contains("patch_request"));
     assert!(prompt.contains("bounded_feature_slice"));
     assert!(prompt.contains("exact_edits"));
+    assert!(prompt.contains("stop_condition"));
     assert!(prompt.contains("completion_gate"));
     assert!(prompt.contains("obey the worker shape contract"));
     assert!(prompt.contains("largest coherent request"));
@@ -217,6 +218,7 @@ fn patch_request_worker_task_preserves_explicit_supervisor_gate() {
         ],
         "defer_checks_until_patch_exists": true,
         "deferred_checks": ["python -m pytest tests/test_helper.py"],
+        "stop_condition": "Return after the metadata plumbing diff exists; do not continue into unrelated flatten behavior.",
         "completion_gate": "git diff --stat must be non-empty",
         "forbidden_actions": ["ask questions", "run tests before editing"]
     });
@@ -251,6 +253,8 @@ fn patch_request_worker_task_preserves_explicit_supervisor_gate() {
     assert!(
         instructions.contains("If a listed item is a directory, do not read the whole directory")
     );
+    assert!(instructions.contains("Supervisor stop condition:"));
+    assert!(instructions.contains("Return after the metadata plumbing diff exists"));
     assert!(instructions.contains("Supervisor completion gate:"));
     assert!(instructions.contains("git diff --stat"));
     assert!(!instructions.contains("Diff non-empty: yes/no"));

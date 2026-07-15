@@ -212,6 +212,8 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Handoff requirements:"));
     assert!(brief_prompt.contains("exact_edits is optional"));
     assert!(brief_prompt.contains("optional and sparse"));
+    assert!(brief_prompt.contains("stop_condition"));
+    assert!(brief_prompt.contains("scope_rationale"));
 }
 
 #[test]
@@ -252,6 +254,45 @@ fn supervisor_prompts_include_openrouter_glm_worker_guidance() {
     assert!(brief_prompt.contains("toolchain archaeology"));
     assert!(brief_prompt.contains("current accumulated patch"));
     assert!(brief_prompt.contains("end-to-end behavior"));
+}
+
+#[test]
+fn supervisor_prompt_makes_minimax_first_turn_boundary_explicit() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(None, Some("openrouter/minimax/minimax-m3".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+    let guidance = config.worker_supervisor_guidance();
+
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Typed variables",
+  "instructions": "Add typed variable declarations.",
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let prompt =
+        supervisor_worker_brief_prompt(root, &task, &guidance, SupervisorInitMode::Compact)
+            .unwrap();
+
+    assert!(prompt.contains("MiniMax first expected-patch implementation handoff contract"));
+    assert!(prompt.contains(r#"normally use worker_turn_shape="patch_request""#));
+    assert!(prompt.contains("Cover one implementation phase only"));
+    assert!(prompt.contains("AST/parser source support"));
+    assert!(prompt.contains("VM/env enforcement"));
+    assert!(prompt.contains("tests/verification"));
+    assert!(prompt.contains("worker-visible stop_condition"));
+    assert!(prompt.contains("scope_rationale"));
+    assert!(prompt.contains("full-task or multi-phase scope"));
+    assert!(prompt.contains("The boundary should be evident"));
+    assert!(prompt.contains("A first implementation phase should be a real boundary"));
+    assert!(prompt.contains("without creating a long worker session"));
 }
 
 #[test]

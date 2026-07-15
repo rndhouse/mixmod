@@ -170,6 +170,7 @@ pub(crate) struct RevisionHandoff {
     pub(crate) edit_plan: Vec<String>,
     pub(crate) deferred_checks: Vec<String>,
     pub(crate) defer_checks_until_patch_exists: Option<bool>,
+    pub(crate) stop_condition: Option<String>,
     pub(crate) completion_gate: Option<String>,
     pub(crate) forbidden_actions: Vec<String>,
 }
@@ -184,6 +185,7 @@ impl RevisionHandoff {
             edit_plan: feedback.edit_plan.clone(),
             deferred_checks: feedback.deferred_checks.clone(),
             defer_checks_until_patch_exists: feedback.defer_checks_until_patch_exists,
+            stop_condition: feedback.stop_condition.clone(),
             completion_gate: feedback.completion_gate.clone(),
             forbidden_actions: feedback.forbidden_actions.clone(),
         }

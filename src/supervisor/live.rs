@@ -220,6 +220,7 @@ impl SupervisorAdvisor for LiveSupervisorAdvisor {
             edit_plan,
             deferred_checks,
             defer_checks_until_patch_exists,
+            stop_condition: None,
             completion_gate,
             forbidden_actions,
         };

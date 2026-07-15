@@ -24,6 +24,8 @@ pub struct SupervisorControlCommand {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub defer_checks_until_patch_exists: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_condition: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_gate: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forbidden_actions: Vec<String>,
@@ -79,6 +81,8 @@ pub struct SupervisorFeedback {
     pub deferred_checks: Vec<String>,
     #[serde(default)]
     pub defer_checks_until_patch_exists: Option<bool>,
+    #[serde(default)]
+    pub stop_condition: Option<String>,
     #[serde(default)]
     pub completion_gate: Option<String>,
     #[serde(default)]
@@ -143,6 +147,8 @@ pub struct WorkerBrief {
     pub deferred_checks: Vec<String>,
     #[serde(default)]
     pub defer_checks_until_patch_exists: Option<bool>,
+    #[serde(default)]
+    pub stop_condition: Option<String>,
     #[serde(default)]
     pub completion_gate: Option<String>,
     #[serde(default)]

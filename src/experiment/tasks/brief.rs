@@ -113,6 +113,10 @@ pub(crate) fn write_worker_brief_task(
     let explicit_completion_gate = get_str(brief, "completion_gate")
         .map(str::trim)
         .filter(|gate| !gate.is_empty());
+    let explicit_stop_condition = get_str(brief, "stop_condition")
+        .or_else(|| get_str(brief, "worker_stop_condition"))
+        .map(str::trim)
+        .filter(|condition| !condition.is_empty());
     let acceptance = if planning_probe {
         Vec::new()
     } else if patch_request {
@@ -130,6 +134,7 @@ pub(crate) fn write_worker_brief_task(
             &original,
             brief,
             &target_files,
+            explicit_stop_condition,
             explicit_completion_gate,
             &codex_message,
         )
@@ -229,6 +234,7 @@ fn patch_request_instructions(
     original: &Value,
     brief: &Value,
     target_files: &[String],
+    stop_condition: Option<&str>,
     completion_gate: Option<&str>,
     fallback_message: &str,
 ) -> String {
@@ -260,6 +266,7 @@ fn patch_request_instructions(
         &["edit_packet", "source_snippets", "anchors", "evidence"],
     );
     let hard_rules_note = optional_bullet_section("Supervisor worker limits", &hard_rules);
+    let stop_condition_note = optional_text_section("Supervisor stop condition", stop_condition);
     let completion_gate_note = optional_text_section("Supervisor completion gate", completion_gate);
     let exact_edits_note =
         optional_numbered_section("Supervisor-provided edit details", &exact_edits);
@@ -293,6 +300,7 @@ Do not read an entire large file before the first edit unless focused anchor sea
 Do not expand beyond this first patch request unless the supervisor request requires it.
 If a listed file is missing, continue with the remaining request; create a missing file only when the request requires it.
 When editing an existing source function, preserve surrounding control flow and indentation. Do not rewrite the whole function. Do not delete or reindent unrelated branches. Make the smallest local edit that satisfies this request.
+{stop_condition_note}
 {completion_gate_note}
 
 Final response format:
@@ -301,6 +309,7 @@ Changed files: <comma-separated list>
         hard_rules_note = hard_rules_note,
         exact_edits_note = exact_edits_note,
         edit_packet_note = edit_packet_note,
+        stop_condition_note = stop_condition_note,
         completion_gate_note = completion_gate_note,
     )
 }
@@ -465,6 +474,8 @@ fn brief_has_legacy_guidance(brief: &Value) -> bool {
         || get_str(brief, "objective").is_some()
         || get_str(brief, "worker_turn_shape").is_some()
         || get_str(brief, "turn_goal").is_some()
+        || get_str(brief, "stop_condition").is_some()
+        || get_str(brief, "worker_stop_condition").is_some()
         || get_str(brief, "completion_gate").is_some()
         || !get_string_array(brief, "files").is_empty()
         || !get_string_array(brief, "checks").is_empty()
