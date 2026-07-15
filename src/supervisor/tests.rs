@@ -114,6 +114,14 @@ fn live_supervisor_prompt_snapshot_redacts_artifact_paths() {
     assert!(prompt.contains("It cannot read Mixmod task, state, log, or artifact paths"));
     assert!(prompt.contains("Original task instructions: Add a flatten option"));
     assert!(prompt.contains("Available actions:"));
+    assert!(prompt.contains("Worker session context economics:"));
+    assert!(prompt.contains("Cached input tokens are cheaper than uncached input"));
+    assert!(prompt.contains("large cached session can still dominate cost and latency"));
+    assert!(prompt.contains("interrupt_context_focus starts a fresh worker session"));
+    assert!(prompt.contains("spend uncached input rereading files"));
+    assert!(prompt.contains("worker_session_token_peak/context pressure are modest"));
+    assert!(prompt.contains("phase boundary where the next slice can be restated compactly"));
+    assert!(prompt.contains("right next decision requires patch_decision"));
     assert!(prompt.contains("Base the action on the live evidence"));
     assert!(prompt.contains("Do not assume an intervention is required"));
     assert!(prompt.contains("worker_backend_telemetry"));

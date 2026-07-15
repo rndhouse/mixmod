@@ -119,6 +119,24 @@ fn supervisor_worker_shape_contract(worker_guidance: &WorkerSupervisorGuidance) 
     "No worker-specific default shape is selected. Choose one shape deliberately: planning_probe for no-patch investigation, patch_request for a focused edit, bounded_feature_slice for a coherent larger feature chunk, or default only when the task is already simple."
 }
 
+fn supervisor_feedback_session_context_economics() -> &'static str {
+    r#"Worker session context economics:
+- worker_mode=continue reuses useful recent file/tool context and can avoid uncached rereads, but later worker calls replay the accumulated session. Cached input tokens are cheaper than uncached input, but a large cached session can still dominate cost and latency.
+- worker_mode=context_focus starts a fresh worker session on the same source tree. This avoids replaying stale or broad context, but the worker may spend uncached input rereading files, so restate the current patch state and next goal compactly.
+- Prefer worker_mode=continue when the next edit depends on recent worker context and worker_session_token_peak/context pressure are modest.
+- Prefer worker_mode=context_focus after broad investigation, large tool-call bursts, stale context, context overflow, high worker_session_token_peak, or a phase boundary where the next slice can be restated compactly.
+- Use patch_decision=accept_current_baseline with worker_mode=context_focus when useful incomplete progress should remain in the source tree but the next worker turn should start with a clean active diff and fresh session context."#
+}
+
+fn supervisor_live_session_context_economics() -> &'static str {
+    r#"Worker session context economics:
+- wait or interrupt_continue preserves useful recent file/tool context and can avoid uncached rereads, but later worker calls replay the accumulated session. Cached input tokens are cheaper than uncached input, but a large cached session can still dominate cost and latency.
+- interrupt_context_focus starts a fresh worker session on the same source tree. This avoids replaying stale or broad context, but the worker may spend uncached input rereading files, so restate the current patch state and next goal compactly.
+- Prefer wait or interrupt_continue when the worker is making progress, the next edit depends on recent context, and worker_session_token_peak/context pressure are modest.
+- Prefer interrupt_context_focus after broad investigation, large tool-call bursts, stale context, context overflow, high worker_session_token_peak, or a phase boundary where the next slice can be restated compactly.
+- Choose abort_worker_turn when the right next decision requires patch_decision, checkpoint review, or ordinary supervisor artifact review rather than an immediate same-turn intervention."#
+}
+
 fn worker_brief_init_instructions(init_mode: SupervisorInitMode) -> &'static str {
     match init_mode {
         SupervisorInitMode::Compact => {
@@ -139,6 +157,7 @@ pub(crate) fn supervisor_feedback_prompt(
     let artifact_index = supervisor_artifact_index(work_dir, artifact_paths);
     let review_context = supervisor_feedback_review_context(artifact_paths);
     let shape_contract = supervisor_worker_shape_contract(worker_guidance);
+    let session_context_economics = supervisor_feedback_session_context_economics();
     let worker_guidance = render_worker_guidance(worker_guidance);
     let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
@@ -151,6 +170,8 @@ For ordinary worker-turn review, start with task context, compact metadata, and 
 {worker_guidance}
 Worker shape contract:
 {shape_contract}
+
+{session_context_economics}
 
 If you choose revise, shape the worker request yourself before emitting JSON. Mixmod will not repair or reshape the revision to fit the worker profile.
 Return only JSON matching this schema:
@@ -202,6 +223,7 @@ pub(crate) fn supervisor_live_control_prompt(
 ) -> Result<String> {
     let snapshot_json = serde_json::to_string_pretty(snapshot)
         .context("failed to serialize live worker snapshot")?;
+    let session_context_economics = supervisor_live_session_context_economics();
     let worker_guidance = render_worker_guidance(worker_guidance);
     let worktree_policy = supervisor_worktree_policy();
     Ok(format!(
@@ -209,6 +231,8 @@ pub(crate) fn supervisor_live_control_prompt(
 {worktree_policy}
 Do not run tests. Do not ask the user for approval.
 {worker_guidance}
+{session_context_economics}
+
 Return only JSON matching this schema:
 {{"action":"wait|interrupt_continue|interrupt_context_focus|abort_worker_turn","worker_mode":"continue|context_focus","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"completion_gate":"optional patch gate","forbidden_actions":["optional worker limits"]}}
 Treat applicable worker-model guidance as context for shaping message_to_worker if you choose to interrupt.

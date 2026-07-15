@@ -13,8 +13,19 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     .unwrap();
 
     assert!(prompt.contains("Core review contract"));
+    assert!(prompt.contains("Worker session context economics:"));
     assert!(prompt.contains("worker_mode=continue reuses the current worker session"));
     assert!(prompt.contains("worker_mode=context_focus starts a fresh worker session"));
+    assert!(prompt.contains("Cached input tokens are cheaper than uncached input"));
+    assert!(prompt.contains("large cached session can still dominate cost and latency"));
+    assert!(prompt.contains("starts a fresh worker session on the same source tree"));
+    assert!(prompt.contains("spend uncached input rereading files"));
+    assert!(prompt.contains("worker_session_token_peak/context pressure are modest"));
+    assert!(prompt.contains("phase boundary where the next slice can be restated compactly"));
+    assert!(
+        prompt.contains("patch_decision=accept_current_baseline with worker_mode=context_focus")
+    );
+    assert!(prompt.contains("clean active diff and fresh session context"));
     assert!(prompt.contains("patch_decision"));
     assert!(prompt.contains("accept_current_baseline"));
     assert!(prompt.contains("revise_previous"));
