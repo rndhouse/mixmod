@@ -772,17 +772,24 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
     assert!(!guidance.auto_followups_enabled());
     assert!(!guidance.worker_self_review_enabled());
     assert!(!guidance.forced_context_focus_enabled());
+    assert!(!guidance.guidance.iter().any(|item| item.contains("Qwen")));
     assert!(
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("larger advertised context window"))
+            .any(|item| item.contains("70k-100k context"))
     );
     assert!(
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("safety margin"))
+            .any(|item| item.contains("phase-bounded MiniMax turns"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("bounded implementation phase"))
     );
     assert!(
         guidance
@@ -794,7 +801,7 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
         guidance
             .guidance
             .iter()
-            .any(|item| item.contains("cached input is discounted"))
+            .any(|item| item.contains("discounted cache reads"))
     );
     assert!(
         guidance
