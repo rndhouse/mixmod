@@ -36,6 +36,12 @@ pub const LOCAL_VERIFICATION_JSON: &str = "local-verification.json";
 pub const PATCH_COMPARISON: &str = "patch-comparison.json";
 /// Previous accumulated worktree patch artifact.
 pub const PREVIOUS_WORKTREE_PATCH: &str = "previous-worktree.patch";
+/// Receipt written when Mixmod makes an accepted patch into a baseline.
+pub const PATCH_BASELINE_JSON: &str = "patch-baseline.json";
+/// Patch accepted into an internal baseline checkpoint.
+pub const BASELINE_ACCEPTED_PATCH: &str = "baseline-accepted.patch";
+/// Active worktree patch captured after an internal baseline checkpoint.
+pub const BASELINE_ACTIVE_PATCH: &str = "baseline-active.patch";
 /// Rollback receipt written when `revise_previous` restores a checkpoint.
 pub const PATCH_ROLLBACK_JSON: &str = "patch-rollback.json";
 /// Current patch saved before a `revise_previous` rollback.
@@ -102,6 +108,9 @@ pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
     METRICS_JSON,
     PATCH_COMPARISON,
     PREVIOUS_WORKTREE_PATCH,
+    PATCH_BASELINE_JSON,
+    BASELINE_ACCEPTED_PATCH,
+    BASELINE_ACTIVE_PATCH,
     PATCH_ROLLBACK_JSON,
     ROLLBACK_CURRENT_PATCH,
     ROLLBACK_RESTORED_PATCH,
@@ -123,6 +132,9 @@ pub const WORKER_RUN_ARTIFACTS: &[&str] = &[
     INTERVENTIONS_JSONL,
     PATCH_COMPARISON,
     PREVIOUS_WORKTREE_PATCH,
+    PATCH_BASELINE_JSON,
+    BASELINE_ACCEPTED_PATCH,
+    BASELINE_ACTIVE_PATCH,
     PATCH_ROLLBACK_JSON,
     ROLLBACK_CURRENT_PATCH,
     ROLLBACK_RESTORED_PATCH,

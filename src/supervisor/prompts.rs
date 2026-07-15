@@ -155,11 +155,11 @@ pub(crate) fn supervisor_feedback_prompt(
 Do not ask the user for approval.
 Inspect the listed artifact files directly before deciding. Do not rely on this prompt as artifact content; it only names where the review evidence lives.
 Treat supervisor input tokens as scarce. Inspect only the artifacts needed for the next decision and stop reading once approve, revise, or stop is clear.
-For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on prior accumulated edits.
+For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on the full active diff.
 {worker_guidance}
 If you choose revise, shape the worker request yourself before emitting JSON. Mixmod will not repair or reshape the revision to fit the worker profile.
 Return only JSON matching this schema:
-{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"stop_condition":"optional worker-visible turn stop","completion_gate":"optional patch gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional worker limits"]}}
+{{"action":"approve|revise|stop","expect_patch":true,"worker_mode":"continue|context_focus","patch_decision":"accept_current|accept_current_baseline|revise_current|revise_previous","message_to_worker":"max 80 words","focus_files":[],"required_checks":[],"risk":"max 25 words","worker_turn_shape":"planning_probe|patch_request|bounded_feature_slice|default","turn_goal":"optional next request goal","exact_edits":["optional concrete edit or planning question"],"edit_packet":["optional cost-justified source context"],"source_snippets":["optional cost-justified snippets"],"edit_plan":["optional concrete steps or planning questions"],"deferred_checks":["optional checks after patch exists"],"defer_checks_until_patch_exists":true,"stop_condition":"optional worker-visible turn stop","completion_gate":"optional patch gate","scope_rationale":"optional compact broad-scope justification","forbidden_actions":["optional worker limits"]}}
 Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}
@@ -264,7 +264,8 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
             r#"Patch request context:
 - Treat a first non-empty delta as progress, not proof of completion.
 - If more work is needed, make the next revision one source behavior with a bounded patch goal; include exact_edits only when precision saves supervisor output.
-- Write from the current accumulated worktree.patch and preserve useful existing edits.
+- When the current active diff is useful incomplete progress and the next turn should not reread it as a patch, use patch_decision=accept_current_baseline with worker_mode=context_focus.
+- Otherwise revise from the current worktree and preserve useful existing edits.
 - Put checks in deferred_checks until a non-empty patch exists unless artifacts show the edit already exists."#
                 .to_string(),
         );
@@ -304,7 +305,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Slice-sizing context:
 - Multiple recent patch-request turns produced non-empty deltas without context overflow.
-- If the accumulated patch is coherent but incomplete, the next patch_request may cover one larger anchored source behavior.
+- If the current source state is coherent but incomplete, the next patch_request may cover one larger anchored source behavior.
 - Keep the selected worker profile's preferred shape unless the profile explicitly supports broadening."#
                 .to_string(),
         );
@@ -313,6 +314,9 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
     if signals.has_any(&[
         PATCH_COMPARISON,
         PREVIOUS_WORKTREE_PATCH,
+        PATCH_BASELINE_JSON,
+        BASELINE_ACCEPTED_PATCH,
+        BASELINE_ACTIVE_PATCH,
         PATCH_ROLLBACK_JSON,
         ROLLBACK_CURRENT_PATCH,
         ROLLBACK_RESTORED_PATCH,
@@ -321,6 +325,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
             r#"Patch checkpoint context:
 - Treat patch-comparison.json as neutral structural telemetry; Mixmod is not judging patch quality.
 - Choose patch_decision yourself from the task, current patch, and checkpoint artifacts.
+- Use accept_current_baseline when the current active patch is useful incomplete progress and the next worker should start from a clean active diff to avoid cumulative context cost. Mixmod creates an internal checkpoint commit and reconstructs the final benchmark patch from the original base.
 - Use revise_previous only when your review decides the previous candidate should be restored.
 - If you choose revise_previous, Mixmod restores that candidate before the next worker turn; tell the worker only the focused follow-up edit."#
                 .to_string(),
@@ -339,18 +344,20 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
     format!(
         r#"Core review contract:
 - Prefer latest-turn evidence first: receipt/report/metrics, tool-events.jsonl when useful, and changes.patch.
-- worktree.patch is the accumulated current diff; changes.patch is only the latest worker-turn delta. Avoid opening worktree.patch unless approval, rollback, or integration with prior edits depends on it.
+- worktree.patch is the active current diff; changes.patch is only the latest worker-turn delta. Avoid opening worktree.patch unless approval, rollback, or integration with prior edits depends on it.
 {tool_evidence}
 - Minimize supervisor input tokens: do not inspect more artifacts, logs, or diff content once the next action is clear.
 - For generated-output diffs, inspect authored-source changes and patch stats first. Avoid opening whole generated files; judge whether generated changes are bounded expected outputs and free of transient tool sidecars.
-- Approve only when the accumulated patch appears to satisfy the original task and no worker action or check remains. Before approving, inspect task.json and enough accumulated state to verify completion.
+- Approve only when the current source state appears to satisfy the original task and no worker action or check remains. Before approving, inspect task.json and enough source/diff state to verify completion.
 - Treat a false approval as a terminal correctness failure. If evidence is missing for the main requested behavior or a likely edge case, choose revise for a targeted verification or repair turn.
 - On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
 - Revise when a useful worker path remains; message_to_worker must be concrete and worker-executable.
 - Stop only for a blocked or inconclusive worker result when no useful worker path remains.
 - The worker owns implementation. Do not author task-solving source changes.
 - Put only repo source/test paths in focus_files. Do not ask the worker to inspect Mixmod artifacts.
-- worker_mode=continue reuses the current worker session; worker_mode=context_focus starts a fresh worker session on the same worktree.
+- worker_mode=continue reuses the current worker session; worker_mode=context_focus starts a fresh worker session on the same source tree.
+- worktree.patch is the active diff against the current baseline. After patch_decision=accept_current_baseline, earlier accepted progress is in the source tree rather than the active diff.
+- Use patch_decision=accept_current_baseline when useful incomplete progress should become baseline before the next worker turn, especially when cumulative diff visibility would waste worker or supervisor tokens.
 - Use patch_decision=revise_previous only when checkpoint artifacts support restoring a previous candidate.
 - Prefer patch_decision for rollback control; use direct git restore/apply only for state management, not to create a solution patch."#
     )
@@ -467,12 +474,15 @@ fn supervisor_artifact_role(name: &str) -> &'static str {
         REPORT_MD => "compact worker-run summary",
         REASONING_TRACE_JSONL => "worker reasoning events extracted from structured output",
         TOOL_EVENTS_JSONL => "worker tool-call events extracted from structured output",
-        WORKTREE_PATCH => "accumulated current repository diff",
+        WORKTREE_PATCH => "active current repository diff",
         CHANGES_PATCH => "latest worker-turn diff",
         INTERVENTIONS_JSONL => "Mixmod intervention audit log",
         METRICS_JSON => "worker-run metrics and signals",
         PATCH_COMPARISON => "neutral patch checkpoint comparison",
         PREVIOUS_WORKTREE_PATCH => "previous candidate patch available for rollback decisions",
+        PATCH_BASELINE_JSON => "baseline receipt for accept_current_baseline",
+        BASELINE_ACCEPTED_PATCH => "patch accepted into the internal baseline",
+        BASELINE_ACTIVE_PATCH => "active patch after the internal baseline checkpoint",
         PATCH_ROLLBACK_JSON => "rollback receipt for revise_previous",
         ROLLBACK_CURRENT_PATCH => "discarded patch saved before rollback",
         ROLLBACK_RESTORED_PATCH => "patch captured after rollback restore",

@@ -58,6 +58,7 @@ impl DefaultStrategyRun<'_> {
         let run_start = Utc::now();
         let start = Instant::now();
         let out_dir = absolutize(root, out_dir);
+        let original_patch_base = git_rev_parse(root, "HEAD")?;
         let logs_dir = out_dir.join("logs");
         fs::create_dir_all(&logs_dir).with_context(|| {
             format!(
@@ -159,6 +160,7 @@ impl DefaultStrategyRun<'_> {
         let mut pending_supervisor_control =
             supervisor_control_decision_from_metrics(&proposal_out)?;
         let mut final_out = proposal_out;
+        let mut internal_patch_baselines = 0_u64;
         let mut supervisor_samples = vec![worker_brief.usage_sample()];
         let mut final_decision = None;
         if !should_stop_before_next_review(&options, opencode_calls) {
@@ -204,8 +206,13 @@ impl DefaultStrategyRun<'_> {
                     final_decision = Some(decision);
                     break;
                 } else {
-                    let (worker_decision, previous_patch_source) =
+                    let revision_preparation =
                         prepare_default_revision_decision(root, &final_out, &decision)?;
+                    let worker_decision = revision_preparation.worker_decision;
+                    let previous_patch_source = revision_preparation.previous_patch_source;
+                    if revision_preparation.created_internal_baseline {
+                        internal_patch_baselines += 1;
+                    }
                     worker_modes.push(worker_decision.worker_mode.clone());
                     let resume_session_id = default_revision_resume_session_id(
                         &worker_decision,
@@ -257,7 +264,14 @@ impl DefaultStrategyRun<'_> {
             }
         }
 
-        let final_patch = git_diff_with_untracked(root)?;
+        let final_patch = if internal_patch_baselines > 0 {
+            git_diff_from_base_with_untracked(root, &original_patch_base)?
+        } else {
+            git_diff_with_untracked(root)?
+        };
+        if internal_patch_baselines > 0 {
+            restore_final_patch_to_base(root, &original_patch_base, &final_patch)?;
+        }
         atomic_write(&out_dir.join(FINAL_PATCH), final_patch.as_bytes())?;
         let stats = patch_stats(&final_patch);
 
@@ -321,6 +335,8 @@ impl DefaultStrategyRun<'_> {
             "final_worker_mode": outcome.final_worker_mode,
             "worker_modes": worker_modes,
             "patch_checkpoints": patch_checkpoint_metrics,
+            "internal_patch_baseline_count": internal_patch_baselines,
+            "original_patch_base": original_patch_base,
             "revision_attempts": opencode_calls.saturating_sub(1),
             "stop_after_first_worker": options.stop_after_first_worker,
             "stop_after_first_review": options.stop_after_first_review,

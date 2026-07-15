@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{
-    CHANGES_PATCH, PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, PatchStats,
+    BASELINE_ACCEPTED_PATCH, BASELINE_ACTIVE_PATCH, CHANGES_PATCH, PATCH_BASELINE_JSON,
+    PATCH_COMPARISON, PATCH_ROLLBACK_JSON, PREVIOUS_WORKTREE_PATCH, PatchStats,
     ROLLBACK_CURRENT_PATCH, ROLLBACK_RESTORED_PATCH, SupervisorFeedbackTurn, TASK_JSON,
     WORKTREE_PATCH, atomic_write, file_len, git_diff_with_untracked, patch_stats, read_json_file,
     write_pretty_json,
@@ -67,6 +68,158 @@ pub(crate) struct PatchRollbackReceipt {
     pub(crate) discarded_patch_bytes: u64,
     /// Restored patch size in bytes.
     pub(crate) restored_patch_bytes: u64,
+}
+
+/// Receipt for an internal baseline checkpoint commit.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct PatchBaselineReceipt {
+    /// Baseline checkpoint outcome.
+    pub(crate) status: String,
+    /// Commit that was current before this baseline checkpoint.
+    pub(crate) previous_head: String,
+    /// Commit created for the internal baseline checkpoint.
+    pub(crate) baseline_head: String,
+    /// Artifact containing the patch accepted into the baseline.
+    pub(crate) accepted_patch_artifact: String,
+    /// Artifact containing the active patch after the baseline checkpoint.
+    pub(crate) active_patch_artifact: String,
+    /// Accepted patch size in bytes.
+    pub(crate) accepted_patch_bytes: u64,
+    /// Active patch size after the checkpoint in bytes.
+    pub(crate) active_patch_bytes: u64,
+}
+
+/// Commit the current active patch as an internal baseline checkpoint.
+pub(crate) fn create_patch_baseline_checkpoint(
+    root: &Path,
+    checkpoint_run_dir: &Path,
+) -> Result<PatchBaselineReceipt> {
+    let previous_head = git_rev_parse(root, "HEAD")?;
+    let accepted_patch = git_diff_with_untracked(root)
+        .with_context(|| format!("failed to capture accepted diff in {}", root.display()))?;
+    let accepted_patch_path = checkpoint_run_dir.join(BASELINE_ACCEPTED_PATCH);
+    atomic_write(&accepted_patch_path, accepted_patch.as_bytes()).with_context(|| {
+        format!(
+            "failed to write baseline accepted patch {}",
+            accepted_patch_path.display()
+        )
+    })?;
+
+    let mut baseline_head = previous_head.clone();
+    let mut status = "empty".to_string();
+    if !accepted_patch.trim().is_empty() {
+        run_git(
+            root,
+            &[
+                "add",
+                "-A",
+                "--",
+                ".",
+                ":(exclude).mixmod",
+                ":(exclude).mixmod/**",
+                ":(exclude).codex",
+                ":(exclude).codex/**",
+                ":(exclude)task.json",
+            ],
+        )?;
+        run_git(
+            root,
+            &[
+                "-c",
+                "user.email=mixmod@example.invalid",
+                "-c",
+                "user.name=Mixmod",
+                "commit",
+                "--no-gpg-sign",
+                "-m",
+                "Mixmod internal patch baseline",
+            ],
+        )?;
+        baseline_head = git_rev_parse(root, "HEAD")?;
+        status = "checkpointed".to_string();
+    }
+
+    let active_patch = git_diff_with_untracked(root)
+        .with_context(|| format!("failed to capture active diff in {}", root.display()))?;
+    let active_patch_path = checkpoint_run_dir.join(BASELINE_ACTIVE_PATCH);
+    atomic_write(&active_patch_path, active_patch.as_bytes()).with_context(|| {
+        format!(
+            "failed to write baseline active patch {}",
+            active_patch_path.display()
+        )
+    })?;
+    if !accepted_patch.trim().is_empty() && !active_patch.trim().is_empty() {
+        bail!(
+            "baseline checkpoint verification failed: active diff remained after internal commit"
+        );
+    }
+
+    let receipt = PatchBaselineReceipt {
+        status,
+        previous_head,
+        baseline_head,
+        accepted_patch_artifact: BASELINE_ACCEPTED_PATCH.to_string(),
+        active_patch_artifact: BASELINE_ACTIVE_PATCH.to_string(),
+        accepted_patch_bytes: accepted_patch.len() as u64,
+        active_patch_bytes: active_patch.len() as u64,
+    };
+    write_pretty_json(
+        &checkpoint_run_dir.join(PATCH_BASELINE_JSON),
+        &receipt,
+        "patch baseline receipt",
+    )?;
+    Ok(receipt)
+}
+
+/// Resolve a Git revision to a commit SHA.
+pub(crate) fn git_rev_parse(root: &Path, rev: &str) -> Result<String> {
+    let output = git_output(root, &["rev-parse", "--verify", rev])?;
+    Ok(output.trim().to_string())
+}
+
+/// Capture the current worktree patch relative to a fixed base commit.
+pub(crate) fn git_diff_from_base_with_untracked(root: &Path, base: &str) -> Result<String> {
+    let tracked = git_output(
+        root,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--binary",
+            base,
+            "--",
+            ".",
+            ":(exclude).mixmod",
+            ":(exclude).codex",
+            ":(exclude)task.json",
+        ],
+    )?;
+    let current_head_patch = git_diff_with_untracked(root)?;
+    let untracked_paths = git_untracked_paths(root)?;
+    let untracked_only = diff_blocks_for_paths(&current_head_patch, &untracked_paths);
+    Ok(format!("{tracked}{untracked_only}"))
+}
+
+/// Reset to the original base and reapply the final patch as worktree changes.
+pub(crate) fn restore_final_patch_to_base(
+    root: &Path,
+    base: &str,
+    final_patch: &str,
+) -> Result<()> {
+    run_git(root, &["reset", "--hard", base])
+        .with_context(|| format!("failed to reset final worktree to {base}"))?;
+    clean_worktree(root).context("failed to clean final worktree before patch restore")?;
+    apply_patch_if_nonempty(root, "final patch", final_patch)
+        .context("failed to restore final patch after internal baselines")?;
+    let restored_patch = git_diff_with_untracked(root).with_context(|| {
+        format!(
+            "failed to capture final restored diff in {}",
+            root.display()
+        )
+    })?;
+    if patch_stats(&restored_patch) != patch_stats(final_patch) {
+        bail!("final patch restore verification failed");
+    }
+    Ok(())
 }
 
 /// Restore the target worktree to the previous checkpoint patch.
@@ -225,6 +378,97 @@ fn run_git(root: &Path, args: &[&str]) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to run git {} in {}", args.join(" "), root.display()))?;
+    if !output.status.success() {
+        bail!(
+            "git {} failed in {}: {}",
+            args.join(" "),
+            root.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn git_untracked_paths(root: &Path) -> Result<BTreeSet<String>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            ".",
+        ])
+        .output()
+        .with_context(|| format!("failed to run git ls-files in {}", root.display()))?;
+    if !output.status.success() {
+        bail!(
+            "git ls-files failed in {}: {}",
+            root.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|raw| !raw.is_empty())
+        .map(|raw| {
+            String::from_utf8_lossy(raw)
+                .trim_start_matches("./")
+                .to_string()
+        })
+        .filter(|path| {
+            !path.starts_with(".mixmod/")
+                && !path.starts_with(".codex/")
+                && path != ".mixmod"
+                && path != ".codex"
+                && path != TASK_JSON
+        })
+        .collect())
+}
+
+fn diff_blocks_for_paths(patch: &str, paths: &BTreeSet<String>) -> String {
+    diff_blocks(patch)
+        .into_iter()
+        .filter(|block| {
+            diff_block_path(block)
+                .map(|path| paths.contains(path))
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn diff_blocks(patch: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current = String::new();
+    for line in patch.split_inclusive('\n') {
+        if line.starts_with("diff --git ") && !current.is_empty() {
+            blocks.push(std::mem::take(&mut current));
+        }
+        current.push_str(line);
+    }
+    if !current.is_empty() {
+        blocks.push(current);
+    }
+    blocks
+}
+
+fn diff_block_path(block: &str) -> Option<&str> {
+    let header = block.lines().find(|line| line.starts_with("diff --git "))?;
+    let path = header.split_whitespace().nth(3)?;
+    Some(path.trim_start_matches("b/"))
 }
 
 /// Write checkpoint artifacts for a revision run and return the comparison.
@@ -394,35 +638,50 @@ pub(crate) fn append_patch_checkpoint_artifacts(
     artifact_paths: &mut Vec<PathBuf>,
 ) -> Result<()> {
     let comparison_path = run_dir.join(PATCH_COMPARISON);
-    if !comparison_path.exists() {
-        return Ok(());
+    if comparison_path.exists() {
+        artifact_paths.push(comparison_path);
     }
-    artifact_paths.push(comparison_path.clone());
+    let baseline_path = run_dir.join(PATCH_BASELINE_JSON);
+    if baseline_path.exists() {
+        artifact_paths.push(baseline_path);
+    }
     Ok(())
 }
 
 /// Return compact checkpoint metrics for the final strategy metrics object.
 pub(crate) fn patch_checkpoint_metrics(worker_run_dirs: &[PathBuf]) -> Result<serde_json::Value> {
     let mut items = Vec::new();
+    let mut baselines = Vec::new();
     for dir in worker_run_dirs {
         let path = dir.join(PATCH_COMPARISON);
-        if !path.exists() {
-            continue;
+        if path.exists() {
+            let comparison = read_json_file(&path)?;
+            items.push(json!({
+                "run_dir": dir.to_string_lossy(),
+                "observations": comparison.get("observations").cloned().unwrap_or_else(|| json!([])),
+                "previous_patch_bytes": comparison.get("previous_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
+                "current_patch_bytes": comparison.get("current_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
+                "latest_delta_bytes": comparison.get("latest_delta_bytes").cloned().unwrap_or_else(|| json!(0)),
+                "latest_delta_stats": comparison.get("latest_delta_stats").cloned().unwrap_or_else(|| json!({})),
+                "lost_changed_files": comparison.get("lost_changed_files").cloned().unwrap_or_else(|| json!([])),
+                "lost_focus_files": comparison.get("lost_focus_files").cloned().unwrap_or_else(|| json!([])),
+            }));
         }
-        let comparison = read_json_file(&path)?;
-        items.push(json!({
-            "run_dir": dir.to_string_lossy(),
-            "observations": comparison.get("observations").cloned().unwrap_or_else(|| json!([])),
-            "previous_patch_bytes": comparison.get("previous_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
-            "current_patch_bytes": comparison.get("current_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
-            "latest_delta_bytes": comparison.get("latest_delta_bytes").cloned().unwrap_or_else(|| json!(0)),
-            "latest_delta_stats": comparison.get("latest_delta_stats").cloned().unwrap_or_else(|| json!({})),
-            "lost_changed_files": comparison.get("lost_changed_files").cloned().unwrap_or_else(|| json!([])),
-            "lost_focus_files": comparison.get("lost_focus_files").cloned().unwrap_or_else(|| json!([])),
-        }));
+        let baseline_path = dir.join(PATCH_BASELINE_JSON);
+        if baseline_path.exists() {
+            let baseline = read_json_file(&baseline_path)?;
+            baselines.push(json!({
+                "run_dir": dir.to_string_lossy(),
+                "status": baseline.get("status").cloned().unwrap_or_else(|| json!("unknown")),
+                "accepted_patch_bytes": baseline.get("accepted_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
+                "active_patch_bytes": baseline.get("active_patch_bytes").cloned().unwrap_or_else(|| json!(0)),
+            }));
+        }
     }
     Ok(json!({
         "count": items.len(),
-        "items": items
+        "items": items,
+        "baseline_count": baselines.len(),
+        "baselines": baselines
     }))
 }

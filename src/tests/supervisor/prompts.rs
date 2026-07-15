@@ -16,6 +16,7 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("worker_mode=continue reuses the current worker session"));
     assert!(prompt.contains("worker_mode=context_focus starts a fresh worker session"));
     assert!(prompt.contains("patch_decision"));
+    assert!(prompt.contains("accept_current_baseline"));
     assert!(prompt.contains("revise_previous"));
     assert!(prompt.contains("Workspace access is for supervision, not implementation"));
     assert!(prompt.contains("git status"));
@@ -33,14 +34,15 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("For generated-output diffs"));
     assert!(prompt.contains("Avoid opening whole generated files"));
     assert!(prompt.contains("transient tool sidecars"));
-    assert!(prompt.contains("Approve only when the accumulated patch appears to satisfy"));
-    assert!(prompt.contains("Before approving, inspect task.json and enough accumulated state"));
+    assert!(prompt.contains("Approve only when the current source state appears to satisfy"));
+    assert!(prompt.contains("Before approving, inspect task.json and enough source/diff state"));
     assert!(prompt.contains("false approval as a terminal correctness failure"));
     assert!(prompt.contains("main requested behavior or a likely edge case"));
     assert!(prompt.contains("Revise when a useful worker path remains"));
     assert!(prompt.contains("Stop only for a blocked or inconclusive worker result"));
     assert!(prompt.contains("The worker owns implementation"));
     assert!(prompt.contains("Prefer patch_decision for rollback control"));
+    assert!(prompt.contains("useful incomplete progress should become baseline"));
     assert!(prompt.contains("Put only repo source/test paths in focus_files"));
     assert!(prompt.contains("exact_edits"));
     assert!(!prompt.contains("Context-pressure context"));
@@ -122,7 +124,7 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
     assert!(prompt.contains("report.md"));
     assert!(prompt.contains("compact worker-run summary"));
     assert!(prompt.contains("worktree.patch"));
-    assert!(prompt.contains("accumulated current repository diff"));
+    assert!(prompt.contains("active current repository diff"));
     assert!(prompt.contains("tool-events.jsonl"));
     assert!(prompt.contains("worker tool-call events extracted from structured output"));
     assert!(!prompt.contains("SECRET_ARTIFACT_BODY_SHOULD_NOT_BE_EMBEDDED"));

@@ -78,9 +78,11 @@ impl WorkerMode {
 /// Normalized patch checkpoint decision for the next worker turn.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PatchDecision {
-    /// Keep the current accumulated worktree patch.
+    /// Keep the current active worktree patch.
     AcceptCurrent,
-    /// Continue revising the current accumulated patch.
+    /// Commit the current patch as an internal baseline before revising.
+    AcceptCurrentBaseline,
+    /// Continue revising the current active patch.
     ReviseCurrent,
     /// Restore the previous candidate patch before revising.
     RevisePrevious,
@@ -91,6 +93,7 @@ impl PatchDecision {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::AcceptCurrent => "accept_current",
+            Self::AcceptCurrentBaseline => "accept_current_baseline",
             Self::ReviseCurrent => "revise_current",
             Self::RevisePrevious => "revise_previous",
         }
@@ -105,6 +108,11 @@ impl PatchDecision {
             .replace('-', "_")
             .as_str()
         {
+            "accept_current_baseline"
+            | "accept_current_as_baseline"
+            | "checkpoint_current"
+            | "baseline_current"
+            | "commit_current_baseline" => Self::AcceptCurrentBaseline,
             "revise_previous" | "previous" | "keep_previous" | "restore_previous"
             | "recover_previous" => Self::RevisePrevious,
             "revise_current" | "current_revision" | "continue_current" => Self::ReviseCurrent,

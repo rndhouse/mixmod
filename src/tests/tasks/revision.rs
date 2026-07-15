@@ -248,6 +248,66 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
 }
 
 #[test]
+fn revision_task_mentions_accept_current_baseline_checkpoint_decision() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": [],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "context_focus".to_string(),
+        patch_decision: "accept_current_baseline".to_string(),
+        hint: "Add the next focused validation branch.".to_string(),
+        revision_handoff: RevisionHandoff {
+            worker_turn_shape: Some("patch_request".to_string()),
+            ..RevisionHandoff::default()
+        },
+        focus_files: vec!["checkout.py".to_string()],
+        required_checks: vec![],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+        token_usage_comparable: true,
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 3).unwrap();
+    let revision = read_json_file(&path).unwrap();
+    let instructions = get_str(&revision, "instructions").unwrap();
+
+    assert!(instructions.contains("Patch checkpoint decision: accept_current_baseline"));
+    assert!(instructions.contains("previous useful patch as the source baseline"));
+    assert!(instructions.contains("active diff starts clean relative to that baseline"));
+    assert!(instructions.contains("Do not inspect Git history or Mixmod artifacts."));
+    assert_eq!(
+        get_str(&revision["context"], "patch_decision"),
+        Some("accept_current_baseline")
+    );
+    assert_eq!(
+        get_bool(&revision["context"]["revision"], "delta_expected"),
+        Some(true)
+    );
+}
+
+#[test]
 fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -316,7 +376,7 @@ fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
     );
     let instructions = get_str(&revision, "instructions").unwrap();
     assert!(instructions.contains("Noninteractive coding revision"));
-    assert!(instructions.contains("Current accumulated patch is useful but not yet accepted"));
+    assert!(instructions.contains("Current source state includes useful prior edits"));
     assert!(instructions.contains("Supervisor-provided edit details:"));
     assert!(!instructions.contains("Worker edit packet:"));
     assert!(!instructions.contains("Use the Worker edit packet before reading whole files."));

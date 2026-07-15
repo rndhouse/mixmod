@@ -4,10 +4,11 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 
 use crate::{
-    LiveSupervisorAdvisor, METRICS_JSON, PREVIOUS_WORKTREE_PATCH, PatchDecision,
-    SUPERVISOR_CONTROL_LOG, SupervisorAdvisor, SupervisorFeedbackTurn, SupervisorVerdict,
-    WORKTREE_PATCH, WorkerMode, append_patch_checkpoint_artifacts,
-    restore_previous_patch_checkpoint, supervisor_review_artifact_paths,
+    BASELINE_ACTIVE_PATCH, LiveSupervisorAdvisor, METRICS_JSON, PREVIOUS_WORKTREE_PATCH,
+    PatchDecision, SUPERVISOR_CONTROL_LOG, SupervisorAdvisor, SupervisorFeedbackTurn,
+    SupervisorVerdict, WORKTREE_PATCH, WorkerMode, append_patch_checkpoint_artifacts,
+    create_patch_baseline_checkpoint, restore_previous_patch_checkpoint,
+    supervisor_review_artifact_paths,
 };
 
 /// Normalized terminal outcome fields shared by default-strategy metrics.
@@ -26,6 +27,16 @@ pub(crate) struct SupervisorTokenUsageLabels {
     pub(crate) source: &'static str,
     /// Scope label for supervisor token usage.
     pub(crate) scope: &'static str,
+}
+
+/// Filesystem preparation completed before a revision worker turn.
+pub(crate) struct DefaultRevisionPreparation {
+    /// Supervisor decision to use for the worker task.
+    pub(crate) worker_decision: SupervisorFeedbackTurn,
+    /// Patch artifact to compare against after the revision turn.
+    pub(crate) previous_patch_source: PathBuf,
+    /// True when an internal baseline checkpoint commit was created.
+    pub(crate) created_internal_baseline: bool,
 }
 
 /// Convert the optional live supervisor into the generic harness advisor trait.
@@ -56,17 +67,30 @@ pub(crate) fn prepare_default_revision_decision(
     root: &Path,
     previous_worker_run_dir: &Path,
     decision: &SupervisorFeedbackTurn,
-) -> Result<(SupervisorFeedbackTurn, PathBuf)> {
+) -> Result<DefaultRevisionPreparation> {
     let mut worker_decision = decision.clone();
-    let previous_patch_source =
-        if worker_decision.patch_decision_kind() == PatchDecision::RevisePrevious {
+    let mut created_internal_baseline = false;
+    let previous_patch_source = match worker_decision.patch_decision_kind() {
+        PatchDecision::RevisePrevious => {
             restore_previous_patch_checkpoint(root, previous_worker_run_dir)?;
             worker_decision.worker_mode = WorkerMode::ContextFocus.as_str().to_string();
             previous_worker_run_dir.join(PREVIOUS_WORKTREE_PATCH)
-        } else {
+        }
+        PatchDecision::AcceptCurrentBaseline => {
+            let receipt = create_patch_baseline_checkpoint(root, previous_worker_run_dir)?;
+            created_internal_baseline = receipt.status == "checkpointed";
+            worker_decision.worker_mode = WorkerMode::ContextFocus.as_str().to_string();
+            previous_worker_run_dir.join(BASELINE_ACTIVE_PATCH)
+        }
+        PatchDecision::AcceptCurrent | PatchDecision::ReviseCurrent => {
             previous_worker_run_dir.join(WORKTREE_PATCH)
-        };
-    Ok((worker_decision, previous_patch_source))
+        }
+    };
+    Ok(DefaultRevisionPreparation {
+        worker_decision,
+        previous_patch_source,
+        created_internal_baseline,
+    })
 }
 
 /// Resolve the worker session to resume for a revision turn.

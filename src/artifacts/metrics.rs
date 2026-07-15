@@ -25,7 +25,7 @@ pub struct ExperimentReportInputs {
     pub default_metrics_path: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct PatchStats {
     pub files: Vec<String>,
     pub changed_line_count: usize,

@@ -161,6 +161,127 @@ fn revise_previous_checkpoint_restores_previous_worktree_patch() {
 }
 
 #[test]
+fn accept_current_baseline_commits_active_patch_and_restores_final_patch() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("repo");
+    fs::create_dir_all(&root).unwrap();
+    let root = root.as_path();
+    init_git(root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 1 }\n",
+    )
+    .unwrap();
+    Command::new("git")
+        .args(["add", "src/lib.rs"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "base"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    let original_head = git_rev_parse(root, "HEAD").unwrap();
+
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 2 }\n",
+    )
+    .unwrap();
+    atomic_write(root.join("src/first.rs").as_path(), b"pub fn first() {}\n").unwrap();
+    let run_dir = temp.path().join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+
+    let receipt = create_patch_baseline_checkpoint(root, &run_dir).unwrap();
+
+    assert_eq!(receipt.status, "checkpointed");
+    assert_ne!(receipt.baseline_head, original_head);
+    assert!(receipt.accepted_patch_bytes > 0);
+    assert_eq!(receipt.active_patch_bytes, 0);
+    assert_eq!(git_diff_with_untracked(root).unwrap(), "");
+    assert!(run_dir.join(PATCH_BASELINE_JSON).exists());
+    assert!(run_dir.join(BASELINE_ACCEPTED_PATCH).exists());
+    assert!(run_dir.join(BASELINE_ACTIVE_PATCH).exists());
+
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 3 }\n",
+    )
+    .unwrap();
+    atomic_write(
+        root.join("src/second.rs").as_path(),
+        b"pub fn second() {}\n",
+    )
+    .unwrap();
+    let final_patch = git_diff_from_base_with_untracked(root, &original_head).unwrap();
+    assert!(final_patch.contains("+pub fn value() -> i32 { 3 }"));
+    assert!(final_patch.contains("diff --git a/src/first.rs b/src/first.rs"));
+    assert!(final_patch.contains("diff --git a/src/second.rs b/src/second.rs"));
+
+    restore_final_patch_to_base(root, &original_head, &final_patch).unwrap();
+
+    assert_eq!(git_rev_parse(root, "HEAD").unwrap(), original_head);
+    assert_eq!(
+        fs::read_to_string(root.join("src/lib.rs")).unwrap(),
+        "pub fn value() -> i32 { 3 }\n"
+    );
+    assert!(root.join("src/first.rs").exists());
+    assert!(root.join("src/second.rs").exists());
+    assert_eq!(
+        patch_stats(&git_diff_with_untracked(root).unwrap()),
+        patch_stats(&final_patch)
+    );
+}
+
+#[test]
+fn diff_from_base_omits_checkpointed_change_reverted_to_original() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("repo");
+    fs::create_dir_all(&root).unwrap();
+    let root = root.as_path();
+    init_git(root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 1 }\n",
+    )
+    .unwrap();
+    Command::new("git")
+        .args(["add", "src/lib.rs"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "base"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    let original_head = git_rev_parse(root, "HEAD").unwrap();
+
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 2 }\n",
+    )
+    .unwrap();
+    let run_dir = temp.path().join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    create_patch_baseline_checkpoint(root, &run_dir).unwrap();
+
+    atomic_write(
+        root.join("src/lib.rs").as_path(),
+        b"pub fn value() -> i32 { 1 }\n",
+    )
+    .unwrap();
+    let final_patch = git_diff_from_base_with_untracked(root, &original_head).unwrap();
+
+    assert_eq!(final_patch, "");
+    restore_final_patch_to_base(root, &original_head, &final_patch).unwrap();
+    assert_eq!(git_diff_with_untracked(root).unwrap(), "");
+}
+
+#[test]
 fn checkpoint_records_patch_request_delta_observations() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

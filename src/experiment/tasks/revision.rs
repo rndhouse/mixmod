@@ -107,6 +107,8 @@ pub(crate) fn write_revision_task(
     let original_instructions = get_str(&task_value, "instructions").unwrap_or("Revise the patch.");
     let patch_decision_note = if decision.patch_decision_kind() == PatchDecision::RevisePrevious {
         "\nPatch checkpoint decision: revise_previous. Mixmod has restored the previous candidate patch in the worktree before this turn. Apply only the focused follow-up edit from the supervisor message below. Do not read Mixmod artifacts directly.\n"
+    } else if decision.patch_decision_kind() == PatchDecision::AcceptCurrentBaseline {
+        "\nPatch checkpoint decision: accept_current_baseline. Mixmod accepted the previous useful patch as the source baseline for this turn. The active diff starts clean relative to that baseline; make only the next focused delta requested by the supervisor. Do not inspect Git history or Mixmod artifacts.\n"
     } else if decision.patch_decision_kind() == PatchDecision::ReviseCurrent {
         "\nPatch checkpoint decision: revise_current. Continue from the current worktree patch and fix the issues the supervisor identified.\n"
     } else {
@@ -253,7 +255,7 @@ fn planning_probe_revision_instructions(
 Original task context, for alignment only:
 {original_instructions}
 
-Current accumulated patch may be useful but is not accepted as the full solution.{patch_decision_note}
+Current source state may include useful prior edits but is not accepted as the full solution.{patch_decision_note}
 
 Planning goal:
 {turn_goal}
@@ -369,7 +371,7 @@ Use the Worker edit packet before reading whole files. If the packet contains th
         r#"Noninteractive coding revision. This is the full instruction. No user will answer questions.
 
 Original task: {title}{original_context}
-Current accumulated patch is useful but not yet accepted as the full solution.
+Current source state includes useful prior edits but is not yet accepted as the full solution.
 Continue from the current working tree; do not revert existing correct edits.{patch_decision_note}
 
 Patch request goal: {turn_goal}
@@ -453,7 +455,7 @@ fn bounded_feature_slice_revision_instructions(
         r#"Noninteractive coding revision. This is the full instruction. No user will answer questions.
 
 Original task:{original_context}
-Current accumulated patch is useful but not yet accepted as the full solution.
+Current source state includes useful prior edits but is not yet accepted as the full solution.
 Continue from the current working tree; do not revert existing correct edits.{patch_decision_note}
 
 Bounded feature revision goal:
@@ -496,6 +498,8 @@ fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {
     decision.verdict_kind() == SupervisorVerdict::Revise
         || matches!(
             decision.patch_decision_kind(),
-            PatchDecision::ReviseCurrent | PatchDecision::RevisePrevious
+            PatchDecision::AcceptCurrentBaseline
+                | PatchDecision::ReviseCurrent
+                | PatchDecision::RevisePrevious
         )
 }

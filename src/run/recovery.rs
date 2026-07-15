@@ -95,7 +95,10 @@ impl RevisionNoopContext {
         let revision = task.get("context")?.get("revision")?;
         let delta_expected = get_bool(revision, "delta_expected").unwrap_or_else(|| {
             let patch_decision = get_str(revision, "patch_decision").unwrap_or("");
-            matches!(patch_decision, "revise_current" | "revise_previous")
+            matches!(
+                patch_decision,
+                "accept_current_baseline" | "revise_current" | "revise_previous"
+            )
         });
         if !delta_expected {
             return None;
