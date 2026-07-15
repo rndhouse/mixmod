@@ -216,7 +216,7 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("expected around 100 changed lines"));
     assert!(brief_prompt.contains("soft maximum around 250 changed lines"));
     assert!(brief_prompt.contains("worker_turn_shape=patch_request"));
-    assert!(brief_prompt.contains("largest coherent source behavior"));
+    assert!(brief_prompt.contains("smallest reviewable source behavior"));
     assert!(brief_prompt.contains("files list as a likely read queue"));
     assert!(brief_prompt.contains("do not list large or generated files"));
     assert!(brief_prompt.contains("human-authored source edits"));
