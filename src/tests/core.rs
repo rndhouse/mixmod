@@ -620,6 +620,28 @@ fn openrouter_worker_override_selects_non_local_worker() {
 }
 
 #[test]
+fn known_openrouter_worker_slug_selects_openrouter_provider() {
+    let mut config = MixmodConfig::default();
+
+    ModelOverrides::new(None, Some("deepseek/deepseek-v4-flash".to_string()))
+        .apply_to_config(&mut config)
+        .unwrap();
+
+    assert_eq!(config.opencode.provider, "openrouter");
+    assert_eq!(config.opencode.model, "deepseek/deepseek-v4-flash");
+    assert_eq!(config.opencode.model_output_token_limit, Some(512));
+    assert!(!config.opencode.require_local);
+    assert!(!config.opencode.local_verification.enabled);
+    assert!(
+        !config
+            .opencode
+            .local_providers
+            .iter()
+            .any(|provider| provider == "deepseek")
+    );
+}
+
+#[test]
 fn qwen_worker_profile_is_selected_by_default_and_alias() {
     let mut config = MixmodConfig::default();
     let guidance = config.worker_supervisor_guidance();
@@ -766,6 +788,9 @@ fn openrouter_glm_worker_profile_is_selected_by_alias() {
         .unwrap();
     let guidance = config.worker_supervisor_guidance();
 
+    assert_eq!(config.opencode.provider, "openrouter");
+    assert_eq!(config.opencode.model, "z-ai/glm-5.2");
+    assert!(!config.opencode.require_local);
     assert_eq!(guidance.model, "openrouter/z-ai/glm-5.2");
 }
 
@@ -842,6 +867,9 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
         .unwrap();
     let guidance = config.worker_supervisor_guidance();
 
+    assert_eq!(config.opencode.provider, "openrouter");
+    assert_eq!(config.opencode.model, "minimax/minimax-m3");
+    assert!(!config.opencode.require_local);
     assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
     assert_eq!(config.opencode.model_output_token_limit, Some(4_096));
     assert_eq!(guidance.worker_timeout_seconds(), Some(0));
@@ -908,6 +936,9 @@ fn openrouter_deepseek_v4_flash_worker_profile_is_selected_by_alias() {
         .unwrap();
     let guidance = config.worker_supervisor_guidance();
 
+    assert_eq!(config.opencode.provider, "openrouter");
+    assert_eq!(config.opencode.model, "deepseek/deepseek-v4-flash");
+    assert!(!config.opencode.require_local);
     assert_eq!(guidance.model, "openrouter/deepseek/deepseek-v4-flash");
     assert_eq!(config.opencode.model_output_token_limit, Some(512));
 }

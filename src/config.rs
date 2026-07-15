@@ -361,16 +361,21 @@ fn apply_worker_model_override(config: &mut OpenCodeConfig, value: &str) -> Resu
     if trimmed.is_empty() {
         bail!("--worker-model must not be empty");
     }
-    let (provider, model) = match trimmed.split_once('/') {
-        Some((provider, model)) => {
-            let provider = provider.trim();
-            let model = model.trim();
-            if provider.is_empty() || model.is_empty() {
-                bail!("--worker-model provider/model values must include both parts");
+    let openrouter_model = known_openrouter_worker_slug(trimmed);
+    let (provider, model) = if let Some(model) = openrouter_model {
+        (Some("openrouter".to_string()), model)
+    } else {
+        match trimmed.split_once('/') {
+            Some((provider, model)) => {
+                let provider = provider.trim();
+                let model = model.trim();
+                if provider.is_empty() || model.is_empty() {
+                    bail!("--worker-model provider/model values must include both parts");
+                }
+                (Some(provider.to_string()), model.to_string())
             }
-            (Some(provider.to_string()), model.to_string())
+            None => (None, trimmed.to_string()),
         }
-        None => (None, trimmed.to_string()),
     };
     if let Some(provider) = provider {
         if is_cloud_opencode_provider(&provider) {
@@ -390,6 +395,30 @@ fn apply_worker_model_override(config: &mut OpenCodeConfig, value: &str) -> Resu
     config.model = model;
     apply_worker_profile_opencode_overrides(config);
     Ok(())
+}
+
+/// Return the canonical OpenRouter model slug for a known OpenRouter worker.
+fn known_openrouter_worker_slug(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.starts_with("openrouter/") || !normalized.contains('/') {
+        return None;
+    }
+    default_worker_model_profiles()
+        .into_iter()
+        .filter_map(|profile| {
+            let canonical_slug = profile.model.strip_prefix("openrouter/")?;
+            let matches_canonical = normalized == canonical_slug.to_ascii_lowercase();
+            let matches_alias = profile.aliases.iter().any(|alias| {
+                alias.contains('/')
+                    && normalized
+                        == alias
+                            .strip_prefix("openrouter/")
+                            .unwrap_or(alias)
+                            .to_ascii_lowercase()
+            });
+            (matches_canonical || matches_alias).then(|| canonical_slug.to_string())
+        })
+        .next()
 }
 
 fn apply_worker_profile_opencode_overrides(config: &mut OpenCodeConfig) {
