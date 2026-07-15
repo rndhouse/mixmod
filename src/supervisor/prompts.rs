@@ -283,7 +283,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
             r#"Patch request context:
 - Treat a first non-empty delta as progress, not proof of completion.
 - If more work is needed, make the next revision one source behavior with a bounded patch goal; include exact_edits only when precision saves supervisor output.
-- When the current active diff is useful incomplete progress and the next turn should not reread it as a patch, use patch_decision=accept_current_baseline with worker_mode=context_focus.
+- A useful incomplete active diff may be a baseline candidate before the next slice; apply the session economics policy when choosing worker_mode and patch_decision.
 - Otherwise revise from the current worktree and preserve useful existing edits.
 - Put checks in deferred_checks until a non-empty patch exists unless artifacts show the edit already exists."#
                 .to_string(),
@@ -304,8 +304,8 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Context-pressure context:
 - The worker artifacts indicate context overflow or high token pressure.
-- If another revision is needed, prefer a smaller next request.
-- Use worker_mode=context_focus when continuing would require broad rereading or the previous context appears stale."#
+- If another revision is needed, shrink the next request.
+- This is a context_focus-favored signal under the session economics policy."#
                 .to_string(),
         );
     }
@@ -344,9 +344,8 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
             r#"Patch checkpoint context:
 - Treat patch-comparison.json as neutral structural telemetry; Mixmod is not judging patch quality.
 - Choose patch_decision yourself from the task, current patch, and checkpoint artifacts.
-- Use accept_current_baseline when the current active patch is useful incomplete progress and the next worker should start from a clean active diff to avoid cumulative context cost. Mixmod creates an internal checkpoint commit and reconstructs the final benchmark patch from the original base.
-- Use revise_previous only when your review decides the previous candidate should be restored.
-- If you choose revise_previous, Mixmod restores that candidate before the next worker turn; tell the worker only the focused follow-up edit."#
+- accept_current_baseline creates an internal checkpoint commit, puts accepted progress in the source tree, clears the active diff for the next turn, and reconstructs the final benchmark patch from the original base.
+- revise_previous restores the previous candidate patch before the next worker turn; tell the worker only the focused follow-up edit."#
                 .to_string(),
         );
     }
@@ -374,11 +373,7 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
 - Stop only for a blocked or inconclusive worker result when no useful worker path remains.
 - The worker owns implementation. Do not author task-solving source changes.
 - Put only repo source/test paths in focus_files. Do not ask the worker to inspect Mixmod artifacts.
-- worker_mode=continue reuses the current worker session; worker_mode=context_focus starts a fresh worker session on the same source tree.
-- worktree.patch is the active diff against the current baseline. After patch_decision=accept_current_baseline, earlier accepted progress is in the source tree rather than the active diff.
-- Use patch_decision=accept_current_baseline when useful incomplete progress should become baseline before the next worker turn, especially when cumulative diff visibility would waste worker or supervisor tokens.
-- Use patch_decision=revise_previous only when checkpoint artifacts support restoring a previous candidate.
-- Prefer patch_decision for rollback control; use direct git restore/apply only for state management, not to create a solution patch."#
+- Prefer patch_decision for checkpoint control; use direct git restore/apply only for state management, not to create a solution patch."#
     )
 }
 

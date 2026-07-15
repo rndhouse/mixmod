@@ -14,7 +14,7 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
 
     assert!(prompt.contains("Core review contract"));
     assert!(prompt.contains("Worker session context economics:"));
-    assert!(prompt.contains("worker_mode=continue reuses the current worker session"));
+    assert!(prompt.contains("worker_mode=continue reuses useful recent file/tool context"));
     assert!(prompt.contains("worker_mode=context_focus starts a fresh worker session"));
     assert!(prompt.contains("Cached input tokens are cheaper than uncached input"));
     assert!(prompt.contains("large cached session can still dominate cost and latency"));
@@ -52,8 +52,8 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("Revise when a useful worker path remains"));
     assert!(prompt.contains("Stop only for a blocked or inconclusive worker result"));
     assert!(prompt.contains("The worker owns implementation"));
-    assert!(prompt.contains("Prefer patch_decision for rollback control"));
-    assert!(prompt.contains("useful incomplete progress should become baseline"));
+    assert!(prompt.contains("Prefer patch_decision for checkpoint control"));
+    assert!(prompt.contains("Use patch_decision=accept_current_baseline"));
     assert!(prompt.contains("Put only repo source/test paths in focus_files"));
     assert!(prompt.contains("exact_edits"));
     assert!(!prompt.contains("Context-pressure context"));
@@ -104,7 +104,13 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     assert!(prompt.contains("Live-control context"));
     assert!(prompt.contains("Slice-sizing context"));
     assert!(prompt.contains("Patch checkpoint context"));
-    assert!(prompt.contains("Mixmod restores that candidate before the next worker turn"));
+    assert!(prompt.contains("baseline candidate before the next slice"));
+    assert!(prompt.contains("apply the session economics policy"));
+    assert!(prompt.contains("context_focus-favored signal"));
+    assert!(prompt.contains("accept_current_baseline creates an internal checkpoint commit"));
+    assert!(prompt.contains("revise_previous restores the previous candidate patch"));
+    assert!(!prompt.contains("avoid cumulative context cost"));
+    assert!(!prompt.contains("worker_mode=context_focus."));
 }
 
 #[test]
