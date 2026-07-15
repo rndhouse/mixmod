@@ -142,6 +142,10 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
             .unwrap();
 
     assert!(feedback_prompt.contains("Supervisor-only worker-model guidance"));
+    assert!(feedback_prompt.contains("Worker shape contract:"));
+    assert!(feedback_prompt.contains("Patch-request decomposition contract"));
+    assert!(feedback_prompt.contains("one bounded, reviewable implementation slice"));
+    assert!(feedback_prompt.contains("hand off the next slice only, not the full task"));
     assert!(feedback_prompt.contains("Mixmod will not repair or reshape the revision"));
     assert!(feedback_prompt.contains("Do not copy the list to the worker"));
     assert!(feedback_prompt.contains("Use relevant bullets as constraints"));
@@ -174,12 +178,17 @@ fn supervisor_prompts_include_selected_worker_model_guidance() {
     assert!(brief_prompt.contains("Mission: complete the task while minimizing"));
     assert!(brief_prompt.contains("Local worker tokens are cheap"));
     assert!(brief_prompt.contains("Choose the cheapest reliable next worker handoff"));
+    assert!(brief_prompt.contains("still include worker_turn_shape and related boundary fields"));
     assert!(brief_prompt.contains("Worker shape contract:"));
-    assert!(brief_prompt.contains("Profile-selected shape"));
+    assert!(brief_prompt.contains("Patch-request decomposition contract"));
     assert!(brief_prompt.contains("Mixmod will not run an automatic repair turn"));
     assert!(brief_prompt.contains("Mixmod will not repair or reshape a broad handoff"));
     assert!(brief_prompt.contains("use worker_turn_shape=\"patch_request\""));
     assert!(brief_prompt.contains("Do not emit worker_turn_shape=\"bounded_feature_slice\""));
+    assert!(brief_prompt.contains("patch-size guidance as a decomposition budget"));
+    assert!(brief_prompt.contains("one bounded, reviewable implementation slice"));
+    assert!(brief_prompt.contains("hand off the next slice only, not the full task"));
+    assert!(brief_prompt.contains("known file boundary"));
     assert!(brief_prompt.contains("reasoning before editing"));
     assert!(brief_prompt.contains("large effective context"));
     assert!(brief_prompt.contains("short worker_turn_shape=patch_request"));
@@ -263,7 +272,7 @@ fn supervisor_prompts_include_openrouter_glm_worker_guidance() {
 }
 
 #[test]
-fn supervisor_prompt_makes_minimax_first_turn_boundary_explicit() {
+fn supervisor_prompt_uses_general_patch_request_decomposition_for_minimax() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let mut config = MixmodConfig::default();
@@ -287,18 +296,63 @@ fn supervisor_prompt_makes_minimax_first_turn_boundary_explicit() {
         supervisor_worker_brief_prompt(root, &task, &guidance, SupervisorInitMode::Compact)
             .unwrap();
 
-    assert!(prompt.contains("MiniMax first expected-patch implementation handoff contract"));
-    assert!(prompt.contains(r#"normally use worker_turn_shape="patch_request""#));
-    assert!(prompt.contains("Cover one implementation phase only"));
-    assert!(prompt.contains("AST/parser source support"));
-    assert!(prompt.contains("VM/env enforcement"));
-    assert!(prompt.contains("tests/verification"));
+    assert!(prompt.contains("Patch-request decomposition contract"));
+    assert!(prompt.contains(r#"use worker_turn_shape="patch_request""#));
+    assert!(prompt.contains("one bounded, reviewable implementation slice"));
+    assert!(prompt.contains("multiple independent behaviors"));
+    assert!(prompt.contains("hand off the next slice only, not the full task"));
     assert!(prompt.contains("worker-visible stop_condition"));
     assert!(prompt.contains("scope_rationale"));
-    assert!(prompt.contains("full-task or multi-phase scope"));
-    assert!(prompt.contains("The boundary should be evident"));
+    assert!(prompt.contains("profile's patch-size guidance"));
+    assert!(prompt.contains("known file boundary"));
     assert!(prompt.contains("A first implementation phase should be a real boundary"));
-    assert!(prompt.contains("without creating a long worker session"));
+}
+
+#[test]
+fn supervisor_prompt_uses_general_patch_request_decomposition_for_deepseek() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let mut config = MixmodConfig::default();
+    ModelOverrides::new(
+        None,
+        Some("openrouter/deepseek/deepseek-v4-flash".to_string()),
+    )
+    .apply_to_config(&mut config)
+    .unwrap();
+    let guidance = config.worker_supervisor_guidance();
+
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Typed variables",
+  "instructions": "Add typed variable declarations.",
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    let prompt =
+        supervisor_worker_brief_prompt(root, &task, &guidance, SupervisorInitMode::Compact)
+            .unwrap();
+
+    assert!(prompt.contains("Patch-request decomposition contract"));
+    assert!(prompt.contains(r#"use worker_turn_shape="patch_request""#));
+    assert!(prompt.contains("one bounded, reviewable implementation slice"));
+    assert!(prompt.contains("independent behaviors, layers, generated outputs"));
+    assert!(prompt.contains("verification steps"));
+    assert!(prompt.contains("likely exceeds the worker patch budget"));
+    assert!(prompt.contains("decompose it yourself before emitting JSON"));
+    assert!(prompt.contains("hand off the next slice only, not the full task"));
+    assert!(prompt.contains("name the command or boundary"));
+    assert!(prompt.contains("stop after the slice has one useful tracked diff"));
+    assert!(prompt.contains("profile's patch-size guidance"));
+    assert!(prompt.contains("within the selected worker shape contract"));
+    assert!(prompt.contains("patch-size guidance as a decomposition budget"));
+    assert!(
+        !prompt.contains("DeepSeek V4 Flash first expected-patch implementation handoff contract")
+    );
+    assert!(!prompt.contains("generated parser output"));
 }
 
 #[test]

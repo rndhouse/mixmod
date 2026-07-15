@@ -385,6 +385,7 @@ fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
     assert!(instructions.contains("Do not run broad tests before editing."));
     assert!(instructions.contains("Supervisor stop condition:"));
     assert!(instructions.contains("return after the nested discount branch"));
+    assert!(!instructions.contains("Return after one useful tracked diff"));
     assert!(instructions.contains("Supervisor completion gate:"));
     assert!(instructions.contains("git diff --stat must be non-empty"));
     assert!(!instructions.contains("After editing, run exactly: git diff --stat"));
@@ -457,6 +458,9 @@ fn patch_request_revision_task_allows_goal_without_exact_edits() {
     assert!(!instructions.contains("Supervisor-provided edit details:"));
     assert!(instructions.contains("Relevant files:"));
     assert!(instructions.contains("- checkout.py"));
+    assert!(instructions.contains("Supervisor stop condition:"));
+    assert!(instructions.contains("Return after one useful tracked diff"));
+    assert!(instructions.contains("do not continue into another independent slice"));
 }
 
 #[test]

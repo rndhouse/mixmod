@@ -255,6 +255,7 @@ fn patch_request_worker_task_preserves_explicit_supervisor_gate() {
     );
     assert!(instructions.contains("Supervisor stop condition:"));
     assert!(instructions.contains("Return after the metadata plumbing diff exists"));
+    assert!(!instructions.contains("Return after one useful tracked diff"));
     assert!(instructions.contains("Supervisor completion gate:"));
     assert!(instructions.contains("git diff --stat"));
     assert!(!instructions.contains("Diff non-empty: yes/no"));
@@ -296,6 +297,9 @@ fn patch_request_worker_task_allows_goal_without_exact_edits() {
     assert!(!instructions.contains("Supervisor-provided edit details:"));
     assert!(instructions.contains("Relevant files:"));
     assert!(instructions.contains("- checkout.py"));
+    assert!(instructions.contains("Supervisor stop condition:"));
+    assert!(instructions.contains("Return after one useful tracked diff"));
+    assert!(instructions.contains("do not continue into another independent slice"));
 }
 
 #[test]

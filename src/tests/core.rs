@@ -928,6 +928,12 @@ fn openrouter_deepseek_v4_flash_worker_profile_is_selected_by_alias() {
         guidance
             .guidance
             .iter()
+            .any(|item| item.contains("phase boundary reviewable"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
             .any(|item| item.contains("worker_mode=context_focus"))
     );
 

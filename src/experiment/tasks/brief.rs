@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::*;
 
+use super::PATCH_REQUEST_DEFAULT_STOP_CONDITION;
 use super::edit_packet::{NO_EDIT_PACKET, patch_request_edit_packet_from_value};
 use super::format::{
     append_handoff_list, bullet_list, file_list_or_none, hard_rule_from_forbidden_action,
@@ -117,6 +118,13 @@ pub(crate) fn write_worker_brief_task(
         .or_else(|| get_str(brief, "worker_stop_condition"))
         .map(str::trim)
         .filter(|condition| !condition.is_empty());
+    let stop_condition = explicit_stop_condition.or_else(|| {
+        if patch_request {
+            Some(PATCH_REQUEST_DEFAULT_STOP_CONDITION)
+        } else {
+            None
+        }
+    });
     let acceptance = if planning_probe {
         Vec::new()
     } else if patch_request {
@@ -134,7 +142,7 @@ pub(crate) fn write_worker_brief_task(
             &original,
             brief,
             &target_files,
-            explicit_stop_condition,
+            stop_condition,
             explicit_completion_gate,
             &codex_message,
         )
@@ -297,7 +305,7 @@ Relevant files:
 
 Use concrete files from this list. If a listed item is a directory, do not read the whole directory; choose the one file required by the patch request.
 Do not read an entire large file before the first edit unless focused anchor searches are not enough to apply the patch request.
-Do not expand beyond this first patch request unless the supervisor request requires it.
+Do not expand beyond this first patch request.
 If a listed file is missing, continue with the remaining request; create a missing file only when the request requires it.
 When editing an existing source function, preserve surrounding control flow and indentation. Do not rewrite the whole function. Do not delete or reindent unrelated branches. Make the smallest local edit that satisfies this request.
 {stop_condition_note}

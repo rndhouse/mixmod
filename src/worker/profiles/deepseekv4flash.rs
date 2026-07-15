@@ -13,7 +13,7 @@ pub(super) fn profile() -> WorkerModelProfile {
         supervisor_guidance: vec![
             "DeepSeek V4 Flash is a lower-cost OpenRouter worker that should be useful for direct, bounded source edits and compact repo investigation, but it is still not a completion judge.".to_string(),
             "Prefer phase-bounded patch_request turns that create one useful tracked diff and stop for supervisor review. The supervisor should validate direction before asking for another phase.".to_string(),
-            "For the first expected-patch turn, normally set worker_turn_shape=patch_request and request one bounded implementation phase rather than the full task. Include a worker-visible stop_condition; if asking for full-task or multi-phase scope, include a compact scope_rationale.".to_string(),
+            "For the first expected-patch turn, set worker_turn_shape=patch_request and request one bounded implementation phase rather than the full task. Use turn_goal, files, and stop_condition to make the phase boundary reviewable; if asking for full-task or multi-phase scope, include a compact scope_rationale.".to_string(),
             "This worker is expected to spend less output on reasoning than heavier workers, so favor concise patch-first requests over planning probes when the likely files and behavior are already known.".to_string(),
             "Use the large context as safety margin, not as a reason for unbounded files, generated output, broad logs, or long autonomous debugging loops.".to_string(),
             "Prefer human-authored source edits. Keep generated outputs out of the normal worker-owned patch, and review changed-file lists before opening large diffs.".to_string(),

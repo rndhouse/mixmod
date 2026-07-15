@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::*;
 
+use super::PATCH_REQUEST_DEFAULT_STOP_CONDITION;
 use super::edit_packet::{NO_EDIT_PACKET, patch_request_edit_packet_from_decision};
 use super::focus::split_worker_focus_files;
 use super::format::{
@@ -65,6 +66,13 @@ pub(crate) fn write_revision_task(
         .as_deref()
         .map(str::trim)
         .filter(|condition| !condition.is_empty());
+    let stop_condition = explicit_stop_condition.or_else(|| {
+        if patch_request {
+            Some(PATCH_REQUEST_DEFAULT_STOP_CONDITION)
+        } else {
+            None
+        }
+    });
     let acceptance = if !expect_patch {
         Vec::new()
     } else if patch_request {
@@ -129,7 +137,7 @@ pub(crate) fn write_revision_task(
             decision,
             focus_files: &focus_files,
             focus_note: &focus_note,
-            stop_condition: explicit_stop_condition,
+            stop_condition,
             completion_gate: explicit_completion_gate,
             patch_decision_note,
         })
@@ -384,7 +392,7 @@ Relevant files:
 {focus_note}
 Use concrete files from the relevant file list. If a listed item is a directory, do not read the whole directory; choose the one file required by the patch request.
 Do not read an entire large file before the first edit unless focused anchor searches are not enough to apply the patch request.
-Do not expand beyond this patch request unless the supervisor request requires it.
+Do not expand beyond this patch request.
 If a listed file is missing, continue with the remaining request; create a missing file only when the request requires it.
 {checks_note}
 {stop_condition_note}
