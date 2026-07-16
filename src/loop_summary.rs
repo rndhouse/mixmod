@@ -113,7 +113,7 @@ fn summarize_worker_turn(default_dir: &Path, index: usize, run_dir: &Path) -> Va
         "run_dir": run_dir
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("worker-run"),
+            .unwrap_or("worker-turn"),
         "role": if index == 0 { "proposal" } else { "revision" },
         "supervisor_label": handoff.supervisor_label,
         "worker_turn_shape": handoff.worker_turn_shape,

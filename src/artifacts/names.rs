@@ -95,7 +95,7 @@ pub(crate) fn supervisor_review_artifact_paths(
     .collect()
 }
 
-/// Supervisor-visible worker-run artifacts, including checkpoint artifacts.
+/// Supervisor-visible worker-turn artifacts, including checkpoint artifacts.
 pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
     RECEIPT_JSON,
     REPORT_MD,

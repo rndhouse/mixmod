@@ -84,7 +84,7 @@ pub struct LiveWorkerSnapshot {
     pub live_control_check_index: u64,
     /// Maximum live supervisor checks allowed for this worker run.
     pub live_control_check_limit: u64,
-    /// Total worker-run elapsed time in milliseconds.
+    /// Total worker-turn elapsed time in milliseconds.
     pub elapsed_ms: u64,
     /// Current segment elapsed time in milliseconds.
     pub segment_elapsed_ms: u64,
@@ -166,7 +166,7 @@ impl AgentRequest {
     }
 }
 
-/// Output returned by an agent harness after one Mixmod run segment.
+/// Output returned by an agent harness after one worker turn segment.
 #[derive(Debug)]
 pub struct AgentOutput {
     pub backend: AgentBackend,

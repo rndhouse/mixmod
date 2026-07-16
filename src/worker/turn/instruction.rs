@@ -2,7 +2,7 @@ use crate::*;
 
 use super::recovery::RevisionNoopContext;
 
-pub(crate) fn build_opencode_instruction(
+pub(crate) fn build_worker_turn_instruction(
     mode: DelegationMode,
     task: &TaskSpec,
     _task_path: &Path,

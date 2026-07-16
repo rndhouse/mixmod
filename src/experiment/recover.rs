@@ -33,7 +33,7 @@ pub fn experiment_recover(root: &Path, name: &str, require_local: bool) -> Resul
     let runner = worker_harness_for_config(config);
     let recovery_id = make_run_id("recovery");
     let out_dir = state_layout(&work_dir).runs().join(&recovery_id);
-    let receipt = run_mixmod_task_with_options(
+    let receipt = run_worker_turn_with_local_requirement(
         &work_dir,
         DelegationMode::Patch,
         &worker_task,

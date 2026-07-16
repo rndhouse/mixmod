@@ -1,7 +1,7 @@
 use super::WorkerContextSignals;
 use crate::*;
 
-pub(crate) fn build_run_summary(
+pub(crate) fn build_worker_turn_summary(
     status: &str,
     mode: DelegationMode,
     output: &AgentOutput,
@@ -51,7 +51,7 @@ pub(crate) fn build_run_summary(
     }
 }
 
-pub(super) struct RunReportInput<'a> {
+pub(super) struct WorkerTurnReportInput<'a> {
     pub(super) status: &'a str,
     pub(super) mode: DelegationMode,
     pub(super) summary: &'a str,
@@ -66,8 +66,8 @@ pub(super) struct RunReportInput<'a> {
     pub(super) out_dir: &'a Path,
 }
 
-pub(super) fn build_run_report(input: RunReportInput<'_>) -> String {
-    let RunReportInput {
+pub(super) fn build_worker_turn_report(input: WorkerTurnReportInput<'_>) -> String {
+    let WorkerTurnReportInput {
         status,
         mode,
         summary,
@@ -121,7 +121,7 @@ pub(super) fn build_run_report(input: RunReportInput<'_>) -> String {
         .join("\n");
 
     format!(
-        r#"# Mixmod Run Report
+        r#"# Mixmod Worker Turn Report
 
 ## Summary
 
@@ -215,7 +215,7 @@ Heartbeat log: `{heartbeat}`
         task_title = task.title,
         summary = summary,
         worker_backend = output.backend.as_str(),
-        exit_status = opencode_exit_status_label(output),
+        exit_status = worker_turn_exit_status_label(output),
         session_label = output.session_label.as_deref().unwrap_or("unavailable"),
         session_id = output.session_id.as_deref().unwrap_or("unavailable"),
         resume_session_id = output.resume_session_id.as_deref().unwrap_or("none"),
@@ -264,7 +264,7 @@ Heartbeat log: `{heartbeat}`
     )
 }
 
-pub(crate) fn opencode_exit_status_label(output: &AgentOutput) -> String {
+pub(crate) fn worker_turn_exit_status_label(output: &AgentOutput) -> String {
     if let Some(code) = output.exit_status {
         return code.to_string();
     }

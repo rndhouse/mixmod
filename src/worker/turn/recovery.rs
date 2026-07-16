@@ -1,7 +1,7 @@
 use crate::*;
 
 use super::context::worker_context_signals;
-use super::prompts::{
+use super::instruction::{
     build_empty_patch_followup_instruction, build_revision_noop_followup_instruction,
     build_worker_self_review_instruction, revision_focus_files,
 };

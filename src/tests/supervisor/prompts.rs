@@ -237,7 +237,7 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
     assert!(prompt.contains("Artifact index:"));
     assert!(prompt.contains("Inspect the listed artifact files directly"));
     assert!(prompt.contains("report.md"));
-    assert!(prompt.contains("compact worker-run summary"));
+    assert!(prompt.contains("compact worker-turn summary"));
     assert!(prompt.contains("worktree.patch"));
     assert!(prompt.contains("active current repository diff"));
     assert!(prompt.contains("tool-events.jsonl"));

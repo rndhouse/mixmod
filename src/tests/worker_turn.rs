@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn run_writes_full_artifact_bundle() {
+fn worker_turn_writes_full_artifact_bundle() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     init_git(root);
@@ -31,7 +31,7 @@ fn run_writes_full_artifact_bundle() {
 
     let run_dir = state_layout(root).runs().join("example");
     let receipt =
-        run_mixmod_task(root, DelegationMode::Patch, &task, &run_dir, &FakeRunner).unwrap();
+        run_worker_turn(root, DelegationMode::Patch, &task, &run_dir, &FakeRunner).unwrap();
 
     assert_eq!(receipt.status, "success");
     for artifact in [
@@ -94,7 +94,7 @@ fn empty_patch_followup_runs_once_when_patch_expected() {
     let runner = EmptyPatchThenPatchRunner::new();
 
     let run_dir = state_layout(root).runs().join("example");
-    let receipt = run_mixmod_task(root, DelegationMode::Patch, &task, &run_dir, &runner).unwrap();
+    let receipt = run_worker_turn(root, DelegationMode::Patch, &task, &run_dir, &runner).unwrap();
 
     assert_eq!(receipt.status, "success");
     assert_eq!(runner.calls.load(AtomicOrdering::SeqCst), 2);
@@ -168,17 +168,17 @@ fn recovery_can_be_disabled_for_first_worker_inspection() {
     let runner = EmptyPatchThenPatchRunner::new();
 
     let run_dir = state_layout(root).runs().join("example");
-    let receipt = run_mixmod_task_with_worker_options(
+    let receipt = run_worker_turn_with_options(
         root,
         DelegationMode::Patch,
         &task,
         &run_dir,
         &runner,
         false,
-        WorkerRunOptions {
+        WorkerTurnOptions {
             resume_session_id: None,
             allow_auto_followups: false,
-            ..WorkerRunOptions::default()
+            ..WorkerTurnOptions::default()
         },
     )
     .unwrap();
@@ -227,16 +227,16 @@ fn worker_self_review_is_optional_and_reuses_worker_session() {
     .unwrap();
     let runner = PatchThenSelfReviewRunner::new();
     let run_dir = state_layout(root).runs().join("self-review");
-    let receipt = run_mixmod_task_with_worker_options(
+    let receipt = run_worker_turn_with_options(
         root,
         DelegationMode::Patch,
         &task,
         &run_dir,
         &runner,
         false,
-        WorkerRunOptions {
+        WorkerTurnOptions {
             worker_self_review: true,
-            ..WorkerRunOptions::default()
+            ..WorkerTurnOptions::default()
         },
     )
     .unwrap();
@@ -335,7 +335,7 @@ fn revision_noop_followup_reuses_worker_session_and_requires_delta() {
     .unwrap();
     let runner = RevisionNoopThenPatchRunner::new();
     let run_dir = state_layout(root).runs().join("revision");
-    let receipt = run_mixmod_task_with_session(
+    let receipt = run_worker_turn_with_session(
         root,
         DelegationMode::Patch,
         &task,
@@ -451,7 +451,7 @@ fn empty_patch_is_allowed_when_patch_not_expected() {
 
     let run_dir = state_layout(root).runs().join("example");
     let receipt =
-        run_mixmod_task(root, DelegationMode::Patch, &task, &run_dir, &NoEditRunner).unwrap();
+        run_worker_turn(root, DelegationMode::Patch, &task, &run_dir, &NoEditRunner).unwrap();
 
     assert_eq!(receipt.status, "success");
     let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();

@@ -1,7 +1,7 @@
 use super::super::*;
 
 #[test]
-fn opencode_instruction_includes_local_worker_self_check() {
+fn worker_turn_instruction_includes_local_worker_self_check() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("task.json");
@@ -17,7 +17,7 @@ fn opencode_instruction_includes_local_worker_self_check() {
     .unwrap();
     let (_, task_spec) = read_task_json(&task).unwrap();
 
-    let instruction = build_opencode_instruction(
+    let instruction = build_worker_turn_instruction(
         DelegationMode::Patch,
         &task_spec,
         &task,
@@ -37,7 +37,7 @@ fn opencode_instruction_includes_local_worker_self_check() {
 }
 
 #[test]
-fn opencode_instruction_honors_no_patch_tasks() {
+fn worker_turn_instruction_honors_no_patch_tasks() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("task.json");
@@ -52,7 +52,7 @@ fn opencode_instruction_honors_no_patch_tasks() {
     .unwrap();
     let (_, task_spec) = read_task_json(&task).unwrap();
 
-    let instruction = build_opencode_instruction(
+    let instruction = build_worker_turn_instruction(
         DelegationMode::Patch,
         &task_spec,
         &task,
@@ -64,7 +64,7 @@ fn opencode_instruction_honors_no_patch_tasks() {
 }
 
 #[test]
-fn patch_request_opencode_instruction_uses_patch_only_output_contract() {
+fn patch_request_worker_turn_instruction_uses_patch_only_output_contract() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("worker-task.json");
@@ -88,7 +88,7 @@ fn patch_request_opencode_instruction_uses_patch_only_output_contract() {
     .unwrap();
     let (_, task_spec) = read_task_json(&task).unwrap();
 
-    let instruction = build_opencode_instruction(
+    let instruction = build_worker_turn_instruction(
         DelegationMode::Patch,
         &task_spec,
         &task,
@@ -104,7 +104,7 @@ fn patch_request_opencode_instruction_uses_patch_only_output_contract() {
 }
 
 #[test]
-fn revision_patch_request_opencode_instruction_uses_patch_only_output_contract() {
+fn revision_patch_request_worker_turn_instruction_uses_patch_only_output_contract() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let task = root.join("revision-task.json");
@@ -133,7 +133,7 @@ fn revision_patch_request_opencode_instruction_uses_patch_only_output_contract()
     .unwrap();
     let (_, task_spec) = read_task_json(&task).unwrap();
 
-    let instruction = build_opencode_instruction(
+    let instruction = build_worker_turn_instruction(
         DelegationMode::Patch,
         &task_spec,
         &task,

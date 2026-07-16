@@ -6,7 +6,7 @@ fn exit_status_label_names_supervisor_interrupt() {
     output.interrupted_by_supervisor = true;
 
     assert_eq!(
-        opencode_exit_status_label(&output),
+        worker_turn_exit_status_label(&output),
         "interrupted-by-supervisor"
     );
 }
@@ -21,7 +21,7 @@ fn summary_reports_captured_patch_when_supervisor_needed() {
         removed_lines: 0,
     };
 
-    let summary = build_run_summary(
+    let summary = build_worker_turn_summary(
         "needs_supervisor",
         DelegationMode::Patch,
         &output,
@@ -49,7 +49,7 @@ fn summary_reports_accumulated_patch_when_latest_delta_is_empty() {
         removed_lines: 0,
     };
 
-    let summary = build_run_summary(
+    let summary = build_worker_turn_summary(
         "needs_supervisor",
         DelegationMode::Patch,
         &output,

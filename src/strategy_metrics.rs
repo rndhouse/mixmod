@@ -32,7 +32,7 @@ pub(crate) struct WorkerMetricsSummary {
 }
 
 impl WorkerMetricsSummary {
-    /// Build an aggregate summary from per-worker-run metrics JSON values.
+    /// Build an aggregate summary from per-worker-turn metrics JSON values.
     pub(crate) fn from_metrics(worker_metrics: &[Value]) -> Self {
         Self {
             local_stdout_bytes: sum_u64(worker_metrics, "stdout_bytes"),

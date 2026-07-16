@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::{make_run_id, state_layout, write_pretty_json};
 
-/// Normalized task shape used by Mixmod run and experiment code.
+/// Normalized task shape used by worker-turn and experiment code.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TaskSpec {

@@ -310,7 +310,7 @@ Mixmod default strategy beat Codex-only on output tokens: {default_output_win}.
 - Did both approaches produce a working patch? Codex-only: {codex_status}; Mixmod default: {default_status}.
 - Which evaluator scored the result? Mixmod does not execute project tests directly; use benchmark or official evaluator artifacts for scoring.
 - How much Codex-visible text was involved? Current byte proxies are Codex-only `{codex_visible}` and Mixmod default `{default_visible}`.
-- How much local-worker text was generated? `{local_worker_text}` bytes were captured for the Mixmod run.
+- How much local-worker text was generated? `{local_worker_text}` bytes were captured for the worker turn.
 - Did Codex need to read the full Mixmod session? {full_session}.
 - Did Mixmod appear to reduce supervisor context exposure? {token_conclusion}
 

@@ -26,7 +26,6 @@ mod interventions;
 mod live;
 mod loop_summary;
 mod report;
-mod run;
 mod state;
 mod strategy;
 mod strategy_metrics;
@@ -86,7 +85,6 @@ pub use interventions::{
     InterventionSessionPolicy, InterventionTarget,
 };
 pub use report::experiment_report;
-pub use run::{run_mixmod_task, run_mixmod_task_with_options};
 pub(crate) use strategy::default::policy::{
     default_strategy_note, supervisor_direct_finish_policy, supervisor_feedback_action_schema,
     supervisor_feedback_strategy_policy,
@@ -100,6 +98,7 @@ pub(crate) use strategy::default::support::{
     run_default_supervisor_review, run_default_supervisor_takeover, supervisor_token_usage_labels,
 };
 pub(crate) use strategy::default::{DefaultStrategyOptions, run_default_strategy};
+pub use worker::{run_worker_turn, run_worker_turn_with_local_requirement};
 
 use diff::{diff_without_unchanged_blocks, git_diff_with_untracked};
 pub(crate) use experiment::{placeholder_experiment_metrics, validate_experiment_name};
@@ -128,15 +127,6 @@ pub(crate) use live::{
 };
 pub(crate) use loop_summary::write_supervision_loop_summary;
 pub(crate) use report::budgeted_report;
-pub(crate) use run::{
-    WorkerRunOptions, run_mixmod_task_with_session, run_mixmod_task_with_worker_options,
-    shell_command, worker_session_token_peak,
-};
-#[cfg(test)]
-pub(crate) use run::{
-    build_opencode_instruction, build_run_summary, opencode_exit_status_label,
-    worker_context_signals, worker_token_usage,
-};
 pub(crate) use state::state_layout;
 pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
@@ -154,6 +144,15 @@ pub(crate) use supervisor::{
 };
 pub(crate) use tool_events::{build_opencode_events_jsonl, build_tool_events_jsonl};
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};
+pub(crate) use worker::{
+    WorkerTurnOptions, run_worker_turn_with_options, run_worker_turn_with_session, shell_command,
+    worker_session_token_peak,
+};
+#[cfg(test)]
+pub(crate) use worker::{
+    build_worker_turn_instruction, build_worker_turn_summary, worker_context_signals,
+    worker_token_usage, worker_turn_exit_status_label,
+};
 pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};
 
 use task::{
@@ -211,7 +210,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
         } => {
             ensure_project_state(&root, false)?;
             let task = resolve_exec_task(&root, task, prompt)?;
-            let out = state_layout(&root).runs().join(make_run_id("run"));
+            let out = state_layout(&root).runs().join(make_run_id("worker-turn"));
             let model_overrides = ModelOverrides::new(supervisor_model, worker_model)
                 .with_worker_backend(worker_backend);
             run_default_strategy(
@@ -249,7 +248,7 @@ pub fn run_cli(cli: Cli, cwd: &Path) -> Result<()> {
                 .with_worker_backend(worker_backend)
                 .apply_to_config(&mut config)?;
             let runner = worker_harness_for_config(config);
-            run_mixmod_task_with_session(
+            run_worker_turn_with_session(
                 &root,
                 mode,
                 &task,

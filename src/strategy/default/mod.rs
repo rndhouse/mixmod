@@ -295,7 +295,7 @@ impl DefaultStrategyRun<'_> {
             "worker_reported_cost_usd": worker_summary.worker_reported_cost_usd,
             "worker_token_step_count": worker_summary.worker_token_step_count,
             "worker_token_usage_source": "opencode_step_finish_tokens",
-            "worker_token_usage_scope": "worker_run_step_sum",
+            "worker_token_usage_scope": "worker_turn_step_sum",
             "worker_token_usage_comparable": worker_summary.worker_token_usage_comparable,
             "artifact_byte_sizes": default_strategy_artifact_byte_sizes(&out_dir)?,
             "patch_bytes": final_patch.len() as u64,

@@ -53,9 +53,9 @@ pub(crate) struct DefaultStrategyEngineOptions<'a> {
     pub(crate) proposal_out: PathBuf,
     /// Label included in generated revision tasks.
     pub(crate) revision_task_label: &'a str,
-    /// Return the worker-run output directory for a revision index.
+    /// Return the worker-turn output directory for a revision index.
     pub(crate) revision_out_path: Box<dyn Fn(u64) -> PathBuf + 'a>,
-    /// Adapter-specific worker-run verification and blocker handling.
+    /// Adapter-specific worker-turn verification and blocker handling.
     pub(crate) verify_worker_run: Box<dyn FnMut(&Receipt, &Path) -> Result<()> + 'a>,
 }
 
@@ -132,14 +132,14 @@ pub(crate) fn run_default_strategy_engine(
         &worker_brief.brief,
         options.strategy_dir,
     )?;
-    let proposal_receipt = run_mixmod_task_with_worker_options(
+    let proposal_receipt = run_worker_turn_with_options(
         options.root,
         DelegationMode::Patch,
         &worker_task,
         &options.proposal_out,
         options.runner,
         options.require_local,
-        WorkerRunOptions {
+        WorkerTurnOptions {
             resume_session_id: options.proposal_resume_session.clone(),
             allow_auto_followups: options.worker_auto_followups
                 && !(options.stop.stop_after_first_worker
@@ -295,14 +295,14 @@ pub(crate) fn run_default_strategy_engine(
                     decision_index,
                 )?;
                 final_out = (options.revision_out_path)(decision_index);
-                let revision_receipt = run_mixmod_task_with_worker_options(
+                let revision_receipt = run_worker_turn_with_options(
                     options.root,
                     DelegationMode::Patch,
                     &revision_task,
                     &final_out,
                     options.runner,
                     options.require_local,
-                    WorkerRunOptions {
+                    WorkerTurnOptions {
                         resume_session_id,
                         allow_auto_followups: options.worker_auto_followups
                             && options.stop.stop_after_worker_turns.is_none(),

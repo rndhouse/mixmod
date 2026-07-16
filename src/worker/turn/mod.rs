@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 mod command;
 mod context;
-mod prompts;
+mod instruction;
 mod recovery;
 mod report;
 mod session;
@@ -12,7 +12,7 @@ pub(crate) use command::shell_command;
 pub(crate) use context::{
     WorkerContextSignals, worker_context_signals, worker_session_token_peak, worker_token_usage,
 };
-pub(crate) use prompts::build_opencode_instruction;
+pub(crate) use instruction::build_worker_turn_instruction;
 use recovery::{
     EmptyPatchFollowup, EmptyPatchFollowupRequest, RevisionNoopContext, RevisionNoopFollowup,
     RevisionNoopFollowupRequest, WorkerSelfReview, WorkerSelfReviewRequest, merge_worker_outputs,
@@ -20,23 +20,24 @@ use recovery::{
     should_run_empty_patch_followup, should_run_revision_noop_followup,
     worker_self_review_skip_reason,
 };
-pub(crate) use report::build_run_summary;
 #[cfg(test)]
-pub(crate) use report::opencode_exit_status_label;
-use report::{RunReportInput, build_run_report};
+pub(crate) use report::build_worker_turn_summary;
+#[cfg(test)]
+pub(crate) use report::worker_turn_exit_status_label;
+use report::{WorkerTurnReportInput, build_worker_turn_report};
 use session::{build_reasoning_trace_jsonl, build_session_jsonl};
 
-pub fn run_mixmod_task(
+pub fn run_worker_turn(
     root: &Path,
     mode: DelegationMode,
     task_arg: &Path,
     out_arg: &Path,
     runner: &dyn AgentHarness,
 ) -> Result<Receipt> {
-    run_mixmod_task_with_options(root, mode, task_arg, out_arg, runner, false)
+    run_worker_turn_with_local_requirement(root, mode, task_arg, out_arg, runner, false)
 }
 
-pub fn run_mixmod_task_with_options(
+pub fn run_worker_turn_with_local_requirement(
     root: &Path,
     mode: DelegationMode,
     task_arg: &Path,
@@ -44,10 +45,10 @@ pub fn run_mixmod_task_with_options(
     runner: &dyn AgentHarness,
     require_local: bool,
 ) -> Result<Receipt> {
-    run_mixmod_task_with_session(root, mode, task_arg, out_arg, runner, require_local, None)
+    run_worker_turn_with_session(root, mode, task_arg, out_arg, runner, require_local, None)
 }
 
-pub(crate) fn run_mixmod_task_with_session(
+pub(crate) fn run_worker_turn_with_session(
     root: &Path,
     mode: DelegationMode,
     task_arg: &Path,
@@ -56,28 +57,28 @@ pub(crate) fn run_mixmod_task_with_session(
     require_local: bool,
     resume_session_id: Option<String>,
 ) -> Result<Receipt> {
-    run_mixmod_task_with_worker_options(
+    run_worker_turn_with_options(
         root,
         mode,
         task_arg,
         out_arg,
         runner,
         require_local,
-        WorkerRunOptions {
+        WorkerTurnOptions {
             resume_session_id,
-            ..WorkerRunOptions::default()
+            ..WorkerTurnOptions::default()
         },
     )
 }
 
-pub(crate) struct WorkerRunOptions {
+pub(crate) struct WorkerTurnOptions {
     pub(crate) resume_session_id: Option<String>,
     pub(crate) allow_auto_followups: bool,
     pub(crate) worker_self_review: bool,
     pub(crate) supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
 }
 
-impl Default for WorkerRunOptions {
+impl Default for WorkerTurnOptions {
     fn default() -> Self {
         Self {
             resume_session_id: None,
@@ -88,16 +89,16 @@ impl Default for WorkerRunOptions {
     }
 }
 
-pub(crate) fn run_mixmod_task_with_worker_options(
+pub(crate) fn run_worker_turn_with_options(
     root: &Path,
     mode: DelegationMode,
     task_arg: &Path,
     out_arg: &Path,
     runner: &dyn AgentHarness,
     require_local: bool,
-    options: WorkerRunOptions,
+    options: WorkerTurnOptions,
 ) -> Result<Receipt> {
-    MixmodRun {
+    WorkerTurn {
         root,
         mode,
         task_arg,
@@ -120,17 +121,17 @@ fn write_opencode_logs(logs_dir: &Path, stdout: &[u8], stderr: &[u8]) -> Result<
     Ok(())
 }
 
-struct CapturedRunPatch {
+struct CapturedWorkerTurnPatch {
     worktree_patch: String,
     patch: String,
 }
 
-fn capture_run_patch(
+fn capture_worker_turn_patch(
     root: &Path,
     before_diff: Option<&str>,
     notes: &mut Vec<String>,
     context: Option<&str>,
-) -> CapturedRunPatch {
+) -> CapturedWorkerTurnPatch {
     let worktree_patch = match git_diff_with_untracked(root) {
         Ok(after_diff) => after_diff,
         Err(error) => {
@@ -145,7 +146,7 @@ fn capture_run_patch(
         }
     };
     let patch = diff_without_unchanged_blocks(&worktree_patch, before_diff.unwrap_or_default());
-    CapturedRunPatch {
+    CapturedWorkerTurnPatch {
         worktree_patch,
         patch,
     }
@@ -153,7 +154,7 @@ fn capture_run_patch(
 
 fn write_patch_artifacts(
     out_dir: &Path,
-    captured_patch: &CapturedRunPatch,
+    captured_patch: &CapturedWorkerTurnPatch,
     output: &AgentOutput,
     notes: &mut Vec<String>,
 ) -> Result<()> {
@@ -178,7 +179,7 @@ fn write_patch_artifacts(
     Ok(())
 }
 
-struct MixmodRun<'a> {
+struct WorkerTurn<'a> {
     root: &'a Path,
     mode: DelegationMode,
     task_arg: &'a Path,
@@ -191,7 +192,7 @@ struct MixmodRun<'a> {
     supervisor_advisor: Option<Arc<dyn SupervisorAdvisor>>,
 }
 
-impl MixmodRun<'_> {
+impl WorkerTurn<'_> {
     fn execute(self) -> Result<Receipt> {
         let Self {
             root,
@@ -205,7 +206,7 @@ impl MixmodRun<'_> {
             worker_self_review,
             supervisor_advisor,
         } = self;
-        let run_id = make_run_id("run");
+        let run_id = make_run_id("worker-turn");
         let task_path = absolutize(root, task_arg);
         let out_dir = absolutize(root, out_arg);
         let logs_dir = out_dir.join("logs");
@@ -213,13 +214,13 @@ impl MixmodRun<'_> {
             .with_context(|| format!("failed to create {}", logs_dir.display()))?;
 
         let (task_value, task_spec) = read_task_json(&task_path)?;
-        write_pretty_json(&out_dir.join(TASK_JSON), &task_value, "run task")?;
+        write_pretty_json(&out_dir.join(TASK_JSON), &task_value, "worker turn task")?;
 
         let expect_patch = expect_patch_for_run(mode, &task_value);
         let interventions_path = out_dir.join(INTERVENTIONS_JSONL);
         let mut intervention_log = InterventionLog::new();
         let session_id = make_run_id("worker-session");
-        let instruction = build_opencode_instruction(mode, &task_spec, &task_path, &out_dir)?;
+        let instruction = build_worker_turn_instruction(mode, &task_spec, &task_path, &out_dir)?;
         let instruction_path = out_dir.join(OPENCODE_INSTRUCTIONS_MD);
         atomic_write(&instruction_path, instruction.as_bytes())?;
         let initial_session_policy = if resume_session_id.is_some() {
@@ -299,7 +300,8 @@ impl MixmodRun<'_> {
                 .to_string(),
         );
 
-        let mut captured_patch = capture_run_patch(root, before_diff.as_deref(), &mut notes, None);
+        let mut captured_patch =
+            capture_worker_turn_patch(root, before_diff.as_deref(), &mut notes, None);
         if allow_auto_followups
             && should_run_revision_noop_followup(
                 mode,
@@ -344,7 +346,7 @@ impl MixmodRun<'_> {
                     );
                     end_timestamp = Utc::now();
                     wall_clock_ms = start.elapsed().as_millis();
-                    captured_patch = capture_run_patch(
+                    captured_patch = capture_worker_turn_patch(
                         root,
                         before_diff.as_deref(),
                         &mut notes,
@@ -442,7 +444,7 @@ impl MixmodRun<'_> {
                     );
                     end_timestamp = Utc::now();
                     wall_clock_ms = start.elapsed().as_millis();
-                    captured_patch = capture_run_patch(
+                    captured_patch = capture_worker_turn_patch(
                         root,
                         before_diff.as_deref(),
                         &mut notes,
@@ -547,7 +549,7 @@ impl MixmodRun<'_> {
                     );
                     end_timestamp = Utc::now();
                     wall_clock_ms = start.elapsed().as_millis();
-                    captured_patch = capture_run_patch(
+                    captured_patch = capture_worker_turn_patch(
                         root,
                         before_diff.as_deref(),
                         &mut notes,
@@ -663,8 +665,9 @@ impl MixmodRun<'_> {
         } else {
             "failed"
         };
-        let summary = build_run_summary(status, mode, &output, &stats, &worktree_stats);
-        let report = build_run_report(RunReportInput {
+        let summary =
+            report::build_worker_turn_summary(status, mode, &output, &stats, &worktree_stats);
+        let report = build_worker_turn_report(WorkerTurnReportInput {
             status,
             mode,
             summary: &summary,
@@ -757,7 +760,7 @@ impl MixmodRun<'_> {
                 None
             },
             worker_token_usage_scope: if worker_token_usage.step_count > 0 {
-                Some("worker_run_step_sum".to_string())
+                Some("worker_turn_step_sum".to_string())
             } else {
                 None
             },
@@ -783,7 +786,7 @@ impl MixmodRun<'_> {
                 .collect::<Vec<_>>(),
             notes,
         };
-        write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "run metrics")?;
+        write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "worker turn metrics")?;
 
         let receipt = Receipt {
             run_id,
@@ -799,24 +802,24 @@ impl MixmodRun<'_> {
             metrics: display_path(root, &out_dir.join(METRICS_JSON)),
             logs: display_path(root, &logs_dir),
         };
-        write_pretty_json(&out_dir.join(RECEIPT_JSON), &receipt, "run receipt")?;
+        write_pretty_json(&out_dir.join(RECEIPT_JSON), &receipt, "worker turn receipt")?;
         let compact_total = compact_artifacts
             .iter()
             .filter_map(|name| file_len(&out_dir.join(*name)).ok())
             .sum();
         metrics.approximate_codex_input_bytes = Some(compact_total);
-        write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "run metrics")?;
+        write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "worker turn metrics")?;
         let compact_total_after_metrics_update = compact_artifacts
             .iter()
             .filter_map(|name| file_len(&out_dir.join(*name)).ok())
             .sum();
         if compact_total_after_metrics_update != compact_total {
             metrics.approximate_codex_input_bytes = Some(compact_total_after_metrics_update);
-            write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "run metrics")?;
+            write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "worker turn metrics")?;
         }
 
         println!(
-            "Mixmod run {} wrote artifacts to {}",
+            "Mixmod worker turn {} wrote artifacts to {}",
             receipt.run_id,
             out_dir.display()
         );

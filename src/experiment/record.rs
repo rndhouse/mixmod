@@ -45,7 +45,7 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
     let out_dir = mixmod_dir.join("runs").join(make_run_id("mixmod"));
     let config = load_config(root)?;
     let runner = worker_harness_for_config(config);
-    let receipt = run_mixmod_task(
+    let receipt = run_worker_turn(
         root,
         DelegationMode::Patch,
         &prepared_task,
