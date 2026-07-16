@@ -1,4 +1,4 @@
-use super::WorkerContextSignals;
+use super::context::WorkerContextSignals;
 use crate::*;
 
 pub(crate) fn build_worker_turn_summary(
