@@ -26,6 +26,8 @@ pub(crate) struct DefaultStrategyEngineOptions<'a> {
     pub(crate) task_file: &'a Path,
     /// Configured worker harness.
     pub(crate) runner: &'a dyn AgentHarness,
+    /// Configured GPT worker harness used for takeover patch turns.
+    pub(crate) takeover_runner: &'a dyn AgentHarness,
     /// Supervisor Codex configuration.
     pub(crate) supervisor: &'a SupervisorConfig,
     /// Initial supervisor handoff mode.
@@ -54,6 +56,8 @@ pub(crate) struct DefaultStrategyEngineOptions<'a> {
     pub(crate) revision_task_label: &'a str,
     /// Return the worker-turn output directory for a revision index.
     pub(crate) revision_out_path: Box<dyn Fn(u64) -> PathBuf + 'a>,
+    /// Return the worker-turn output directory for a takeover patch index.
+    pub(crate) takeover_out_path: Box<dyn Fn(u64) -> PathBuf + 'a>,
     /// Adapter-specific worker-turn verification and blocker handling.
     pub(crate) verify_worker_run: Box<dyn FnMut(&Receipt, &Path) -> Result<()> + 'a>,
 }
@@ -80,8 +84,8 @@ pub(crate) struct DefaultStrategyEngineOutput {
     pub(crate) supervisor_compactions: Vec<Value>,
     /// Latest supervisor feedback that selected direct takeover, when any.
     pub(crate) supervisor_takeover_decision: Option<Value>,
-    /// Direct supervisor surgical patch turns.
-    pub(crate) supervisor_patch_turns: Vec<SupervisorPatchTurn>,
+    /// Worker patch turns launched from supervisor takeover decisions.
+    pub(crate) takeover_worker_patch_turns: Vec<Value>,
     /// Final supervisor decision observed by the engine.
     pub(crate) final_decision: Option<SupervisorFeedbackTurn>,
 }
@@ -165,7 +169,7 @@ pub(crate) fn run_default_strategy_engine(
     supervisor_context.record_brief(&worker_brief);
     let mut supervisor_compactions = Vec::new();
     let mut supervisor_takeover_decision = None;
-    let mut supervisor_patch_turns = Vec::new();
+    let mut takeover_worker_patch_turns = Vec::new();
     let mut final_decision = None;
     if !should_stop_before_next_review(&options.stop, opencode_calls) {
         loop {
@@ -228,42 +232,22 @@ pub(crate) fn run_default_strategy_engine(
 
             if decision.verdict_kind() == SupervisorVerdict::TakeOver
                 && default_strategy_policy(options.strategy)
-                    .supervisor_patch
+                    .takeover_patch
                     .allows_takeover()
             {
                 let takeover_decision = decision.clone();
-                let takeover = run_default_supervisor_takeover(
-                    &supervisor_session,
+                let takeover_preparation = prepare_default_takeover_worker_patch(
                     options.root,
-                    options.strategy_dir,
-                    &feedback_path,
                     &final_out,
-                    decision_index,
                     &takeover_decision,
-                    &mut supervisor_context,
-                    &mut supervisor_samples,
-                    &mut supervisor_compactions,
-                    options.strategy,
                 )?;
-                if takeover.preparation.created_internal_baseline {
+                if takeover_preparation.created_internal_baseline {
                     internal_patch_baselines += 1;
                 }
                 supervisor_takeover_decision = Some(takeover_decision.feedback.clone());
-                supervisor_patch_turns.push(takeover.patch.clone());
-                if takeover.patch.action == "stop" {
-                    final_decision = Some(takeover_decision);
-                    break;
-                }
-
-                let worker_decision =
-                    supervisor_patch_verification_decision(&takeover.patch, &takeover_decision);
-                let previous_patch_source = takeover.preparation.previous_patch_source;
+                let worker_decision = takeover_preparation.worker_decision;
+                let previous_patch_source = takeover_preparation.previous_patch_source;
                 worker_modes.push(worker_decision.worker_mode.clone());
-                let resume_session_id = default_revision_resume_session_id(
-                    &worker_decision,
-                    &active_opencode_session_id,
-                    &final_out,
-                )?;
                 let revision_task = write_revision_task(
                     options.root,
                     options.task_file,
@@ -272,20 +256,19 @@ pub(crate) fn run_default_strategy_engine(
                     &worker_decision,
                     decision_index,
                 )?;
-                final_out = (options.revision_out_path)(decision_index);
+                final_out = (options.takeover_out_path)(decision_index);
                 let revision_receipt = run_worker_turn_with_options(
                     options.root,
                     DelegationMode::Patch,
                     &revision_task,
                     &final_out,
-                    options.runner,
-                    options.require_local,
+                    options.takeover_runner,
+                    false,
                     WorkerTurnOptions {
-                        resume_session_id,
-                        allow_auto_followups: options.worker_auto_followups
-                            && options.stop.stop_after_worker_turns.is_none(),
-                        worker_self_review: options.worker_self_review,
-                        supervisor_advisor: live_supervisor_advisor(&live_supervisor),
+                        resume_session_id: None,
+                        allow_auto_followups: false,
+                        worker_self_review: false,
+                        supervisor_advisor: None,
                     },
                 )?;
                 (options.verify_worker_run)(&revision_receipt, &final_out)?;
@@ -296,6 +279,17 @@ pub(crate) fn run_default_strategy_engine(
                 )?;
                 opencode_calls += 1;
                 worker_run_dirs.push(final_out.clone());
+                let takeover_worker_record = takeover_worker_patch_record(
+                    options.root,
+                    decision_index,
+                    &takeover_decision,
+                    &worker_decision,
+                    &revision_task,
+                    &final_out,
+                    &revision_receipt,
+                );
+                append_jsonl(&feedback_path, &takeover_worker_record)?;
+                takeover_worker_patch_turns.push(takeover_worker_record);
                 write_supervision_loop_summary(options.strategy_dir, &worker_run_dirs)?;
                 active_opencode_session_id = read_opencode_session_id_from_metrics(&final_out)?;
                 pending_supervisor_control = supervisor_control_decision_from_metrics(&final_out)?;
@@ -387,7 +381,7 @@ pub(crate) fn run_default_strategy_engine(
         supervisor_samples,
         supervisor_compactions,
         supervisor_takeover_decision,
-        supervisor_patch_turns,
+        takeover_worker_patch_turns,
         final_decision,
     })
 }

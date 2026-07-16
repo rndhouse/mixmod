@@ -175,9 +175,9 @@ Debug delegation-decision audit:
 - Include "delegation_decision" on every review decision.
 - delegation_decision.next_owner must be "worker", "supervisor", or "none".
 - delegation_decision.work_type must be "construction", "correction", "verification", "approval", or "blocked".
-- delegation_decision.why must explain why the next step belongs with the worker or supervisor patch turn under worker-build-supervisor-fix.
+- delegation_decision.why must explain why the next step belongs with the normal worker or a takeover worker patch under worker-build-supervisor-fix.
 - If action=revise, delegation_decision.worker_fit must name the broad construction slice that remains worker-scale; if you cannot name one, choose action=take_over instead.
-- If action=take_over, delegation_decision.direct_fit must name the localized correction the supervisor patch turn will make."#,
+- If action=take_over, delegation_decision.direct_fit must name the localized correction the fresh GPT worker patch session will make."#,
         json_field: r#","delegation_decision":{"next_owner":"worker|supervisor|none","work_type":"construction|correction|verification|approval|blocked","why":"debug-only","worker_fit":"debug-only when revising","direct_fit":"debug-only when taking over"}"#,
     }
 }

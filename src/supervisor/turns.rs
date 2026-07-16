@@ -13,11 +13,11 @@ use super::normalize::{
 };
 use super::prompts::{
     supervisor_feedback_approval_consistency_repair_prompt, supervisor_feedback_prompt,
-    supervisor_patch_prompt, supervisor_worker_brief_prompt,
+    supervisor_worker_brief_prompt,
 };
 use super::types::{
     RevisionHandoff, SupervisorBriefTurn, SupervisorCompactionTurn, SupervisorContextTelemetry,
-    SupervisorFeedbackTurn, SupervisorPatchTurn, SupervisorVerdict,
+    SupervisorFeedbackTurn, SupervisorVerdict,
 };
 
 pub(crate) fn run_supervisor_brief_turn(
@@ -373,123 +373,6 @@ pub(crate) fn run_supervisor_feedback_turn(
         token_usage_comparable,
     };
     Ok(turn)
-}
-
-pub(crate) fn run_supervisor_patch_turn(
-    session: &mut SupervisorCodexSession,
-    work_dir: &Path,
-    artifact_dir: &Path,
-    label: &str,
-    artifact_paths: &[PathBuf],
-    takeover_decision: &SupervisorFeedbackTurn,
-    context_telemetry: &SupervisorContextTelemetry,
-    strategy: DefaultStrategyMode,
-) -> Result<SupervisorPatchTurn> {
-    let prompt = supervisor_patch_prompt(
-        work_dir,
-        artifact_paths,
-        takeover_decision,
-        context_telemetry,
-        strategy,
-    )?;
-    let result = session.run_turn(artifact_dir, label, &prompt)?;
-    let parsed_decision = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
-        json!({
-            "action": "stop",
-            "summary": truncate_for_report(&result.last_message, 180),
-            "worker_checks": [],
-            "worker_verification_goal": "",
-            "risk": "supervisor patch turn did not return parseable JSON"
-        })
-    });
-    let action = normalize_supervisor_patch_action(get_str(&parsed_decision, "action"));
-    let mut final_decision = parsed_decision;
-    if let Value::Object(map) = &mut final_decision {
-        map.insert("action".to_string(), json!(action.clone()));
-    }
-    let worker_checks = get_string_array(&final_decision, "worker_checks");
-    let worker_verification_goal = get_str(&final_decision, "worker_verification_goal")
-        .map(ToOwned::to_owned)
-        .filter(|value| !value.trim().is_empty());
-    let surgical_contract = normalize_supervisor_patch_surgical_contract(&final_decision);
-    let record = json!({
-        "label": label,
-        "timestamp": Utc::now().to_rfc3339(),
-        "type": "supervisor_patch",
-        "decision": final_decision,
-        "takeover_feedback": takeover_decision.feedback,
-        "worker_checks": worker_checks.clone(),
-        "worker_verification_goal": worker_verification_goal.clone(),
-        "surgical_contract": surgical_contract,
-        "codex_exit_status": result.exit_status,
-        "supervisor_model": result.model.clone(),
-        "supervisor_reasoning_effort": result.reasoning_effort.clone(),
-        "supervisor_input_tokens": result.usage.input_tokens,
-        "supervisor_output_tokens": result.usage.output_tokens,
-        "supervisor_reasoning_tokens": result.usage.reasoning_tokens,
-        "supervisor_total_tokens": result.usage.total_tokens,
-        "supervisor_cached_input_tokens": result.usage.cached_input_tokens,
-        "supervisor_token_usage_scope": if result.token_usage_comparable { "turn_group_delta" } else { "incomplete" },
-        "supervisor_token_usage_comparable": result.token_usage_comparable,
-        "input_bytes": result.input_bytes,
-        "output_bytes": result.output_bytes,
-        "auth_copied_then_removed": result.auth_copied_then_removed,
-        "codex_app_server_thread_id": result.thread_id.clone(),
-        "codex_app_server_turn_id": result.turn_id.clone()
-    });
-    Ok(SupervisorPatchTurn {
-        record,
-        action,
-        worker_checks,
-        worker_verification_goal,
-        input_tokens: result.usage.input_tokens,
-        output_tokens: result.usage.output_tokens,
-        reasoning_tokens: result.usage.reasoning_tokens,
-        total_tokens: result.usage.total_tokens,
-        cached_input_tokens: result.usage.cached_input_tokens,
-        input_bytes: result.input_bytes,
-        output_bytes: result.output_bytes,
-        thread_id: result.thread_id,
-        turn_id: result.turn_id,
-        token_usage_comparable: result.token_usage_comparable,
-    })
-}
-
-fn normalize_supervisor_patch_action(value: Option<&str>) -> String {
-    match value
-        .unwrap_or("stop")
-        .trim()
-        .to_ascii_lowercase()
-        .replace('-', "_")
-        .as_str()
-    {
-        "patched" | "patch" | "edited" | "done" | "success" => "patched".to_string(),
-        _ => "stop".to_string(),
-    }
-}
-
-pub(super) fn normalize_supervisor_patch_surgical_contract(decision: &Value) -> Value {
-    let contract = decision.get("surgical_contract").unwrap_or(&Value::Null);
-    let target_files = {
-        let files = get_string_array(contract, "target_files");
-        if files.is_empty() {
-            get_string_array(decision, "changed_files")
-        } else {
-            files
-        }
-    };
-    let commands_used = get_bool(contract, "commands_used").unwrap_or(false);
-
-    json!({
-        "why_direct": get_str(contract, "why_direct")
-            .map(|value| truncate_for_report(value, 160))
-            .unwrap_or_default(),
-        "target_files": target_files,
-        "expected_patch_lines": get_str(contract, "expected_patch_lines")
-            .unwrap_or("unknown"),
-        "commands_used": commands_used,
-        "broad_work_required": get_bool(contract, "broad_work_required").unwrap_or(false)
-    })
 }
 
 pub(crate) fn run_supervisor_compaction(

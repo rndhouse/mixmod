@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde_json::Value;
 
 use crate::{get_bool, get_str, get_u64};
@@ -18,6 +20,8 @@ pub(crate) struct WorkerMetricsSummary {
     pub(crate) worker_total_tokens: u64,
     pub(crate) worker_reported_cost_usd: f64,
     pub(crate) worker_token_step_count: u64,
+    pub(crate) worker_token_usage_source: Option<String>,
+    pub(crate) worker_token_usage_scope: Option<String>,
     pub(crate) worker_token_usage_comparable: bool,
     pub(crate) opencode_session_ids: Vec<String>,
     pub(crate) opencode_session_labels: Vec<String>,
@@ -52,6 +56,8 @@ impl WorkerMetricsSummary {
             worker_total_tokens: sum_u64(worker_metrics, "worker_total_tokens"),
             worker_reported_cost_usd: sum_f64(worker_metrics, "worker_reported_cost_usd"),
             worker_token_step_count: sum_u64(worker_metrics, "worker_token_step_count"),
+            worker_token_usage_source: merged_label(worker_metrics, "worker_token_usage_source"),
+            worker_token_usage_scope: merged_label(worker_metrics, "worker_token_usage_scope"),
             worker_token_usage_comparable: !worker_metrics.is_empty()
                 && worker_metrics.iter().all(|metrics| {
                     get_bool(metrics, "worker_token_usage_comparable").unwrap_or(false)
@@ -111,6 +117,18 @@ fn collect_strings(worker_metrics: &[Value], key: &str) -> Vec<String> {
         .iter()
         .filter_map(|metrics| get_str(metrics, key).map(ToOwned::to_owned))
         .collect()
+}
+
+fn merged_label(worker_metrics: &[Value], key: &str) -> Option<String> {
+    let values = worker_metrics
+        .iter()
+        .filter_map(|metrics| get_str(metrics, key).map(ToOwned::to_owned))
+        .collect::<BTreeSet<_>>();
+    match values.len() {
+        0 => None,
+        1 => values.into_iter().next(),
+        _ => Some("worker_turn_metrics_mixed".to_string()),
+    }
 }
 
 fn supervisor_control_event_count(metrics: &Value) -> u64 {

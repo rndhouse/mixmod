@@ -33,7 +33,7 @@ pub(crate) fn is_cloud_opencode_provider(provider: &str) -> bool {
         .any(|marker| provider.contains(marker))
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct MixmodConfig {
     /// Default strategy behavior.
@@ -131,7 +131,7 @@ impl DefaultStrategyMode {
 }
 
 /// Strategy-level defaults for supervisor/worker orchestration.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct StrategyConfig {
     /// Default orchestration mode.
@@ -208,7 +208,7 @@ impl WorkerBackend {
 }
 
 /// Backend selection for worker turns.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct WorkerConfig {
     pub backend: WorkerBackend,
@@ -280,7 +280,7 @@ impl ModelOverrides {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct OpenCodeConfig {
     pub command: String,
@@ -454,7 +454,7 @@ fn apply_worker_profile_opencode_overrides(config: &mut OpenCodeConfig) {
         .and_then(|profile| profile.opencode_output_token_limit);
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct LocalVerificationConfig {
     pub enabled: bool,

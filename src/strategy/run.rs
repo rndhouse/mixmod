@@ -98,6 +98,10 @@ impl DefaultStrategyRun<'_> {
             && worker_guidance.worker_self_review_enabled();
         let worker_auto_followups = worker_guidance.auto_followups_enabled();
         let worker_forced_context_focus = worker_guidance.forced_context_focus_enabled();
+        let mut takeover_config = config.clone();
+        takeover_config.worker.backend = WorkerBackend::Codex;
+        takeover_config.codex_worker = supervisor.clone();
+        let takeover_runner = worker_harness_for_config(takeover_config);
         let runner = worker_harness_for_config(config);
 
         let task_file = out_dir.join(TASK_JSON);
@@ -110,6 +114,7 @@ impl DefaultStrategyRun<'_> {
             strategy_dir: &out_dir,
             task_file: &task_file,
             runner: runner.as_ref(),
+            takeover_runner: takeover_runner.as_ref(),
             supervisor: &supervisor,
             supervisor_init,
             strategy,
@@ -136,6 +141,10 @@ impl DefaultStrategyRun<'_> {
                         worker_runs_dir.join(format!("revision-{decision_index}"))
                     }
                 }
+            }),
+            takeover_out_path: Box::new({
+                let worker_runs_dir = worker_runs_dir.clone();
+                move |decision_index| worker_runs_dir.join(format!("takeover-{decision_index}"))
             }),
             verify_worker_run: Box::new(|receipt, run_dir| {
                 ensure_worker_run_verified(&out_dir, receipt, run_dir)

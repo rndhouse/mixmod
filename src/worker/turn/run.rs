@@ -1,7 +1,9 @@
 use crate::*;
 use std::sync::Arc;
 
-use super::context::{worker_context_signals, worker_session_token_peak, worker_token_usage};
+use super::context::{
+    WorkerTokenUsage, worker_context_signals, worker_session_token_peak, worker_token_usage,
+};
 use super::instruction::build_worker_turn_instruction;
 use super::recovery::{
     EmptyPatchFollowup, EmptyPatchFollowupRequest, RevisionNoopContext, RevisionNoopFollowup,
@@ -626,7 +628,7 @@ impl WorkerTurn<'_> {
             ));
         }
         let worker_session_token_peak = worker_session_token_peak(&output.stdout);
-        let worker_token_usage = worker_token_usage(&output.stdout);
+        let worker_token_accounting = worker_token_accounting(&output);
         if worker_session_token_peak.is_some_and(|tokens| tokens >= 24_000) {
             notes.push(
                 "Worker session token peak was high; prefer a smaller next slice or worker_mode=context_focus if another revision is needed."
@@ -731,25 +733,17 @@ impl WorkerTurn<'_> {
             context_overflow_count: context_overflow.context_overflow_count,
             context_overflow_last_message: context_overflow.context_overflow_last_message.clone(),
             worker_session_token_peak,
-            worker_input_tokens: worker_token_usage.input_tokens,
-            worker_cached_input_tokens: worker_token_usage.cached_input_tokens,
-            worker_cache_write_tokens: worker_token_usage.cache_write_tokens,
-            worker_output_tokens: worker_token_usage.output_tokens,
-            worker_reasoning_tokens: worker_token_usage.reasoning_tokens,
-            worker_total_tokens: worker_token_usage.total_tokens,
-            worker_reported_cost_usd: worker_token_usage.reported_cost_usd,
-            worker_token_step_count: worker_token_usage.step_count,
-            worker_token_usage_source: if worker_token_usage.step_count > 0 {
-                Some("opencode_step_finish_tokens".to_string())
-            } else {
-                None
-            },
-            worker_token_usage_scope: if worker_token_usage.step_count > 0 {
-                Some("worker_turn_step_sum".to_string())
-            } else {
-                None
-            },
-            worker_token_usage_comparable: worker_token_usage.step_count > 0,
+            worker_input_tokens: worker_token_accounting.usage.input_tokens,
+            worker_cached_input_tokens: worker_token_accounting.usage.cached_input_tokens,
+            worker_cache_write_tokens: worker_token_accounting.usage.cache_write_tokens,
+            worker_output_tokens: worker_token_accounting.usage.output_tokens,
+            worker_reasoning_tokens: worker_token_accounting.usage.reasoning_tokens,
+            worker_total_tokens: worker_token_accounting.usage.total_tokens,
+            worker_reported_cost_usd: worker_token_accounting.usage.reported_cost_usd,
+            worker_token_step_count: worker_token_accounting.usage.step_count,
+            worker_token_usage_source: worker_token_accounting.source,
+            worker_token_usage_scope: worker_token_accounting.scope,
+            worker_token_usage_comparable: worker_token_accounting.comparable,
             reasoning_trace_bytes,
             reasoning_trace_event_count,
             opencode_events_bytes,
@@ -762,7 +756,7 @@ impl WorkerTurn<'_> {
             session_bytes,
             changed_file_count: stats.files.len(),
             changed_line_count: stats.changed_line_count,
-            codex_token_usage: None,
+            codex_token_usage: worker_token_accounting.codex_token_usage,
             approximate_codex_input_bytes: None,
             approximate_codex_output_bytes: None,
             artifact_files_read_by_codex: compact_artifacts
@@ -832,6 +826,66 @@ fn expect_patch_for_run(mode: DelegationMode, task: &Value) -> bool {
                 .and_then(|brief| get_bool(brief, "expect_patch"))
         })
         .unwrap_or(true)
+}
+
+struct WorkerTokenAccounting {
+    usage: WorkerTokenUsage,
+    source: Option<String>,
+    scope: Option<String>,
+    comparable: bool,
+    codex_token_usage: Option<u64>,
+}
+
+fn worker_token_accounting(output: &AgentOutput) -> WorkerTokenAccounting {
+    let stdout_usage = worker_token_usage(&output.stdout);
+    if stdout_usage.step_count > 0 {
+        return WorkerTokenAccounting {
+            usage: stdout_usage,
+            source: Some("opencode_step_finish_tokens".to_string()),
+            scope: Some("worker_turn_step_sum".to_string()),
+            comparable: true,
+            codex_token_usage: None,
+        };
+    }
+
+    let codex_usage = codex_worker_token_usage_from_segments(&output.segments);
+    if codex_usage.step_count > 0 {
+        return WorkerTokenAccounting {
+            codex_token_usage: Some(codex_usage.total_tokens),
+            usage: codex_usage,
+            source: Some("codex_worker_segment_tokens".to_string()),
+            scope: Some("worker_turn_segment_sum".to_string()),
+            comparable: true,
+        };
+    }
+
+    WorkerTokenAccounting {
+        usage: WorkerTokenUsage::default(),
+        source: None,
+        scope: None,
+        comparable: false,
+        codex_token_usage: None,
+    }
+}
+
+fn codex_worker_token_usage_from_segments(segments: &[Value]) -> WorkerTokenUsage {
+    let mut usage = WorkerTokenUsage::default();
+    for segment in segments {
+        if get_str(segment, "backend") != Some("codex") {
+            continue;
+        }
+        let total = get_u64(segment, "total_tokens").unwrap_or(0);
+        if total == 0 {
+            continue;
+        }
+        usage.input_tokens += get_u64(segment, "input_tokens").unwrap_or(0);
+        usage.cached_input_tokens += get_u64(segment, "cached_input_tokens").unwrap_or(0);
+        usage.output_tokens += get_u64(segment, "output_tokens").unwrap_or(0);
+        usage.reasoning_tokens += get_u64(segment, "reasoning_tokens").unwrap_or(0);
+        usage.total_tokens += total;
+        usage.step_count += 1;
+    }
+    usage
 }
 
 fn intervention_details(

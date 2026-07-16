@@ -102,7 +102,6 @@ pub(crate) fn build_default_strategy_metrics(
     let worker_summary = WorkerMetricsSummary::from_metrics(&worker_metrics);
     let outcome = default_strategy_outcome(
         input.engine.final_decision.as_ref(),
-        input.engine.supervisor_patch_turns.last(),
         input.stop_after_first_worker,
         input.stop_after_first_review,
         input.stop_after_worker_turns,
@@ -111,20 +110,7 @@ pub(crate) fn build_default_strategy_metrics(
     let supervisor_token_usage =
         supervisor_token_usage_labels(supervisor_usage.token_usage_comparable);
     let strategy_phases =
-        default_strategy_phase_labels(!input.engine.supervisor_patch_turns.is_empty());
-    let supervisor_patch_records =
-        default_strategy_supervisor_patch_records(&input.engine.supervisor_patch_turns);
-    let supervisor_patch_latest = supervisor_patch_records
-        .last()
-        .cloned()
-        .unwrap_or(Value::Null);
-    let supervisor_patch_samples = input
-        .engine
-        .supervisor_patch_turns
-        .iter()
-        .map(SupervisorPatchTurn::usage_sample)
-        .collect::<Vec<_>>();
-    let supervisor_patch_usage = aggregate_supervisor_usage(&supervisor_patch_samples);
+        default_strategy_phase_labels(!input.engine.takeover_worker_patch_turns.is_empty());
     let worker_run_dirs = input
         .engine
         .worker_run_dirs
@@ -138,7 +124,7 @@ pub(crate) fn build_default_strategy_metrics(
         DefaultStrategyRequireLocal::Fixed(value) => value,
     };
     let mut notes = vec![
-        "Default strategy reused one supervisor app-server thread across worker handoff, review, repair, compaction, and live-control turns.".to_string(),
+        "Default strategy reused one supervisor app-server thread for handoff, review, compaction, and live-control turns; takeover patches run in fresh worker sessions.".to_string(),
         default_strategy_note(input.strategy).to_string(),
         "The worker backend was selected through the Mixmod worker settings.".to_string(),
     ];
@@ -175,14 +161,17 @@ pub(crate) fn build_default_strategy_metrics(
         "supervisor_resume_count": supervisor_usage.thread_reuse_count(),
         "supervisor_compaction_count": input.engine.supervisor_compactions.len() as u64,
         "supervisor_compactions": input.engine.supervisor_compactions.clone(),
-        "supervisor_patch_count": input.engine.supervisor_patch_turns.len() as u64,
-        "supervisor_patch_turns": supervisor_patch_records,
-        "supervisor_patch": supervisor_patch_latest,
-        "supervisor_patch_input_tokens": supervisor_patch_usage.input_tokens,
-        "supervisor_patch_cached_input_tokens": supervisor_patch_usage.cached_input_tokens,
-        "supervisor_patch_output_tokens": supervisor_patch_usage.output_tokens,
-        "supervisor_patch_reasoning_tokens": supervisor_patch_usage.reasoning_tokens,
-        "supervisor_patch_total_tokens": supervisor_patch_usage.total_tokens,
+        "supervisor_patch_count": 0,
+        "supervisor_patch_turns": [],
+        "supervisor_patch": Value::Null,
+        "supervisor_patch_input_tokens": 0,
+        "supervisor_patch_cached_input_tokens": 0,
+        "supervisor_patch_output_tokens": 0,
+        "supervisor_patch_reasoning_tokens": 0,
+        "supervisor_patch_total_tokens": 0,
+        "takeover_worker_patch_count": input.engine.takeover_worker_patch_turns.len() as u64,
+        "takeover_worker_patch_turns": input.engine.takeover_worker_patch_turns.clone(),
+        "takeover_worker_patch": input.engine.takeover_worker_patch_turns.last().cloned().unwrap_or(Value::Null),
         "did_codex_read_full_mixmod_session": false,
         "did_codex_read_raw_logs": false,
         "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
@@ -253,8 +242,8 @@ pub(crate) fn build_default_strategy_metrics(
         "worker_total_tokens": worker_summary.worker_total_tokens,
         "worker_reported_cost_usd": worker_summary.worker_reported_cost_usd,
         "worker_token_step_count": worker_summary.worker_token_step_count,
-        "worker_token_usage_source": "opencode_step_finish_tokens",
-        "worker_token_usage_scope": "worker_turn_step_sum",
+        "worker_token_usage_source": worker_summary.worker_token_usage_source,
+        "worker_token_usage_scope": worker_summary.worker_token_usage_scope,
         "worker_token_usage_comparable": worker_summary.worker_token_usage_comparable,
         "artifact_byte_sizes": default_strategy_artifact_byte_sizes(input.strategy_dir)?,
         "patch_bytes": input.final_patch.text.len() as u64,
@@ -273,22 +262,11 @@ pub(crate) fn build_default_strategy_metrics(
 /// Build final metrics outcome for the default strategy loop.
 pub(crate) fn default_strategy_outcome(
     final_decision: Option<&SupervisorFeedbackTurn>,
-    latest_supervisor_patch: Option<&SupervisorPatchTurn>,
     stop_after_first_worker: bool,
     stop_after_first_review: bool,
     stop_after_worker_turns: Option<u64>,
     completed_worker_turns: u64,
 ) -> DefaultStrategyOutcome {
-    if final_decision.is_some_and(|decision| decision.verdict_kind() == SupervisorVerdict::TakeOver)
-        && latest_supervisor_patch.is_some_and(|patch| patch.action == "stop")
-    {
-        return DefaultStrategyOutcome {
-            final_verdict: "stop".to_string(),
-            final_worker_mode: "supervisor_patch".to_string(),
-            final_status: "stopped_by_supervisor_patch",
-        };
-    }
-
     let final_verdict = final_decision
         .map(|decision| decision.verdict.clone())
         .unwrap_or_else(|| "not_requested".to_string());
@@ -307,7 +285,7 @@ pub(crate) fn default_strategy_outcome(
         match final_decision.map(SupervisorFeedbackTurn::verdict_kind) {
             Some(SupervisorVerdict::Approve) => "approved_by_codex",
             Some(SupervisorVerdict::Stop) => "stopped_by_codex",
-            Some(SupervisorVerdict::TakeOver) => "needs_supervisor_patch",
+            Some(SupervisorVerdict::TakeOver) => "needs_takeover_worker_patch",
             _ => "needs_review",
         }
     };
@@ -319,26 +297,16 @@ pub(crate) fn default_strategy_outcome(
 }
 
 /// Return the stable phase labels for default-strategy metrics.
-pub(crate) fn default_strategy_phase_labels(has_supervisor_patch: bool) -> Value {
-    if has_supervisor_patch {
+pub(crate) fn default_strategy_phase_labels(has_takeover_worker_patch: bool) -> Value {
+    if has_takeover_worker_patch {
         json!([
             "codex_worker_brief",
             "codex_worker_decision_loop",
-            "codex_supervisor_patch"
+            "gpt_takeover_worker_patch"
         ])
     } else {
         json!(["codex_worker_brief", "codex_worker_decision_loop"])
     }
-}
-
-/// Return the serialized supervisor patch records for metrics.
-pub(crate) fn default_strategy_supervisor_patch_records(
-    supervisor_patch_turns: &[SupervisorPatchTurn],
-) -> Vec<Value> {
-    supervisor_patch_turns
-        .iter()
-        .map(|turn| turn.record.clone())
-        .collect()
 }
 
 /// Return byte sizes for default-strategy top-level worker artifacts.
@@ -394,7 +362,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn supervisor_patch_stop_records_patch_stop_outcome() {
+    fn takeover_verdict_without_worker_patch_needs_takeover_worker_patch() {
         let decision = SupervisorFeedbackTurn {
             feedback: json!({}),
             verdict: "take_over".to_string(),
@@ -417,28 +385,11 @@ mod tests {
             turn_id: String::new(),
             token_usage_comparable: true,
         };
-        let patch = SupervisorPatchTurn {
-            record: json!({}),
-            action: "stop".to_string(),
-            worker_checks: Vec::new(),
-            worker_verification_goal: None,
-            input_tokens: 0,
-            output_tokens: 0,
-            reasoning_tokens: 0,
-            total_tokens: 0,
-            cached_input_tokens: 0,
-            input_bytes: 0,
-            output_bytes: 0,
-            thread_id: String::new(),
-            turn_id: String::new(),
-            token_usage_comparable: true,
-        };
 
-        let outcome =
-            default_strategy_outcome(Some(&decision), Some(&patch), false, false, None, 2);
+        let outcome = default_strategy_outcome(Some(&decision), false, false, None, 2);
 
-        assert_eq!(outcome.final_verdict, "stop");
-        assert_eq!(outcome.final_worker_mode, "supervisor_patch");
-        assert_eq!(outcome.final_status, "stopped_by_supervisor_patch");
+        assert_eq!(outcome.final_verdict, "take_over");
+        assert_eq!(outcome.final_worker_mode, "continue");
+        assert_eq!(outcome.final_status, "needs_takeover_worker_patch");
     }
 }

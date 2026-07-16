@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::{
     LiveSupervisionConfig, LiveWorkerSnapshot, WorkerBackendSlotTelemetry, WorkerBackendTelemetry,
-    WorkerSupervisorGuidance, get_bool, get_str, get_string_array,
+    WorkerSupervisorGuidance, get_str, get_string_array,
 };
 
 use super::live::{
@@ -14,7 +14,7 @@ use super::live::{
 use super::normalize::parse_feedback_json;
 use super::turns::{
     approval_consistency_rejection, approval_consistency_repair_is_accepted,
-    normalize_supervisor_patch_surgical_contract, verification_revision_for_inconsistent_approval,
+    verification_revision_for_inconsistent_approval,
 };
 use super::*;
 
@@ -217,36 +217,6 @@ fn approval_with_required_checks_is_inconsistent() {
 
     assert!(rejection.contains("action=approve"));
     assert!(rejection.contains("required_checks"));
-}
-
-#[test]
-fn supervisor_patch_surgical_contract_is_normalized_for_records() {
-    let decision = json!({
-        "action": "patched",
-        "changed_files": ["src/lib.rs"],
-        "worker_checks": ["cargo test -p demo parser"],
-        "surgical_contract": {
-            "why_direct": "Known one-line error propagation fix.",
-            "target_files": ["src/error.rs"],
-            "expected_patch_lines": "1-20",
-            "commands_used": false,
-            "broad_work_required": false
-        }
-    });
-
-    let contract = normalize_supervisor_patch_surgical_contract(&decision);
-
-    assert_eq!(
-        get_str(&contract, "why_direct"),
-        Some("Known one-line error propagation fix.")
-    );
-    assert_eq!(
-        get_string_array(&contract, "target_files"),
-        vec!["src/error.rs"]
-    );
-    assert_eq!(get_str(&contract, "expected_patch_lines"), Some("1-20"));
-    assert_eq!(get_bool(&contract, "commands_used"), Some(false));
-    assert_eq!(get_bool(&contract, "broad_work_required"), Some(false));
 }
 
 #[test]

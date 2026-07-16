@@ -63,6 +63,88 @@ fn worker_turn_writes_full_artifact_bundle() {
 }
 
 #[test]
+fn codex_worker_segments_count_as_worker_tokens() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    init_git(root);
+    fs::write(root.join("README.md"), "base\n").unwrap();
+    Command::new("git")
+        .args(["add", "README.md"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "base"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    let task = root.join("example.task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Verify current state",
+  "instructions": "Report current state.",
+  "expect_patch": false,
+  "files": [],
+  "tests": []
+}"#,
+    )
+    .unwrap();
+
+    struct CodexTokenRunner;
+    impl AgentHarness for CodexTokenRunner {
+        fn run(&self, request: &AgentRequest) -> Result<AgentOutput> {
+            let mut output = minimal_opencode_output();
+            output.backend = AgentBackend::Codex;
+            output.command_for_metrics = vec!["codex".to_string(), "app-server".to_string()];
+            output.segments = vec![json!({
+                "backend": "codex",
+                "input_tokens": 120,
+                "cached_input_tokens": 80,
+                "output_tokens": 9,
+                "reasoning_tokens": 3,
+                "total_tokens": 129
+            })];
+            output.exit_status = Some(0);
+            output.success = true;
+            output.stdout = b"Summary: current state verified.\n".to_vec();
+            output.provider = Some("codex".to_string());
+            output.model = Some("gpt-5.5".to_string());
+            output.model_arg = Some("gpt-5.5:high".to_string());
+            output.session_label = Some(request.session_id.clone());
+            output.session_id = Some("codex-thread".to_string());
+            output.backend_activity_observed = true;
+            Ok(output)
+        }
+    }
+
+    let run_dir = state_layout(root).runs().join("codex-worker");
+    let receipt = run_worker_turn(
+        root,
+        DelegationMode::Patch,
+        &task,
+        &run_dir,
+        &CodexTokenRunner,
+    )
+    .unwrap();
+
+    assert_eq!(receipt.status, "success");
+    let metrics = read_json_file(&run_dir.join("metrics.json")).unwrap();
+    assert_eq!(get_str(&metrics, "worker_backend"), Some("codex"));
+    assert_eq!(get_u64(&metrics, "worker_input_tokens"), Some(120));
+    assert_eq!(get_u64(&metrics, "worker_cached_input_tokens"), Some(80));
+    assert_eq!(get_u64(&metrics, "worker_output_tokens"), Some(9));
+    assert_eq!(get_u64(&metrics, "worker_reasoning_tokens"), Some(3));
+    assert_eq!(get_u64(&metrics, "worker_total_tokens"), Some(129));
+    assert_eq!(get_u64(&metrics, "codex_token_usage"), Some(129));
+    assert_eq!(
+        get_str(&metrics, "worker_token_usage_source"),
+        Some("codex_worker_segment_tokens")
+    );
+}
+
+#[test]
 fn empty_patch_followup_runs_once_when_patch_expected() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

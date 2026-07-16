@@ -176,24 +176,6 @@ pub(crate) struct SupervisorFeedbackTurn {
     pub(crate) token_usage_comparable: bool,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct SupervisorPatchTurn {
-    pub(crate) record: Value,
-    pub(crate) action: String,
-    pub(crate) worker_checks: Vec<String>,
-    pub(crate) worker_verification_goal: Option<String>,
-    pub(crate) input_tokens: u64,
-    pub(crate) output_tokens: u64,
-    pub(crate) reasoning_tokens: u64,
-    pub(crate) total_tokens: u64,
-    pub(crate) cached_input_tokens: u64,
-    pub(crate) input_bytes: u64,
-    pub(crate) output_bytes: u64,
-    pub(crate) thread_id: String,
-    pub(crate) turn_id: String,
-    pub(crate) token_usage_comparable: bool,
-}
-
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SupervisorContextTelemetry {
     pub(crate) supervisor_turns_since_last_compact: u64,
@@ -350,23 +332,6 @@ pub(crate) struct SupervisorUsageSample {
     pub(super) thread_id: String,
     pub(super) turn_id: String,
     pub(super) token_usage_comparable: bool,
-}
-
-impl SupervisorPatchTurn {
-    pub(crate) fn usage_sample(&self) -> SupervisorUsageSample {
-        SupervisorUsageSample {
-            input_tokens: self.input_tokens,
-            output_tokens: self.output_tokens,
-            reasoning_tokens: self.reasoning_tokens,
-            total_tokens: self.total_tokens,
-            cached_input_tokens: self.cached_input_tokens,
-            input_bytes: self.input_bytes,
-            output_bytes: self.output_bytes,
-            thread_id: self.thread_id.clone(),
-            turn_id: self.turn_id.clone(),
-            token_usage_comparable: self.token_usage_comparable,
-        }
-    }
 }
 
 impl SupervisorFeedbackTurn {
