@@ -28,7 +28,6 @@ mod loop_summary;
 mod report;
 mod state;
 mod strategy;
-mod strategy_metrics;
 mod supervisor;
 mod task;
 #[cfg(test)]
@@ -85,13 +84,17 @@ pub use interventions::{
     InterventionSessionPolicy, InterventionTarget,
 };
 pub use report::experiment_report;
+pub(crate) use strategy::compaction::SupervisorCompactionState;
+pub(crate) use strategy::metrics::WorkerMetricsSummary;
 pub(crate) use strategy::policy::{
     default_strategy_note, default_strategy_policy, supervisor_direct_finish_policy,
     supervisor_feedback_action_schema, supervisor_feedback_strategy_policy,
 };
-pub(crate) use strategy::support::{
-    SupervisorCompactionState, default_review_label, default_revision_resume_session_id,
-    default_strategy_review_artifacts, live_supervisor_advisor, prepare_default_revision_decision,
+pub(crate) use strategy::revision::{
+    default_revision_resume_session_id, prepare_default_revision_decision,
+};
+pub(crate) use strategy::supervisor::{
+    default_review_label, default_strategy_review_artifacts, live_supervisor_advisor,
     record_default_supervisor_compaction, run_default_supervisor_compaction,
     run_default_supervisor_review, run_default_supervisor_takeover,
 };
@@ -124,7 +127,6 @@ pub(crate) use live::{
 pub(crate) use loop_summary::write_supervision_loop_summary;
 pub(crate) use report::budgeted_report;
 pub(crate) use state::state_layout;
-pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, PatchDecision, RevisionHandoff, SupervisorBriefTurn,
     SupervisorCodexSession, SupervisorCompactionTurn, SupervisorContextTelemetry,
