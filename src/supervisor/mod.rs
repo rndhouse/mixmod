@@ -24,6 +24,6 @@ pub(crate) use turns::{
 };
 pub(crate) use types::{
     PatchDecision, RevisionHandoff, SupervisorBriefTurn, SupervisorCompactionTurn,
-    SupervisorContextTelemetry, SupervisorDirectTurn, SupervisorFeedbackTurn, SupervisorVerdict,
-    WorkerMode, aggregate_supervisor_usage,
+    SupervisorContextTelemetry, SupervisorDirectTurn, SupervisorFeedbackTurn,
+    SupervisorUsageSample, SupervisorVerdict, WorkerMode, aggregate_supervisor_usage,
 };

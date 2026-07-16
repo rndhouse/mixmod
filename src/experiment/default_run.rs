@@ -2,9 +2,7 @@ use crate::*;
 use std::sync::{Arc, Mutex};
 
 use super::tasks::{write_revision_task, write_worker_brief_task};
-use super::util::{
-    artifact_byte_sizes, copy_budgeted_artifacts, experiment_dir, validate_experiment_name,
-};
+use super::util::{copy_budgeted_artifacts, experiment_dir, validate_experiment_name};
 
 #[derive(Debug, Clone)]
 pub struct DefaultRunOptions {
@@ -188,23 +186,21 @@ impl DefaultExperimentRun<'_> {
                         "supervisor-compact-before-{}",
                         default_review_label(decision_index)
                     );
-                    let compact = {
-                        let mut supervisor_session = supervisor_session
-                            .lock()
-                            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
-                        run_supervisor_compaction(
-                            &mut supervisor_session,
-                            &default_dir,
-                            &label,
-                            &request.trigger,
-                            &request.recommendation,
-                            &request.telemetry,
-                        )?
-                    };
-                    append_jsonl(&feedback_path, &compact.record)?;
-                    supervisor_samples.push(compact.usage_sample());
-                    supervisor_context.record_compaction(&compact);
-                    supervisor_compactions.push(compact.record.clone());
+                    let compact = run_default_supervisor_compaction(
+                        &supervisor_session,
+                        &default_dir,
+                        &label,
+                        &request.trigger,
+                        &request.recommendation,
+                        &request.telemetry,
+                    )?;
+                    record_default_supervisor_compaction(
+                        &feedback_path,
+                        &mut supervisor_samples,
+                        &mut supervisor_context,
+                        &mut supervisor_compactions,
+                        &compact,
+                    )?;
                 }
                 let mut compaction_request = None;
                 let mut decision = if let Some(decision) = pending_supervisor_control.take() {
@@ -213,27 +209,19 @@ impl DefaultExperimentRun<'_> {
                     let label = default_review_label(decision_index);
                     let artifact_paths =
                         default_strategy_review_artifacts(&default_dir, &final_out)?;
-                    let context_telemetry = supervisor_context.telemetry(&artifact_paths);
-                    let decision = {
-                        let mut supervisor_session = supervisor_session
-                            .lock()
-                            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
-                        run_supervisor_feedback_turn(
-                            &mut supervisor_session,
-                            &work_dir,
-                            &default_dir,
-                            &label,
-                            &artifact_paths,
-                            default_strategy_review_instruction(strategy),
-                            &worker_guidance,
-                            &context_telemetry,
-                            strategy,
-                        )?
-                    };
-                    supervisor_samples.push(decision.usage_sample());
-                    supervisor_context.record_feedback(&decision);
-                    compaction_request = supervisor_context.request_after_feedback(&decision);
-                    decision
+                    let review = run_default_supervisor_review(
+                        &supervisor_session,
+                        &work_dir,
+                        &default_dir,
+                        &label,
+                        &artifact_paths,
+                        &worker_guidance,
+                        &mut supervisor_context,
+                        &mut supervisor_samples,
+                        strategy,
+                    )?;
+                    compaction_request = review.compaction_request;
+                    review.decision
                 };
                 if options.stop_after_first_review && decision_index == 1 {
                     append_jsonl(&feedback_path, &decision.feedback)?;
@@ -250,62 +238,24 @@ impl DefaultExperimentRun<'_> {
                     && strategy.allows_supervisor_takeover()
                 {
                     let takeover_decision = decision.clone();
-                    let preparation = prepare_default_revision_decision(
+                    let takeover = run_default_supervisor_takeover(
+                        &supervisor_session,
                         &work_dir,
+                        &default_dir,
+                        &feedback_path,
                         &final_out,
+                        decision_index,
                         &takeover_decision,
+                        &mut supervisor_context,
+                        &mut supervisor_samples,
+                        &mut supervisor_compactions,
+                        strategy,
                     )?;
-                    if preparation.created_internal_baseline {
+                    if takeover.preparation.created_internal_baseline {
                         internal_patch_baselines += 1;
                     }
                     supervisor_takeover_decision = Some(takeover_decision.feedback.clone());
-                    let artifact_paths =
-                        default_strategy_review_artifacts(&default_dir, &final_out)?;
-                    let context_telemetry = supervisor_context.telemetry(&artifact_paths);
-                    if context_telemetry.compaction_enabled {
-                        let compact = {
-                            let mut supervisor_session =
-                                supervisor_session.lock().map_err(|_| {
-                                    anyhow!("supervisor Codex session lock was poisoned")
-                                })?;
-                            run_supervisor_compaction(
-                                &mut supervisor_session,
-                                &default_dir,
-                                &format!("supervisor-compact-before-takeover-{decision_index}"),
-                                "supervisor_takeover",
-                                &json!({
-                                    "action": "compact_now",
-                                    "reason": format!("{} supervisor takeover", strategy.as_str())
-                                }),
-                                &context_telemetry,
-                            )?
-                        };
-                        append_jsonl(&feedback_path, &compact.record)?;
-                        supervisor_samples.push(compact.usage_sample());
-                        supervisor_context.record_compaction(&compact);
-                        supervisor_compactions.push(compact.record.clone());
-                    }
-                    let artifact_paths =
-                        default_strategy_review_artifacts(&default_dir, &final_out)?;
-                    let context_telemetry = supervisor_context.telemetry(&artifact_paths);
-                    let direct = {
-                        let mut supervisor_session = supervisor_session
-                            .lock()
-                            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
-                        run_supervisor_direct_finish_turn(
-                            &mut supervisor_session,
-                            &work_dir,
-                            &default_dir,
-                            &format!("supervisor-direct-finish-{decision_index}"),
-                            &artifact_paths,
-                            &takeover_decision,
-                            &context_telemetry,
-                            strategy,
-                        )?
-                    };
-                    append_jsonl(&feedback_path, &direct.record)?;
-                    supervisor_samples.push(direct.usage_sample());
-                    supervisor_direct_finish = Some(direct);
+                    supervisor_direct_finish = Some(takeover.direct_finish);
                     final_decision = Some(takeover_decision);
                     break;
                 } else if decision.verdict_kind().is_terminal() {
@@ -314,24 +264,21 @@ impl DefaultExperimentRun<'_> {
                 } else {
                     if let Some(request) = compaction_request {
                         let label = format!("supervisor-compact-{decision_index}");
-                        let compact = {
-                            let mut supervisor_session =
-                                supervisor_session.lock().map_err(|_| {
-                                    anyhow!("supervisor Codex session lock was poisoned")
-                                })?;
-                            run_supervisor_compaction(
-                                &mut supervisor_session,
-                                &default_dir,
-                                &label,
-                                &request.trigger,
-                                &request.recommendation,
-                                &request.telemetry,
-                            )?
-                        };
-                        append_jsonl(&feedback_path, &compact.record)?;
-                        supervisor_samples.push(compact.usage_sample());
-                        supervisor_context.record_compaction(&compact);
-                        supervisor_compactions.push(compact.record.clone());
+                        let compact = run_default_supervisor_compaction(
+                            &supervisor_session,
+                            &default_dir,
+                            &label,
+                            &request.trigger,
+                            &request.recommendation,
+                            &request.telemetry,
+                        )?;
+                        record_default_supervisor_compaction(
+                            &feedback_path,
+                            &mut supervisor_samples,
+                            &mut supervisor_context,
+                            &mut supervisor_compactions,
+                            &compact,
+                        )?;
                     }
                     let revision_preparation =
                         prepare_default_revision_decision(&work_dir, &final_out, &decision)?;
@@ -430,31 +377,10 @@ impl DefaultExperimentRun<'_> {
         );
         let supervisor_token_usage =
             supervisor_token_usage_labels(supervisor_usage.token_usage_comparable);
-        let strategy_phases = if supervisor_direct_finish.is_some() {
-            json!([
-                "codex_worker_brief",
-                "codex_worker_decision_loop",
-                "codex_supervisor_direct_finish"
-            ])
-        } else {
-            json!(["codex_worker_brief", "codex_worker_decision_loop"])
-        };
-        let strategy_note = if strategy.allows_supervisor_takeover() {
-            match strategy {
-                DefaultStrategyMode::WorkerBuildSupervisorFix => {
-                    "In worker-build-supervisor-fix mode, the supervisor may choose take_over when the next step is correction rather than broad worker-scale construction."
-                }
-                _ => {
-                    "In worker-bootstrap mode, the supervisor may choose take_over when the worker has produced a useful baseline and the remaining work is localized direct-finish work."
-                }
-            }
-        } else {
-            "The supervisor controls the worker loop with approve, revise, or blocked/inconclusive stop decisions; direct supervisor editing is not part of this strategy."
-        };
-        let supervisor_direct_finish_record = supervisor_direct_finish
-            .as_ref()
-            .map(|turn| turn.record.clone())
-            .unwrap_or(Value::Null);
+        let strategy_phases = default_strategy_phase_labels(supervisor_direct_finish.is_some());
+        let strategy_note = default_strategy_note(strategy);
+        let supervisor_direct_finish_record =
+            default_strategy_direct_finish_record(supervisor_direct_finish.as_ref());
         let metrics = json!({
             "kind": "mixmod-default-strategy",
             "strategy": strategy.as_str(),
@@ -546,7 +472,7 @@ impl DefaultExperimentRun<'_> {
             "local_worker_reasoning_trace_event_count": worker_summary.local_reasoning_trace_event_count,
             "local_worker_tool_events_bytes": worker_summary.local_tool_events_bytes,
             "local_worker_tool_event_count": worker_summary.local_tool_event_count,
-            "artifact_byte_sizes": artifact_byte_sizes(&default_dir)?,
+            "artifact_byte_sizes": default_strategy_artifact_byte_sizes(&default_dir)?,
             "patch_bytes": final_patch.len() as u64,
             "changed_files": stats.files,
             "changed_file_count": stats.files.len(),

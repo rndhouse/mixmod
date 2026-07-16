@@ -49,17 +49,6 @@ pub(super) fn copy_budgeted_artifacts(
     Ok(())
 }
 
-pub(super) fn artifact_byte_sizes(dir: &Path) -> Result<Value> {
-    let mut map = serde_json::Map::new();
-    for &name in WORKER_RUN_ARTIFACTS {
-        let path = dir.join(name);
-        if path.exists() {
-            map.insert(name.to_string(), json!(file_len(&path)?));
-        }
-    }
-    Ok(Value::Object(map))
-}
-
 pub(super) fn experiment_readme(name: &str) -> String {
     format!(
         r#"# Mixmod Experiment: {name}

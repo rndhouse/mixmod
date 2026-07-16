@@ -1,17 +1,21 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
+use serde_json::{Value, json};
 
 use crate::create_patch_baseline_checkpoint;
 use crate::{
     BASELINE_ACTIVE_PATCH, DefaultStrategyMode, LiveSupervisorAdvisor, METRICS_JSON,
     PREVIOUS_WORKTREE_PATCH, PatchDecision, SUPERVISOR_CONTROL_LOG, SupervisorAdvisor,
-    SupervisorBriefTurn, SupervisorCompactionTurn, SupervisorContextTelemetry,
-    SupervisorDirectTurn, SupervisorFeedbackTurn, SupervisorVerdict, WORKTREE_PATCH, WorkerMode,
-    append_patch_checkpoint_artifacts, env_bool, env_u64, get_str,
-    restore_previous_patch_checkpoint, supervisor_review_artifact_paths,
+    SupervisorBriefTurn, SupervisorCodexSession, SupervisorCompactionTurn,
+    SupervisorContextTelemetry, SupervisorDirectTurn, SupervisorFeedbackTurn,
+    SupervisorUsageSample, SupervisorVerdict, WORKER_RUN_ARTIFACTS, WORKTREE_PATCH, WorkerMode,
+    append_jsonl, append_patch_checkpoint_artifacts, default_strategy_review_instruction, env_bool,
+    env_u64, file_len, get_str, restore_previous_patch_checkpoint, run_supervisor_compaction,
+    run_supervisor_direct_finish_turn, run_supervisor_feedback_turn,
+    supervisor_review_artifact_paths,
 };
 
 /// Normalized terminal outcome fields shared by default-strategy metrics.
@@ -321,6 +325,160 @@ pub(crate) fn live_supervisor_advisor(
         .map(|advisor| Arc::clone(advisor) as Arc<dyn SupervisorAdvisor>)
 }
 
+/// Result of a supervisor review turn plus any deferred compaction request.
+pub(crate) struct DefaultSupervisorReview {
+    /// Parsed supervisor decision.
+    pub(crate) decision: SupervisorFeedbackTurn,
+    /// Compaction request to run after recording the decision, when needed.
+    pub(crate) compaction_request: Option<SupervisorCompactionRequest>,
+}
+
+/// Result of a supervisor takeover/direct-finish sequence.
+pub(crate) struct DefaultSupervisorTakeover {
+    /// Patch-state preparation performed before direct supervisor editing.
+    pub(crate) preparation: DefaultRevisionPreparation,
+    /// Direct supervisor finish turn.
+    pub(crate) direct_finish: SupervisorDirectTurn,
+}
+
+/// Run a supervisor compaction turn with the shared session lock protocol.
+pub(crate) fn run_default_supervisor_compaction(
+    supervisor_session: &Arc<Mutex<SupervisorCodexSession>>,
+    strategy_dir: &Path,
+    label: &str,
+    trigger: &str,
+    recommendation: &Value,
+    telemetry: &SupervisorContextTelemetry,
+) -> Result<SupervisorCompactionTurn> {
+    let mut supervisor_session = supervisor_session
+        .lock()
+        .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
+    run_supervisor_compaction(
+        &mut supervisor_session,
+        strategy_dir,
+        label,
+        trigger,
+        recommendation,
+        telemetry,
+    )
+}
+
+/// Record a compaction turn into artifacts, metrics samples, and context state.
+pub(crate) fn record_default_supervisor_compaction(
+    feedback_path: &Path,
+    supervisor_samples: &mut Vec<SupervisorUsageSample>,
+    supervisor_context: &mut SupervisorCompactionState,
+    supervisor_compactions: &mut Vec<Value>,
+    compact: &SupervisorCompactionTurn,
+) -> Result<()> {
+    append_jsonl(feedback_path, &compact.record)?;
+    supervisor_samples.push(compact.usage_sample());
+    supervisor_context.record_compaction(compact);
+    supervisor_compactions.push(compact.record.clone());
+    Ok(())
+}
+
+/// Run a normal supervisor feedback turn and update context accounting.
+pub(crate) fn run_default_supervisor_review(
+    supervisor_session: &Arc<Mutex<SupervisorCodexSession>>,
+    root: &Path,
+    strategy_dir: &Path,
+    label: &str,
+    artifact_paths: &[PathBuf],
+    worker_guidance: &crate::WorkerSupervisorGuidance,
+    supervisor_context: &mut SupervisorCompactionState,
+    supervisor_samples: &mut Vec<SupervisorUsageSample>,
+    strategy: DefaultStrategyMode,
+) -> Result<DefaultSupervisorReview> {
+    let context_telemetry = supervisor_context.telemetry(artifact_paths);
+    let decision = {
+        let mut supervisor_session = supervisor_session
+            .lock()
+            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
+        run_supervisor_feedback_turn(
+            &mut supervisor_session,
+            root,
+            strategy_dir,
+            label,
+            artifact_paths,
+            default_strategy_review_instruction(strategy),
+            worker_guidance,
+            &context_telemetry,
+            strategy,
+        )?
+    };
+    supervisor_samples.push(decision.usage_sample());
+    supervisor_context.record_feedback(&decision);
+    let compaction_request = supervisor_context.request_after_feedback(&decision);
+    Ok(DefaultSupervisorReview {
+        decision,
+        compaction_request,
+    })
+}
+
+/// Run patch preparation, optional pre-takeover compaction, and direct finish.
+pub(crate) fn run_default_supervisor_takeover(
+    supervisor_session: &Arc<Mutex<SupervisorCodexSession>>,
+    root: &Path,
+    strategy_dir: &Path,
+    feedback_path: &Path,
+    final_out: &Path,
+    decision_index: u64,
+    takeover_decision: &SupervisorFeedbackTurn,
+    supervisor_context: &mut SupervisorCompactionState,
+    supervisor_samples: &mut Vec<SupervisorUsageSample>,
+    supervisor_compactions: &mut Vec<Value>,
+    strategy: DefaultStrategyMode,
+) -> Result<DefaultSupervisorTakeover> {
+    let preparation = prepare_default_revision_decision(root, final_out, takeover_decision)?;
+    let artifact_paths = default_strategy_review_artifacts(strategy_dir, final_out)?;
+    let context_telemetry = supervisor_context.telemetry(&artifact_paths);
+    if context_telemetry.compaction_enabled {
+        let compact = run_default_supervisor_compaction(
+            supervisor_session,
+            strategy_dir,
+            &format!("supervisor-compact-before-takeover-{decision_index}"),
+            "supervisor_takeover",
+            &json!({
+                "action": "compact_now",
+                "reason": format!("{} supervisor takeover", strategy.as_str())
+            }),
+            &context_telemetry,
+        )?;
+        record_default_supervisor_compaction(
+            feedback_path,
+            supervisor_samples,
+            supervisor_context,
+            supervisor_compactions,
+            &compact,
+        )?;
+    }
+
+    let artifact_paths = default_strategy_review_artifacts(strategy_dir, final_out)?;
+    let context_telemetry = supervisor_context.telemetry(&artifact_paths);
+    let direct_finish = {
+        let mut supervisor_session = supervisor_session
+            .lock()
+            .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
+        run_supervisor_direct_finish_turn(
+            &mut supervisor_session,
+            root,
+            strategy_dir,
+            &format!("supervisor-direct-finish-{decision_index}"),
+            &artifact_paths,
+            takeover_decision,
+            &context_telemetry,
+            strategy,
+        )?
+    };
+    append_jsonl(feedback_path, &direct_finish.record)?;
+    supervisor_samples.push(direct_finish.usage_sample());
+    Ok(DefaultSupervisorTakeover {
+        preparation,
+        direct_finish,
+    })
+}
+
 /// Build the artifact list reviewed by the supervisor after a worker run.
 pub(crate) fn default_strategy_review_artifacts(
     strategy_dir: &Path,
@@ -404,21 +562,6 @@ pub(crate) fn default_review_label(decision_index: u64) -> String {
     }
 }
 
-/// Return the per-strategy instruction for a supervisor review turn.
-pub(crate) fn default_strategy_review_instruction(strategy: DefaultStrategyMode) -> &'static str {
-    match strategy {
-        DefaultStrategyMode::SupervisedWorker => {
-            "Decide the next worker-loop action. Use approve only when the worker result is acceptable. Prefer revise after failed or empty worker attempts, with a concrete next instruction. Use stop only to record a blocked or inconclusive worker result when no useful worker path remains; do not author task-solving source changes."
-        }
-        DefaultStrategyMode::WorkerBootstrap => {
-            "Decide the next worker-bootstrap action. Use approve only when the current source is acceptable. Use revise when the next work is still a substantial separable worker implementation slice. Use take_over when the current patch is a useful baseline and the remaining work is localized edge cases, focused tests, formatting, or debugging that you already understand well enough to finish directly. Use stop only when no useful worker or direct-supervisor path remains. Do not author task-solving source changes during this review turn."
-        }
-        DefaultStrategyMode::WorkerBuildSupervisorFix => {
-            "Decide the next worker-build-supervisor-fix action. Use approve only when the current source is acceptable. Use revise only when the next work is broad worker-scale construction. Use take_over when the next work is corrective: named residual defects, edge cases, error wording, propagation, shadowing, formatting, targeted verification, or other small repairs after a usable baseline exists. Use stop only when no useful worker or direct-supervisor path remains. Do not author task-solving source changes during this review turn."
-        }
-    }
-}
-
 /// Build final metrics outcome when supervisor direct finish may be present.
 pub(crate) fn default_strategy_outcome_with_direct_finish(
     final_decision: Option<&SupervisorFeedbackTurn>,
@@ -468,6 +611,40 @@ pub(crate) fn default_strategy_outcome_with_direct_finish(
         final_worker_mode,
         final_status,
     }
+}
+
+/// Return the stable phase labels for default-strategy metrics.
+pub(crate) fn default_strategy_phase_labels(has_supervisor_direct_finish: bool) -> Value {
+    if has_supervisor_direct_finish {
+        json!([
+            "codex_worker_brief",
+            "codex_worker_decision_loop",
+            "codex_supervisor_direct_finish"
+        ])
+    } else {
+        json!(["codex_worker_brief", "codex_worker_decision_loop"])
+    }
+}
+
+/// Return the serialized direct-finish record for metrics.
+pub(crate) fn default_strategy_direct_finish_record(
+    supervisor_direct_finish: Option<&SupervisorDirectTurn>,
+) -> Value {
+    supervisor_direct_finish
+        .map(|turn| turn.record.clone())
+        .unwrap_or(Value::Null)
+}
+
+/// Return byte sizes for default-strategy top-level worker artifacts.
+pub(crate) fn default_strategy_artifact_byte_sizes(dir: &Path) -> Result<Value> {
+    let mut map = serde_json::Map::new();
+    for &name in WORKER_RUN_ARTIFACTS {
+        let path = dir.join(name);
+        if path.exists() {
+            map.insert(name.to_string(), json!(file_len(&path)?));
+        }
+    }
+    Ok(Value::Object(map))
 }
 
 /// Return token usage labels for default-strategy supervisor metrics.

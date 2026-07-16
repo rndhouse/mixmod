@@ -18,6 +18,7 @@ mod checkpoint;
 mod cli;
 mod config;
 mod default_strategy;
+mod default_strategy_policy;
 mod default_strategy_support;
 mod diff;
 mod experiment;
@@ -70,11 +71,17 @@ pub use config::{
     WorkerBackend, WorkerConfig,
 };
 pub(crate) use default_strategy::{DefaultStrategyOptions, run_default_strategy};
+pub(crate) use default_strategy_policy::{
+    default_strategy_note, default_strategy_review_instruction, supervisor_direct_finish_policy,
+    supervisor_feedback_action_schema, supervisor_feedback_strategy_policy,
+};
 pub(crate) use default_strategy_support::{
     SupervisorCompactionState, default_review_label, default_revision_resume_session_id,
-    default_strategy_outcome_with_direct_finish, default_strategy_review_artifacts,
-    default_strategy_review_instruction, live_supervisor_advisor,
-    prepare_default_revision_decision, supervisor_token_usage_labels,
+    default_strategy_artifact_byte_sizes, default_strategy_direct_finish_record,
+    default_strategy_outcome_with_direct_finish, default_strategy_phase_labels,
+    default_strategy_review_artifacts, live_supervisor_advisor, prepare_default_revision_decision,
+    record_default_supervisor_compaction, run_default_supervisor_compaction,
+    run_default_supervisor_review, run_default_supervisor_takeover, supervisor_token_usage_labels,
 };
 pub use diff::patch_stats;
 pub use experiment::{
@@ -137,8 +144,8 @@ pub(crate) use strategy_metrics::WorkerMetricsSummary;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, PatchDecision, RevisionHandoff, SupervisorBriefTurn,
     SupervisorCodexSession, SupervisorCompactionTurn, SupervisorContextTelemetry,
-    SupervisorDirectTurn, SupervisorFeedbackTurn, SupervisorVerdict, WorkerMode,
-    aggregate_supervisor_usage, normalize_worker_mode, run_supervisor_brief_turn,
+    SupervisorDirectTurn, SupervisorFeedbackTurn, SupervisorUsageSample, SupervisorVerdict,
+    WorkerMode, aggregate_supervisor_usage, normalize_worker_mode, run_supervisor_brief_turn,
     run_supervisor_compaction, run_supervisor_direct_finish_turn, run_supervisor_feedback_turn,
 };
 #[cfg(test)]
