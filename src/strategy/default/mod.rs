@@ -1,3 +1,6 @@
+pub(crate) mod policy;
+pub(crate) mod support;
+
 use crate::experiment::{write_revision_task, write_worker_brief_task};
 use crate::*;
 use std::sync::{Arc, Mutex};

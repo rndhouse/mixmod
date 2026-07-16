@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 
+use super::policy::default_strategy_review_instruction;
 use crate::create_patch_baseline_checkpoint;
 use crate::{
     BASELINE_ACTIVE_PATCH, DefaultStrategyMode, LiveSupervisorAdvisor, METRICS_JSON,
@@ -12,8 +13,8 @@ use crate::{
     SupervisorBriefTurn, SupervisorCodexSession, SupervisorCompactionTurn,
     SupervisorContextTelemetry, SupervisorDirectTurn, SupervisorFeedbackTurn,
     SupervisorUsageSample, SupervisorVerdict, WORKER_RUN_ARTIFACTS, WORKTREE_PATCH, WorkerMode,
-    append_jsonl, append_patch_checkpoint_artifacts, default_strategy_review_instruction, env_bool,
-    env_u64, file_len, get_str, restore_previous_patch_checkpoint, run_supervisor_compaction,
+    append_jsonl, append_patch_checkpoint_artifacts, env_bool, env_u64, file_len, get_str,
+    restore_previous_patch_checkpoint, run_supervisor_compaction,
     run_supervisor_direct_finish_turn, run_supervisor_feedback_turn,
     supervisor_review_artifact_paths,
 };
