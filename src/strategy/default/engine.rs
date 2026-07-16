@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 
-use crate::experiment::{write_revision_task, write_worker_brief_task};
 use crate::*;
 
 /// Stop controls shared by default strategy adapters.

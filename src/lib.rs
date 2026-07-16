@@ -102,8 +102,6 @@ pub use worker::{run_worker_turn, run_worker_turn_with_local_requirement};
 
 use diff::{diff_without_unchanged_blocks, git_diff_with_untracked};
 pub(crate) use experiment::{placeholder_experiment_metrics, validate_experiment_name};
-#[cfg(test)]
-pub(crate) use experiment::{write_revision_task, write_worker_brief_task};
 pub(crate) use fs_util::*;
 #[cfg(test)]
 pub(crate) use harness::codex::CodexSandbox;
@@ -153,6 +151,7 @@ pub(crate) use worker::{
     build_worker_turn_instruction, build_worker_turn_summary, worker_context_signals,
     worker_token_usage, worker_turn_exit_status_label,
 };
+pub(crate) use worker::{write_revision_task, write_worker_brief_task};
 pub use worker_telemetry::{WorkerBackendSlotTelemetry, WorkerBackendTelemetry};
 
 use task::{
