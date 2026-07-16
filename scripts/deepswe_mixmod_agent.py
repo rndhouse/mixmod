@@ -337,11 +337,38 @@ def write_command_output(command: list[str], target: Path) -> None:
 write_command_output(["git", "-C", "/app", "diff", "--binary", "HEAD"], artifacts_dir / "model.patch")
 write_command_output(["git", "-C", "/app", "status", "--porcelain"], artifacts_dir / "git-status.txt")
 
-runs = [path for path in state_dir.glob("projects/*/runs/run-*") if path.is_dir()]
+def looks_like_mixmod_run(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if path.name.startswith("run-") or path.name.startswith("worker-turn-"):
+        return True
+    for marker in [
+        "metrics.json",
+        "supervisor-feedback.jsonl",
+        "worker-runs",
+        "logs",
+        "final.patch",
+        "report.md",
+    ]:
+        if (path / marker).exists():
+            return True
+    return False
+
+def run_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+runs = [
+    path
+    for path in state_dir.glob("projects/*/runs/*")
+    if looks_like_mixmod_run(path)
+]
 if not runs:
     raise SystemExit(0)
 
-run_dir = max(runs, key=lambda path: path.stat().st_mtime)
+run_dir = max(runs, key=run_mtime)
 copy_if_exists(run_dir / "metrics.json", agent_dir / "mixmod-metrics.json")
 copy_if_exists(run_dir / "final.patch", agent_dir / "mixmod-final.patch")
 copy_if_exists(run_dir / "report.md", agent_dir / "mixmod-report.md")
@@ -509,6 +536,13 @@ def string_values(records: list[dict], field: str) -> list[str]:
     return values
 
 feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
+direct_finish_records = [
+    record for record in feedback if record.get("type") == "supervisor_direct_finish"
+]
+direct_finish_record = (
+    metrics.get("supervisor_direct_finish")
+    or (direct_finish_records[-1] if direct_finish_records else None)
+)
 worker_dirs = sorted(
     (path for path in (agent_dir / "worker-runs").glob("*") if path.is_dir()),
     key=worker_dir_sort_key,
@@ -596,7 +630,32 @@ summary = {{
     "supervisor_compaction_count": metrics.get("supervisor_compaction_count")
         if metrics.get("supervisor_compaction_count") is not None
         else sum(1 for record in feedback if record.get("type") == "supervisor_compaction"),
-    "supervisor_direct_finish": metrics.get("supervisor_direct_finish"),
+    "supervisor_direct_finish": direct_finish_record,
+    "supervisor_direct_finish_input_tokens": (
+        direct_finish_record.get("supervisor_input_tokens")
+        if isinstance(direct_finish_record, dict)
+        else None
+    ),
+    "supervisor_direct_finish_cached_input_tokens": (
+        direct_finish_record.get("supervisor_cached_input_tokens")
+        if isinstance(direct_finish_record, dict)
+        else None
+    ),
+    "supervisor_direct_finish_output_tokens": (
+        direct_finish_record.get("supervisor_output_tokens")
+        if isinstance(direct_finish_record, dict)
+        else None
+    ),
+    "supervisor_direct_finish_reasoning_tokens": (
+        direct_finish_record.get("supervisor_reasoning_tokens")
+        if isinstance(direct_finish_record, dict)
+        else None
+    ),
+    "supervisor_direct_finish_total_tokens": (
+        direct_finish_record.get("supervisor_total_tokens")
+        if isinstance(direct_finish_record, dict)
+        else None
+    ),
     "worker_backend": metrics.get("worker_backend") or latest_completed_worker.get("worker_backend"),
     "supervisor_stdout_bytes": file_len(agent_dir / "logs" / "codex.stdout.jsonl"),
     "supervisor_stderr_bytes": file_len(agent_dir / "logs" / "codex.stderr.txt"),
