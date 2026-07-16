@@ -13,10 +13,11 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 
-use crate::harness::{AgentBackend, AgentHarness, AgentOutput, AgentRequest};
-use crate::{
-    MixmodConfig, SupervisorConfig, append_file, atomic_write, get_str, get_u64, state_layout,
+use super::sandbox::CodexSandbox;
+use super::usage::{
+    CodexUsage, codex_app_server_cumulative_usage, codex_app_server_last_request_usage,
 };
+use crate::{SupervisorConfig, append_file, atomic_write, get_str, state_layout};
 
 /// Result of one Codex app-server turn.
 pub(crate) struct CodexTurnResult {
@@ -39,66 +40,6 @@ pub(crate) struct CodexTurnResult {
     pub(crate) token_usage_comparable: bool,
 }
 
-/// Codex sandbox profile used for an app-server thread or turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CodexSandbox {
-    ReadOnly,
-    WorkspaceWrite,
-    DangerFullAccess,
-}
-
-impl CodexSandbox {
-    pub(crate) fn as_thread_arg(self) -> &'static str {
-        match self {
-            Self::ReadOnly => "read-only",
-            Self::WorkspaceWrite => "workspace-write",
-            Self::DangerFullAccess => "danger-full-access",
-        }
-    }
-
-    pub(crate) fn as_turn_policy(self, work_dir: &Path) -> Value {
-        match self {
-            Self::DangerFullAccess => json!({"type": "dangerFullAccess"}),
-            Self::ReadOnly => json!({"type": "readOnly", "networkAccess": false}),
-            Self::WorkspaceWrite => json!({
-                "type": "workspaceWrite",
-                "writableRoots": [work_dir.to_string_lossy().to_string()],
-                "networkAccess": false,
-                "excludeTmpdirEnvVar": false,
-                "excludeSlashTmp": false
-            }),
-        }
-    }
-}
-
-/// Token usage reported by Codex.
-#[derive(Clone, Default)]
-pub(crate) struct CodexUsage {
-    pub(crate) input_tokens: u64,
-    pub(crate) cached_input_tokens: u64,
-    pub(crate) output_tokens: u64,
-    pub(crate) reasoning_tokens: u64,
-    pub(crate) total_tokens: u64,
-}
-
-impl CodexUsage {
-    /// Return this cumulative usage with the previous cumulative reading
-    /// subtracted, saturating if Codex reports a reset.
-    pub(crate) fn delta_since(&self, previous: &Self) -> Self {
-        Self {
-            input_tokens: self.input_tokens.saturating_sub(previous.input_tokens),
-            cached_input_tokens: self
-                .cached_input_tokens
-                .saturating_sub(previous.cached_input_tokens),
-            output_tokens: self.output_tokens.saturating_sub(previous.output_tokens),
-            reasoning_tokens: self
-                .reasoning_tokens
-                .saturating_sub(previous.reasoning_tokens),
-            total_tokens: self.total_tokens.saturating_sub(previous.total_tokens),
-        }
-    }
-}
-
 /// Persistent Codex app-server process plus one active thread.
 pub(crate) struct CodexAppServer {
     child: Child,
@@ -115,134 +56,6 @@ pub(crate) struct CodexAppServer {
     reasoning_effort: String,
     thread_id: String,
     total_usage: CodexUsage,
-}
-
-/// Codex app-server worker harness.
-pub struct ShellCodexRunner {
-    config: MixmodConfig,
-    server: Mutex<Option<CodexAppServer>>,
-}
-
-impl ShellCodexRunner {
-    /// Create a Codex worker runner from Mixmod configuration.
-    pub fn new(config: MixmodConfig) -> Self {
-        Self {
-            config,
-            server: Mutex::new(None),
-        }
-    }
-}
-
-impl AgentHarness for ShellCodexRunner {
-    fn run(&self, request: &AgentRequest) -> Result<AgentOutput> {
-        if request.require_local {
-            bail!(
-                "worker_backend=codex cannot satisfy --require-local because Codex app-server is not a local inference backend"
-            );
-        }
-
-        let mut guard = self
-            .server
-            .lock()
-            .map_err(|_| anyhow!("Codex worker server lock was poisoned"))?;
-        if request.resume_session_id.is_none() {
-            *guard = Some(CodexAppServer::start(
-                &request.root,
-                &self.config.codex_worker,
-                CodexSandbox::WorkspaceWrite,
-            )?);
-        }
-
-        let server = guard.as_mut().ok_or_else(|| {
-            anyhow!(
-                "Codex worker cannot resume session `{}` without an active in-process app-server",
-                request.resume_session_id.as_deref().unwrap_or("unknown")
-            )
-        })?;
-        if let Some(resume_session_id) = request.resume_session_id.as_deref()
-            && server.thread_id != resume_session_id
-        {
-            bail!(
-                "Codex worker can only resume the active app-server thread `{}` in this process, but Mixmod requested `{}`",
-                server.thread_id,
-                resume_session_id
-            );
-        }
-
-        let result = server.run_turn(&request.out_dir, "codex-worker", &request.instruction)?;
-        let success = result.exit_status == Some(0);
-        let session_reused = request.resume_session_id.is_some();
-        let thread_id = result.thread_id.clone();
-        let turn_id = result.turn_id.clone();
-        let model = result.model.clone();
-        let reasoning_effort = result.reasoning_effort.clone();
-        let model_arg = format!("{}:{}", model, reasoning_effort);
-        let mut verification_notes = vec![
-            "Codex worker ran through app-server with workspace-write sandbox.".to_string(),
-            "Local inference verification is not applicable to the Codex worker backend."
-                .to_string(),
-        ];
-        if result.auth_copied_then_removed {
-            verification_notes.push(
-                "Codex auth was copied into the Mixmod-scoped CODEX_HOME for the app-server process."
-                    .to_string(),
-            );
-        }
-        Ok(AgentOutput {
-            backend: AgentBackend::Codex,
-            command_for_metrics: vec![
-                "codex".to_string(),
-                "app-server".to_string(),
-                "--listen".to_string(),
-                "stdio://".to_string(),
-            ],
-            segments: vec![json!({
-                "backend": "codex",
-                "worker_mode": if session_reused { "continue" } else { "new" },
-                "thread_id": thread_id.clone(),
-                "turn_id": turn_id,
-                "model": model.clone(),
-                "reasoning_effort": reasoning_effort,
-                "exit_status": result.exit_status,
-                "success": success,
-                "input_tokens": result.usage.input_tokens,
-                "cached_input_tokens": result.usage.cached_input_tokens,
-                "output_tokens": result.usage.output_tokens,
-                "reasoning_tokens": result.usage.reasoning_tokens,
-                "total_tokens": result.usage.total_tokens,
-                "token_usage_source": result.token_usage_source.clone(),
-                "token_usage_scope": result.token_usage_scope.clone(),
-                "token_usage_comparable": result.token_usage_comparable,
-                "input_bytes": result.input_bytes,
-                "output_bytes": result.output_bytes,
-                "turn_status": result.turn_status,
-                "error_info": result.error_info,
-                "error_message": result.error_message
-            })],
-            exit_status: result.exit_status,
-            success,
-            stdout: result.last_message.into_bytes(),
-            stderr: result.stderr,
-            provider: Some("codex".to_string()),
-            model: Some(model),
-            model_arg: Some(model_arg),
-            session_label: Some(request.session_id.clone()),
-            session_id: Some(thread_id),
-            resume_session_id: request.resume_session_id.clone(),
-            session_reused,
-            interrupted_by_supervisor: false,
-            supervisor_control_action: None,
-            supervisor_control_events: Vec::new(),
-            timed_out: false,
-            idle_timed_out: false,
-            heartbeat_count: 0,
-            require_local: false,
-            local_inference_verified: false,
-            gpu_activity_observed: false,
-            backend_activity_observed: true,
-            verification_notes,
-        })
-    }
 }
 
 impl CodexAppServer {
@@ -498,6 +311,11 @@ impl CodexAppServer {
             token_usage_scope,
             token_usage_comparable,
         })
+    }
+
+    /// Return the active app-server thread id.
+    pub(crate) fn thread_id(&self) -> &str {
+        &self.thread_id
     }
 
     /// Compact the active app-server thread and wait for the compact turn.
@@ -949,87 +767,6 @@ fn final_agent_message_from_turn(turn: &Value) -> Option<String> {
         }
     }
     fallback
-}
-
-fn codex_usage_from_breakdown(value: &Value) -> CodexUsage {
-    CodexUsage {
-        input_tokens: get_u64(value, "inputTokens").unwrap_or(0),
-        cached_input_tokens: get_u64(value, "cachedInputTokens").unwrap_or(0),
-        output_tokens: get_u64(value, "outputTokens").unwrap_or(0),
-        reasoning_tokens: get_u64(value, "reasoningOutputTokens").unwrap_or(0),
-        total_tokens: get_u64(value, "totalTokens").unwrap_or_else(|| {
-            get_u64(value, "inputTokens").unwrap_or(0)
-                + get_u64(value, "outputTokens").unwrap_or(0)
-                + get_u64(value, "reasoningOutputTokens").unwrap_or(0)
-        }),
-    }
-}
-
-pub(crate) fn codex_app_server_cumulative_usage(token_usage: &Value) -> Option<CodexUsage> {
-    token_usage.get("total").map(codex_usage_from_breakdown)
-}
-
-fn codex_app_server_last_request_usage(token_usage: &Value) -> Option<CodexUsage> {
-    token_usage.get("last").map(codex_usage_from_breakdown)
-}
-
-#[cfg(test)]
-pub(crate) fn codex_usage_from_jsonl(bytes: &[u8]) -> CodexUsage {
-    let mut usage = CodexUsage::default();
-    for line in bytes.split(|byte| *byte == b'\n') {
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_slice::<Value>(line) else {
-            continue;
-        };
-        if let Some(next) = codex_usage_from_json_value(&value) {
-            usage = next;
-        }
-    }
-    usage
-}
-
-#[cfg(test)]
-fn codex_usage_from_json_value(value: &Value) -> Option<CodexUsage> {
-    let payload = value.get("payload");
-    if get_str(value, "type") == Some("event_msg")
-        && payload.and_then(|payload| get_str(payload, "type")) == Some("token_count")
-    {
-        return payload
-            .and_then(|payload| payload.get("info"))
-            .and_then(|info| info.get("total_token_usage"))
-            .map(codex_usage_from_snake_breakdown);
-    }
-    if get_str(value, "type") == Some("token_count") {
-        return value
-            .get("info")
-            .and_then(|info| info.get("total_token_usage"))
-            .map(codex_usage_from_snake_breakdown);
-    }
-    if get_str(value, "method") == Some("thread/tokenUsage/updated") {
-        return value
-            .get("params")
-            .and_then(|params| params.get("tokenUsage"))
-            .and_then(|token_usage| token_usage.get("total").or_else(|| token_usage.get("last")))
-            .map(codex_usage_from_breakdown);
-    }
-    None
-}
-
-#[cfg(test)]
-fn codex_usage_from_snake_breakdown(value: &Value) -> CodexUsage {
-    CodexUsage {
-        input_tokens: get_u64(value, "input_tokens").unwrap_or(0),
-        cached_input_tokens: get_u64(value, "cached_input_tokens").unwrap_or(0),
-        output_tokens: get_u64(value, "output_tokens").unwrap_or(0),
-        reasoning_tokens: get_u64(value, "reasoning_output_tokens").unwrap_or(0),
-        total_tokens: get_u64(value, "total_tokens").unwrap_or_else(|| {
-            get_u64(value, "input_tokens").unwrap_or(0)
-                + get_u64(value, "output_tokens").unwrap_or(0)
-                + get_u64(value, "reasoning_output_tokens").unwrap_or(0)
-        }),
-    }
 }
 
 fn normalized_supervisor_model(value: &str) -> Result<String> {
