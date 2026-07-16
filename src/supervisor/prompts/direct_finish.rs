@@ -35,14 +35,21 @@ pub(crate) fn supervisor_direct_finish_prompt(
         .context("failed to serialize supervisor context telemetry")?;
     Ok(format!(
         r#"You are the Mixmod supervisor in {strategy_mode} direct finish mode.
-You may now edit source and test files in the working repo directly. Do not ask the user for approval. Do not commit.
-Do not inspect /solution, verifier internals, or unlisted Mixmod state directories. You may inspect the listed artifacts and the repo source.
+You may now make surgical source or test edits in the working repo directly. Do not ask the user for approval. Do not commit.
+Do not inspect /solution, verifier internals, or unlisted Mixmod state directories.
+
+Direct-finish contract:
+- Direct supervisor edits are for known, bounded cleanup only. The worker owns expensive work.
+- Edit only files named in direct_plan, takeover feedback, or the smallest nearby source file needed for the named defect.
+- Do not use shell commands, run tests, regenerate artifacts, inspect generated or very large files, or perform broad search unless direct_plan explicitly names the exact command or file and why it is cheap.
+- Use listed artifacts and already-known context first. Avoid reading more repo source once the targeted edit is clear.
+- If finishing requires broad exploration, broad verification, generated-output synchronization, or discovering where the bug lives, return action=stop and explain that the work should go back to the worker.
 
 {direct_finish_policy}
 
-Before approving, run the smallest relevant checks you can. If checks are too expensive or unavailable, record that explicitly.
+Before approving, verify only within this surgical contract. Prefer direct code inspection of the edited lines. Record any command only if direct_plan explicitly allowed it and it stayed cheap.
 Return minified JSON only:
-{{"action":"approve|stop","summary":"max 60 words","changed_files":[],"checks":["commands run and result"],"risk":"max 30 words"}}
+{{"action":"approve|stop","summary":"max 60 words","changed_files":[],"checks":["commands run and result; empty when none"],"risk":"max 30 words","surgical_contract":{{"why_direct":"max 40 words","target_files":[],"expected_patch_lines":"0|1-20|21-50|over-50","commands_used":false,"command_justification":"max 30 words or empty","broad_work_required":false}}}}
 Use action=approve only when the current source state appears to satisfy the original task. Use action=stop if blocked or inconclusive after direct work.
 
 Takeover reason: {takeover_reason}

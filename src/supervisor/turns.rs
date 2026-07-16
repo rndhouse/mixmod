@@ -406,12 +406,14 @@ pub(crate) fn run_supervisor_direct_finish_turn(
     if let Value::Object(map) = &mut final_decision {
         map.insert("action".to_string(), json!(action.clone()));
     }
+    let surgical_contract = normalize_direct_finish_surgical_contract(&final_decision);
     let record = json!({
         "label": label,
         "timestamp": Utc::now().to_rfc3339(),
         "type": "supervisor_direct_finish",
         "decision": final_decision,
         "takeover_feedback": takeover_decision.feedback,
+        "surgical_contract": surgical_contract,
         "codex_exit_status": result.exit_status,
         "supervisor_model": result.model.clone(),
         "supervisor_reasoning_effort": result.reasoning_effort.clone(),
@@ -455,6 +457,42 @@ fn normalize_direct_finish_action(value: Option<&str>) -> String {
         "approve" | "approved" | "done" | "success" => "approve".to_string(),
         _ => "stop".to_string(),
     }
+}
+
+pub(super) fn normalize_direct_finish_surgical_contract(decision: &Value) -> Value {
+    let contract = decision.get("surgical_contract").unwrap_or(&Value::Null);
+    let target_files = {
+        let files = get_string_array(contract, "target_files");
+        if files.is_empty() {
+            get_string_array(decision, "changed_files")
+        } else {
+            files
+        }
+    };
+    let commands_used = get_bool(contract, "commands_used").unwrap_or_else(|| {
+        direct_finish_checks_indicate_commands(&get_string_array(decision, "checks"))
+    });
+
+    json!({
+        "why_direct": get_str(contract, "why_direct")
+            .map(|value| truncate_for_report(value, 160))
+            .unwrap_or_default(),
+        "target_files": target_files,
+        "expected_patch_lines": get_str(contract, "expected_patch_lines")
+            .unwrap_or("unknown"),
+        "commands_used": commands_used,
+        "command_justification": get_str(contract, "command_justification")
+            .map(|value| truncate_for_report(value, 120))
+            .unwrap_or_default(),
+        "broad_work_required": get_bool(contract, "broad_work_required").unwrap_or(false)
+    })
+}
+
+fn direct_finish_checks_indicate_commands(checks: &[String]) -> bool {
+    checks.iter().any(|check| {
+        let check = check.trim().to_ascii_lowercase();
+        !check.is_empty() && check != "none" && !check.contains("not run")
+    })
 }
 
 pub(crate) fn run_supervisor_compaction(

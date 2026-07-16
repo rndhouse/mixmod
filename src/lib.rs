@@ -136,7 +136,7 @@ pub(crate) use supervisor::{
 };
 #[cfg(test)]
 pub(crate) use supervisor::{
-    normalize_feedback_value, supervisor_feedback_prompt,
+    normalize_feedback_value, supervisor_direct_finish_prompt, supervisor_feedback_prompt,
     supervisor_feedback_prompt_with_debug_profile_fit, supervisor_worker_brief_prompt,
     supervisor_worker_brief_prompt_with_debug_profile_fit,
 };

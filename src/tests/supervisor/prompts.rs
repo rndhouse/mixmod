@@ -83,13 +83,12 @@ fn worker_build_supervisor_fix_feedback_prompt_prefers_direct_correction() {
 
     assert!(prompt.contains("Strategy mode: worker-build-supervisor-fix"));
     assert!(prompt.contains("Use the worker for construction"));
-    assert!(prompt.contains("Use action=take_over for correction"));
+    assert!(prompt.contains("Use action=take_over only for surgical correction"));
     assert!(prompt.contains("Before action=revise, classify the next request"));
     assert!(prompt.contains("named residual defects"));
-    assert!(
-        prompt
-            .contains("Choose revise only when you can name a remaining broad construction slice")
-    );
+    assert!(prompt.contains("Choose revise when the next step needs broad search"));
+    assert!(prompt.contains("Before action=take_over, confirm the supervisor can finish"));
+    assert!(prompt.contains("Omit broad checks from direct_plan"));
     assert!(prompt.contains("Corrections can appear before every broad task area is complete"));
     assert!(prompt.contains("\"action\":\"approve|revise|take_over|stop\""));
     assert!(prompt.contains("\"takeover_reason\""));
@@ -118,6 +117,59 @@ fn worker_build_supervisor_fix_debug_prompt_requires_delegation_decision() {
     assert!(prompt.contains("\"delegation_decision\""));
     assert!(prompt.contains("\"worker_fit\""));
     assert!(prompt.contains("\"direct_fit\""));
+}
+
+#[test]
+fn worker_build_supervisor_fix_direct_prompt_is_surgical() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let takeover = SupervisorFeedbackTurn {
+        feedback: serde_json::json!({
+            "feedback": {
+                "action": "take_over",
+                "takeover_reason": "Known parser edge case",
+                "direct_plan": ["Edit src/parser.rs only; no commands."]
+            }
+        }),
+        verdict: "take_over".to_string(),
+        worker_mode: "continue".to_string(),
+        patch_decision: "accept_current".to_string(),
+        hint: String::new(),
+        revision_handoff: RevisionHandoff::default(),
+        focus_files: vec!["src/parser.rs".to_string()],
+        required_checks: Vec::new(),
+        takeover_reason: Some("Known parser edge case".to_string()),
+        direct_plan: vec!["Edit src/parser.rs only; no commands.".to_string()],
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: "thread".to_string(),
+        turn_id: "turn".to_string(),
+        token_usage_comparable: true,
+    };
+
+    let prompt = supervisor_direct_finish_prompt(
+        root,
+        &[root.join("report.md")],
+        &takeover,
+        &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::WorkerBuildSupervisorFix,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Direct-finish contract:"));
+    assert!(prompt.contains("The worker owns expensive work"));
+    assert!(prompt.contains("Do not use shell commands"));
+    assert!(prompt.contains("run tests"));
+    assert!(prompt.contains("perform broad search"));
+    assert!(prompt.contains("If finishing requires broad exploration"));
+    assert!(prompt.contains("\"surgical_contract\""));
+    assert!(prompt.contains("\"commands_used\":false"));
+    assert!(prompt.contains("\"broad_work_required\":false"));
 }
 
 #[test]
