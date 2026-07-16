@@ -11,7 +11,7 @@ pub(crate) enum SupervisorVerdict {
     Approve,
     /// The worker should make another focused attempt.
     Revise,
-    /// The supervisor should stop delegating and finish directly.
+    /// The supervisor should make a bounded surgical patch directly.
     TakeOver,
     /// The loop should stop without approval.
     Stop,
@@ -41,7 +41,7 @@ impl SupervisorVerdict {
         }
     }
 
-    /// Return whether no additional worker turn should be started.
+    /// Return whether the ordinary revise loop should not start immediately.
     pub(crate) fn is_terminal(self) -> bool {
         matches!(self, Self::Approve | Self::Stop | Self::TakeOver)
     }
@@ -177,9 +177,11 @@ pub(crate) struct SupervisorFeedbackTurn {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SupervisorDirectTurn {
+pub(crate) struct SupervisorPatchTurn {
     pub(crate) record: Value,
     pub(crate) action: String,
+    pub(crate) worker_checks: Vec<String>,
+    pub(crate) worker_verification_goal: Option<String>,
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
     pub(crate) reasoning_tokens: u64,
@@ -350,7 +352,7 @@ pub(crate) struct SupervisorUsageSample {
     pub(super) token_usage_comparable: bool,
 }
 
-impl SupervisorDirectTurn {
+impl SupervisorPatchTurn {
     pub(crate) fn usage_sample(&self) -> SupervisorUsageSample {
         SupervisorUsageSample {
             input_tokens: self.input_tokens,

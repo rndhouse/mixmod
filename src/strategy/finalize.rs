@@ -100,9 +100,9 @@ pub(crate) fn build_default_strategy_metrics(
     let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
     let supervisor_usage = aggregate_supervisor_usage(&input.engine.supervisor_samples);
     let worker_summary = WorkerMetricsSummary::from_metrics(&worker_metrics);
-    let outcome = default_strategy_outcome_with_direct_finish(
+    let outcome = default_strategy_outcome(
         input.engine.final_decision.as_ref(),
-        input.engine.supervisor_direct_finish.as_ref(),
+        input.engine.supervisor_patch_turns.last(),
         input.stop_after_first_worker,
         input.stop_after_first_review,
         input.stop_after_worker_turns,
@@ -111,9 +111,20 @@ pub(crate) fn build_default_strategy_metrics(
     let supervisor_token_usage =
         supervisor_token_usage_labels(supervisor_usage.token_usage_comparable);
     let strategy_phases =
-        default_strategy_phase_labels(input.engine.supervisor_direct_finish.is_some());
-    let supervisor_direct_finish_record =
-        default_strategy_direct_finish_record(input.engine.supervisor_direct_finish.as_ref());
+        default_strategy_phase_labels(!input.engine.supervisor_patch_turns.is_empty());
+    let supervisor_patch_records =
+        default_strategy_supervisor_patch_records(&input.engine.supervisor_patch_turns);
+    let supervisor_patch_latest = supervisor_patch_records
+        .last()
+        .cloned()
+        .unwrap_or(Value::Null);
+    let supervisor_patch_samples = input
+        .engine
+        .supervisor_patch_turns
+        .iter()
+        .map(SupervisorPatchTurn::usage_sample)
+        .collect::<Vec<_>>();
+    let supervisor_patch_usage = aggregate_supervisor_usage(&supervisor_patch_samples);
     let worker_run_dirs = input
         .engine
         .worker_run_dirs
@@ -164,6 +175,14 @@ pub(crate) fn build_default_strategy_metrics(
         "supervisor_resume_count": supervisor_usage.thread_reuse_count(),
         "supervisor_compaction_count": input.engine.supervisor_compactions.len() as u64,
         "supervisor_compactions": input.engine.supervisor_compactions.clone(),
+        "supervisor_patch_count": input.engine.supervisor_patch_turns.len() as u64,
+        "supervisor_patch_turns": supervisor_patch_records,
+        "supervisor_patch": supervisor_patch_latest,
+        "supervisor_patch_input_tokens": supervisor_patch_usage.input_tokens,
+        "supervisor_patch_cached_input_tokens": supervisor_patch_usage.cached_input_tokens,
+        "supervisor_patch_output_tokens": supervisor_patch_usage.output_tokens,
+        "supervisor_patch_reasoning_tokens": supervisor_patch_usage.reasoning_tokens,
+        "supervisor_patch_total_tokens": supervisor_patch_usage.total_tokens,
         "did_codex_read_full_mixmod_session": false,
         "did_codex_read_raw_logs": false,
         "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
@@ -171,7 +190,7 @@ pub(crate) fn build_default_strategy_metrics(
         "codex_loop_exit": outcome.final_verdict.clone(),
         "supervisor_takeover": input.engine.supervisor_takeover_decision.is_some(),
         "supervisor_takeover_decision": input.engine.supervisor_takeover_decision.clone(),
-        "supervisor_direct_finish": supervisor_direct_finish_record,
+        "supervisor_direct_finish": Value::Null,
         "final_worker_mode": outcome.final_worker_mode,
         "worker_modes": input.engine.worker_modes.clone(),
         "patch_checkpoints": patch_checkpoint_metrics,
@@ -251,25 +270,22 @@ pub(crate) fn build_default_strategy_metrics(
     }))
 }
 
-/// Build final metrics outcome when supervisor direct finish may be present.
-pub(crate) fn default_strategy_outcome_with_direct_finish(
+/// Build final metrics outcome for the default strategy loop.
+pub(crate) fn default_strategy_outcome(
     final_decision: Option<&SupervisorFeedbackTurn>,
-    direct_finish: Option<&SupervisorDirectTurn>,
+    latest_supervisor_patch: Option<&SupervisorPatchTurn>,
     stop_after_first_worker: bool,
     stop_after_first_review: bool,
     stop_after_worker_turns: Option<u64>,
     completed_worker_turns: u64,
 ) -> DefaultStrategyOutcome {
-    if let Some(direct_finish) = direct_finish {
-        let final_status = if direct_finish.action == "approve" {
-            "approved_by_supervisor_direct"
-        } else {
-            "stopped_by_supervisor_direct"
-        };
+    if final_decision.is_some_and(|decision| decision.verdict_kind() == SupervisorVerdict::TakeOver)
+        && latest_supervisor_patch.is_some_and(|patch| patch.action == "stop")
+    {
         return DefaultStrategyOutcome {
-            final_verdict: direct_finish.action.clone(),
-            final_worker_mode: "supervisor_direct".to_string(),
-            final_status,
+            final_verdict: "stop".to_string(),
+            final_worker_mode: "supervisor_patch".to_string(),
+            final_status: "stopped_by_supervisor_patch",
         };
     }
 
@@ -291,7 +307,7 @@ pub(crate) fn default_strategy_outcome_with_direct_finish(
         match final_decision.map(SupervisorFeedbackTurn::verdict_kind) {
             Some(SupervisorVerdict::Approve) => "approved_by_codex",
             Some(SupervisorVerdict::Stop) => "stopped_by_codex",
-            Some(SupervisorVerdict::TakeOver) => "needs_supervisor_direct",
+            Some(SupervisorVerdict::TakeOver) => "needs_supervisor_patch",
             _ => "needs_review",
         }
     };
@@ -303,25 +319,26 @@ pub(crate) fn default_strategy_outcome_with_direct_finish(
 }
 
 /// Return the stable phase labels for default-strategy metrics.
-pub(crate) fn default_strategy_phase_labels(has_supervisor_direct_finish: bool) -> Value {
-    if has_supervisor_direct_finish {
+pub(crate) fn default_strategy_phase_labels(has_supervisor_patch: bool) -> Value {
+    if has_supervisor_patch {
         json!([
             "codex_worker_brief",
             "codex_worker_decision_loop",
-            "codex_supervisor_direct_finish"
+            "codex_supervisor_patch"
         ])
     } else {
         json!(["codex_worker_brief", "codex_worker_decision_loop"])
     }
 }
 
-/// Return the serialized direct-finish record for metrics.
-pub(crate) fn default_strategy_direct_finish_record(
-    supervisor_direct_finish: Option<&SupervisorDirectTurn>,
-) -> Value {
-    supervisor_direct_finish
+/// Return the serialized supervisor patch records for metrics.
+pub(crate) fn default_strategy_supervisor_patch_records(
+    supervisor_patch_turns: &[SupervisorPatchTurn],
+) -> Vec<Value> {
+    supervisor_patch_turns
+        .iter()
         .map(|turn| turn.record.clone())
-        .unwrap_or(Value::Null)
+        .collect()
 }
 
 /// Return byte sizes for default-strategy top-level worker artifacts.
@@ -377,10 +394,34 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn direct_finish_outcome_records_supervisor_direct_approval() {
-        let direct = SupervisorDirectTurn {
+    fn supervisor_patch_stop_records_patch_stop_outcome() {
+        let decision = SupervisorFeedbackTurn {
+            feedback: json!({}),
+            verdict: "take_over".to_string(),
+            worker_mode: "continue".to_string(),
+            patch_decision: "accept_current".to_string(),
+            hint: String::new(),
+            revision_handoff: RevisionHandoff::default(),
+            focus_files: Vec::new(),
+            required_checks: Vec::new(),
+            takeover_reason: None,
+            direct_plan: Vec::new(),
+            input_tokens: 0,
+            output_tokens: 0,
+            reasoning_tokens: 0,
+            total_tokens: 0,
+            cached_input_tokens: 0,
+            input_bytes: 0,
+            output_bytes: 0,
+            thread_id: String::new(),
+            turn_id: String::new(),
+            token_usage_comparable: true,
+        };
+        let patch = SupervisorPatchTurn {
             record: json!({}),
-            action: "approve".to_string(),
+            action: "stop".to_string(),
+            worker_checks: Vec::new(),
+            worker_verification_goal: None,
             input_tokens: 0,
             output_tokens: 0,
             reasoning_tokens: 0,
@@ -394,10 +435,10 @@ mod tests {
         };
 
         let outcome =
-            default_strategy_outcome_with_direct_finish(None, Some(&direct), false, false, None, 2);
+            default_strategy_outcome(Some(&decision), Some(&patch), false, false, None, 2);
 
-        assert_eq!(outcome.final_verdict, "approve");
-        assert_eq!(outcome.final_worker_mode, "supervisor_direct");
-        assert_eq!(outcome.final_status, "approved_by_supervisor_direct");
+        assert_eq!(outcome.final_verdict, "stop");
+        assert_eq!(outcome.final_worker_mode, "supervisor_patch");
+        assert_eq!(outcome.final_status, "stopped_by_supervisor_patch");
     }
 }

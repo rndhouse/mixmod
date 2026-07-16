@@ -14,16 +14,16 @@ pub(crate) use normalize::normalize_feedback_value;
 pub(crate) use normalize::normalize_worker_mode;
 #[cfg(test)]
 pub(crate) use prompts::{
-    supervisor_direct_finish_prompt, supervisor_feedback_prompt,
-    supervisor_feedback_prompt_with_debug_profile_fit, supervisor_live_control_prompt,
-    supervisor_worker_brief_prompt, supervisor_worker_brief_prompt_with_debug_profile_fit,
+    supervisor_feedback_prompt, supervisor_feedback_prompt_with_debug_profile_fit,
+    supervisor_live_control_prompt, supervisor_patch_prompt, supervisor_worker_brief_prompt,
+    supervisor_worker_brief_prompt_with_debug_profile_fit,
 };
 pub(crate) use turns::{
-    run_supervisor_brief_turn, run_supervisor_compaction, run_supervisor_direct_finish_turn,
-    run_supervisor_feedback_turn,
+    run_supervisor_brief_turn, run_supervisor_compaction, run_supervisor_feedback_turn,
+    run_supervisor_patch_turn,
 };
 pub(crate) use types::{
     PatchDecision, RevisionHandoff, SupervisorBriefTurn, SupervisorCompactionTurn,
-    SupervisorContextTelemetry, SupervisorDirectTurn, SupervisorFeedbackTurn,
-    SupervisorUsageSample, SupervisorVerdict, WorkerMode, aggregate_supervisor_usage,
+    SupervisorContextTelemetry, SupervisorFeedbackTurn, SupervisorPatchTurn, SupervisorUsageSample,
+    SupervisorVerdict, WorkerMode, aggregate_supervisor_usage,
 };

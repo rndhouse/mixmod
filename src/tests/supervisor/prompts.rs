@@ -87,8 +87,8 @@ fn worker_build_supervisor_fix_feedback_prompt_prefers_direct_correction() {
     assert!(prompt.contains("Before action=revise, classify the next request"));
     assert!(prompt.contains("named residual defects"));
     assert!(prompt.contains("Choose revise when the next step needs broad search"));
-    assert!(prompt.contains("Before action=take_over, confirm the supervisor can finish"));
-    assert!(prompt.contains("Omit broad checks from direct_plan"));
+    assert!(prompt.contains("Before action=take_over, confirm the supervisor can patch"));
+    assert!(prompt.contains("Put broad or command-based checks in a later worker"));
     assert!(prompt.contains("Corrections can appear before every broad task area is complete"));
     assert!(prompt.contains("\"action\":\"approve|revise|take_over|stop\""));
     assert!(prompt.contains("\"takeover_reason\""));
@@ -113,14 +113,14 @@ fn worker_build_supervisor_fix_debug_prompt_requires_delegation_decision() {
     assert!(prompt.contains("Debug delegation-decision audit"));
     assert!(prompt.contains("delegation_decision.next_owner"));
     assert!(prompt.contains("delegation_decision.work_type"));
-    assert!(prompt.contains("why the next step belongs with the worker or direct supervisor"));
+    assert!(prompt.contains("why the next step belongs with the worker or supervisor patch turn"));
     assert!(prompt.contains("\"delegation_decision\""));
     assert!(prompt.contains("\"worker_fit\""));
     assert!(prompt.contains("\"direct_fit\""));
 }
 
 #[test]
-fn worker_build_supervisor_fix_direct_prompt_is_surgical() {
+fn worker_build_supervisor_fix_patch_prompt_is_surgical() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let takeover = SupervisorFeedbackTurn {
@@ -152,7 +152,7 @@ fn worker_build_supervisor_fix_direct_prompt_is_surgical() {
         token_usage_comparable: true,
     };
 
-    let prompt = supervisor_direct_finish_prompt(
+    let prompt = supervisor_patch_prompt(
         root,
         &[root.join("report.md")],
         &takeover,
@@ -161,12 +161,15 @@ fn worker_build_supervisor_fix_direct_prompt_is_surgical() {
     )
     .unwrap();
 
-    assert!(prompt.contains("Direct-finish contract:"));
+    assert!(prompt.contains("Supervisor patch contract:"));
     assert!(prompt.contains("The worker owns expensive work"));
     assert!(prompt.contains("Do not use shell commands"));
     assert!(prompt.contains("run tests"));
     assert!(prompt.contains("perform broad search"));
-    assert!(prompt.contains("If finishing requires broad exploration"));
+    assert!(prompt.contains("If the patch requires broad exploration"));
+    assert!(prompt.contains("\"action\":\"patched|stop\""));
+    assert!(prompt.contains("\"worker_checks\""));
+    assert!(prompt.contains("\"worker_verification_goal\""));
     assert!(prompt.contains("\"surgical_contract\""));
     assert!(prompt.contains("\"commands_used\":false"));
     assert!(prompt.contains("\"broad_work_required\":false"));

@@ -98,6 +98,10 @@ pub(crate) fn write_revision_task(
             "Inspect only the focused files or narrowly anchored references needed for the proposal."
                 .to_string(),
         );
+    } else if !expect_patch {
+        constraints
+            .push("Do not edit files; run or inspect only the requested verification.".to_string());
+        constraints.push("Report pass/fail evidence compactly.".to_string());
     } else if bounded_feature_slice {
         constraints
             .push("Do not ask questions; make a reasonable assumption and continue.".to_string());
@@ -124,6 +128,14 @@ pub(crate) fn write_revision_task(
     };
     let instructions = if planning_probe {
         planning_probe_revision_instructions(
+            &task_value,
+            decision,
+            &focus_files,
+            &focus_note,
+            patch_decision_note,
+        )
+    } else if !expect_patch {
+        no_patch_revision_instructions(
             &task_value,
             decision,
             &focus_files,
@@ -220,6 +232,78 @@ pub(crate) fn write_revision_task(
         )?;
     }
     Ok(path)
+}
+
+fn no_patch_revision_instructions(
+    original: &Value,
+    decision: &SupervisorFeedbackTurn,
+    focus_files: &[String],
+    focus_note: &str,
+    patch_decision_note: &str,
+) -> String {
+    let original_instructions = get_str(original, "instructions")
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let original_context = if original_instructions.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nOriginal task context, for alignment only:\n{}\n",
+            truncate_for_report(&original_instructions, 1200)
+        )
+    };
+    let fallback_goal = if decision.hint.trim().is_empty() {
+        "Verify the current source state and report evidence for supervisor review."
+    } else {
+        decision.hint.trim()
+    };
+    let turn_goal = decision
+        .revision_handoff
+        .turn_goal
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_goal)
+        .trim();
+    let checks = if decision.required_checks.is_empty() {
+        "No command was specified. Inspect only the focused files or nearby anchors needed to judge the stated verification goal.".to_string()
+    } else {
+        numbered_list(&decision.required_checks)
+    };
+    let plan = non_empty_or(
+        decision.revision_handoff.edit_plan.clone(),
+        vec![fallback_goal.to_string()],
+    );
+    let file_list = file_list_or_none(focus_files);
+
+    format!(
+        r#"Noninteractive verification revision. This is a no-patch worker turn for supervisor review.
+
+Original task:{original_context}
+Current source state includes supervisor or worker edits that are not yet accepted as the full solution.{patch_decision_note}
+
+Verification goal:
+{turn_goal}
+
+Verification plan:
+{plan}
+
+Relevant files:
+{file_list}
+
+{focus_note}
+Do not edit files. Do not regenerate generated artifacts. Do not inspect Mixmod state or artifact directories. Run only the focused checks listed below; if none are listed, inspect the focused source context and report what remains unverified.
+
+Focused checks:
+{checks}
+
+Final response format:
+Verification: pass|fail|blocked|inconclusive
+Evidence: <commands run and result, or focused inspection evidence>
+Remaining work: <none, or a compact description for the supervisor>
+"#,
+        plan = numbered_list(&plan),
+    )
 }
 
 fn planning_probe_revision_instructions(

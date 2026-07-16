@@ -9,6 +9,7 @@ pub(crate) fn build_worker_turn_instruction(
     _out_dir: &Path,
 ) -> Result<String> {
     let patch_request = is_patch_request_task(task);
+    let expected_patch = expected_patch_for_instruction(mode, task);
     let files = if task.files.is_empty() {
         "- none specified".to_string()
     } else {
@@ -52,6 +53,13 @@ pub(crate) fn build_worker_turn_instruction(
 - If any requested edit or check remains incomplete, say exactly what remains incomplete.
 
 Do not claim success if requested work remains incomplete."#
+    } else if !expected_patch {
+        r#"Before finalizing, do a completion self-check:
+- Did you run the requested checks or complete the requested focused inspection?
+- Did you avoid repository edits?
+- If verification is blocked or inconclusive, say exactly why.
+
+Do not claim success if requested verification remains incomplete."#
     } else {
         r#"Before finalizing, do a completion self-check:
 - Did you complete every edit you intended to make?
@@ -66,6 +74,13 @@ Do not claim success if intended edits or intended checks are incomplete."#
 - Risks or blocker, if any
 
 Mention checks only if you actually ran one.
+Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and session artifacts on disk."#
+    } else if !expected_patch {
+        r#"Keep the final stdout response compact and include:
+- Verification: pass|fail|blocked|inconclusive
+- Evidence: commands run and result, or focused inspection evidence
+- Remaining work: none, or a compact issue for supervisor review
+
 Do not paste long logs. Mixmod captures stdout, stderr, patch, metrics, and session artifacts on disk."#
     } else {
         r#"Keep the final stdout response compact and include:
@@ -120,11 +135,7 @@ Title: {title}
 {output_contract}
 "#,
         mode = mode,
-        expected_patch = if expected_patch_for_instruction(mode, task) {
-            "yes"
-        } else {
-            "no"
-        },
+        expected_patch = if expected_patch { "yes" } else { "no" },
         title = task.title,
         instructions = task.instructions,
         files = files,

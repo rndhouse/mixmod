@@ -124,6 +124,76 @@ fn context_focus_revision_task_uses_focused_prompt() {
 }
 
 #[test]
+fn no_patch_revision_task_is_verification_only() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let task = root.join("task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "demo",
+  "instructions": "Fix the checkout bug.",
+  "files": [],
+  "tests": ["python -m unittest -q"],
+  "constraints": [],
+  "acceptance": []
+}"#,
+    )
+    .unwrap();
+    let decision = SupervisorFeedbackTurn {
+        feedback: json!({}),
+        verdict: "revise".to_string(),
+        worker_mode: "context_focus".to_string(),
+        patch_decision: "accept_current".to_string(),
+        hint: "Verify the supervisor surgical patch.".to_string(),
+        revision_handoff: RevisionHandoff {
+            expect_patch: Some(false),
+            worker_turn_shape: Some("default".to_string()),
+            turn_goal: Some("verify supervisor surgical patch".to_string()),
+            edit_plan: vec!["Run the focused regression check.".to_string()],
+            forbidden_actions: vec!["edit files".to_string()],
+            ..RevisionHandoff::default()
+        },
+        focus_files: vec!["checkout.py".to_string()],
+        required_checks: vec!["python -m unittest tests.test_checkout".to_string()],
+        takeover_reason: None,
+        direct_plan: Vec::new(),
+        input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        input_bytes: 0,
+        output_bytes: 0,
+        thread_id: String::new(),
+        turn_id: String::new(),
+        token_usage_comparable: true,
+    };
+
+    let path =
+        write_revision_task(root, &task, &root.join("default"), "demo", &decision, 3).unwrap();
+    let revision = read_json_file(&path).unwrap();
+
+    assert_eq!(get_bool(&revision, "expect_patch"), Some(false));
+    assert!(get_string_array(&revision, "tests").is_empty());
+    assert!(get_string_array(&revision, "acceptance").is_empty());
+    let constraints = get_string_array(&revision, "constraints");
+    assert!(constraints.contains(
+        &"Do not edit files; run or inspect only the requested verification.".to_string()
+    ));
+    let instructions = get_str(&revision, "instructions").unwrap();
+    assert!(instructions.contains("Noninteractive verification revision"));
+    assert!(instructions.contains("Do not edit files"));
+    assert!(instructions.contains("Focused checks:"));
+    assert!(instructions.contains("python -m unittest tests.test_checkout"));
+    assert!(!instructions.contains("make the code/test edit first"));
+    assert_eq!(
+        get_bool(&revision["context"]["revision"], "delta_expected"),
+        Some(false)
+    );
+}
+
+#[test]
 fn planning_probe_revision_task_is_no_patch_and_no_delta_expected() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

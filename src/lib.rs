@@ -87,8 +87,8 @@ pub use report::experiment_report;
 pub(crate) use strategy::compaction::SupervisorCompactionState;
 pub(crate) use strategy::metrics::WorkerMetricsSummary;
 pub(crate) use strategy::policy::{
-    default_strategy_note, default_strategy_policy, supervisor_direct_finish_policy,
-    supervisor_feedback_action_schema, supervisor_feedback_strategy_policy,
+    default_strategy_note, default_strategy_policy, supervisor_feedback_action_schema,
+    supervisor_feedback_strategy_policy, supervisor_patch_policy,
 };
 pub(crate) use strategy::revision::{
     default_revision_resume_session_id, prepare_default_revision_decision,
@@ -97,6 +97,7 @@ pub(crate) use strategy::supervisor::{
     default_review_label, default_strategy_review_artifacts, live_supervisor_advisor,
     record_default_supervisor_compaction, run_default_supervisor_compaction,
     run_default_supervisor_review, run_default_supervisor_takeover,
+    supervisor_patch_verification_decision,
 };
 pub(crate) use strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use worker::{run_worker_turn, run_worker_turn_with_local_requirement};
@@ -130,15 +131,15 @@ pub(crate) use state::state_layout;
 pub(crate) use supervisor::{
     LiveSupervisorAdvisor, PatchDecision, RevisionHandoff, SupervisorBriefTurn,
     SupervisorCodexSession, SupervisorCompactionTurn, SupervisorContextTelemetry,
-    SupervisorDirectTurn, SupervisorFeedbackTurn, SupervisorUsageSample, SupervisorVerdict,
+    SupervisorFeedbackTurn, SupervisorPatchTurn, SupervisorUsageSample, SupervisorVerdict,
     WorkerMode, aggregate_supervisor_usage, normalize_worker_mode, run_supervisor_brief_turn,
-    run_supervisor_compaction, run_supervisor_direct_finish_turn, run_supervisor_feedback_turn,
+    run_supervisor_compaction, run_supervisor_feedback_turn, run_supervisor_patch_turn,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{
-    normalize_feedback_value, supervisor_direct_finish_prompt, supervisor_feedback_prompt,
-    supervisor_feedback_prompt_with_debug_profile_fit, supervisor_worker_brief_prompt,
-    supervisor_worker_brief_prompt_with_debug_profile_fit,
+    normalize_feedback_value, supervisor_feedback_prompt,
+    supervisor_feedback_prompt_with_debug_profile_fit, supervisor_patch_prompt,
+    supervisor_worker_brief_prompt, supervisor_worker_brief_prompt_with_debug_profile_fit,
 };
 pub(crate) use tool_events::{build_opencode_events_jsonl, build_tool_events_jsonl};
 pub(crate) use worker::{WorkerSupervisorGuidance, default_worker_model_profiles};

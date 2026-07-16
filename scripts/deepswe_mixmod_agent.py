@@ -536,6 +536,16 @@ def string_values(records: list[dict], field: str) -> list[str]:
     return values
 
 feedback = feedback_records(agent_dir / "supervisor-feedback.jsonl")
+supervisor_patch_records = [
+    record for record in feedback if record.get("type") == "supervisor_patch"
+]
+supervisor_patch_turns = metrics.get("supervisor_patch_turns")
+if not isinstance(supervisor_patch_turns, list):
+    supervisor_patch_turns = supervisor_patch_records
+supervisor_patch_record = (
+    metrics.get("supervisor_patch")
+    or (supervisor_patch_turns[-1] if supervisor_patch_turns else None)
+)
 direct_finish_records = [
     record for record in feedback if record.get("type") == "supervisor_direct_finish"
 ]
@@ -630,6 +640,36 @@ summary = {{
     "supervisor_compaction_count": metrics.get("supervisor_compaction_count")
         if metrics.get("supervisor_compaction_count") is not None
         else sum(1 for record in feedback if record.get("type") == "supervisor_compaction"),
+    "supervisor_patch_count": metrics.get("supervisor_patch_count")
+        if metrics.get("supervisor_patch_count") is not None
+        else len(supervisor_patch_turns),
+    "supervisor_patch": supervisor_patch_record,
+    "supervisor_patch_turns": supervisor_patch_turns,
+    "supervisor_patch_input_tokens": (
+        metrics.get("supervisor_patch_input_tokens")
+        if metrics.get("supervisor_patch_input_tokens") is not None
+        else sum_field(supervisor_patch_turns, "supervisor_input_tokens")
+    ),
+    "supervisor_patch_cached_input_tokens": (
+        metrics.get("supervisor_patch_cached_input_tokens")
+        if metrics.get("supervisor_patch_cached_input_tokens") is not None
+        else sum_field(supervisor_patch_turns, "supervisor_cached_input_tokens")
+    ),
+    "supervisor_patch_output_tokens": (
+        metrics.get("supervisor_patch_output_tokens")
+        if metrics.get("supervisor_patch_output_tokens") is not None
+        else sum_field(supervisor_patch_turns, "supervisor_output_tokens")
+    ),
+    "supervisor_patch_reasoning_tokens": (
+        metrics.get("supervisor_patch_reasoning_tokens")
+        if metrics.get("supervisor_patch_reasoning_tokens") is not None
+        else sum_field(supervisor_patch_turns, "supervisor_reasoning_tokens")
+    ),
+    "supervisor_patch_total_tokens": (
+        metrics.get("supervisor_patch_total_tokens")
+        if metrics.get("supervisor_patch_total_tokens") is not None
+        else sum_field(supervisor_patch_turns, "supervisor_total_tokens")
+    ),
     "supervisor_direct_finish": direct_finish_record,
     "supervisor_direct_finish_input_tokens": (
         direct_finish_record.get("supervisor_input_tokens")

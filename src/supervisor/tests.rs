@@ -14,7 +14,7 @@ use super::live::{
 use super::normalize::parse_feedback_json;
 use super::turns::{
     approval_consistency_rejection, approval_consistency_repair_is_accepted,
-    normalize_direct_finish_surgical_contract, verification_revision_for_inconsistent_approval,
+    normalize_supervisor_patch_surgical_contract, verification_revision_for_inconsistent_approval,
 };
 use super::*;
 
@@ -220,22 +220,21 @@ fn approval_with_required_checks_is_inconsistent() {
 }
 
 #[test]
-fn direct_finish_surgical_contract_is_normalized_for_records() {
+fn supervisor_patch_surgical_contract_is_normalized_for_records() {
     let decision = json!({
-        "action": "approve",
+        "action": "patched",
         "changed_files": ["src/lib.rs"],
-        "checks": [],
+        "worker_checks": ["cargo test -p demo parser"],
         "surgical_contract": {
             "why_direct": "Known one-line error propagation fix.",
             "target_files": ["src/error.rs"],
             "expected_patch_lines": "1-20",
             "commands_used": false,
-            "command_justification": "",
             "broad_work_required": false
         }
     });
 
-    let contract = normalize_direct_finish_surgical_contract(&decision);
+    let contract = normalize_supervisor_patch_surgical_contract(&decision);
 
     assert_eq!(
         get_str(&contract, "why_direct"),

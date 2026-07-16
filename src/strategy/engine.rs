@@ -78,10 +78,10 @@ pub(crate) struct DefaultStrategyEngineOutput {
     pub(crate) supervisor_samples: Vec<SupervisorUsageSample>,
     /// Supervisor compaction records written during the engine run.
     pub(crate) supervisor_compactions: Vec<Value>,
-    /// Supervisor feedback that selected direct takeover, when any.
+    /// Latest supervisor feedback that selected direct takeover, when any.
     pub(crate) supervisor_takeover_decision: Option<Value>,
-    /// Direct supervisor finish turn, when strategy selected takeover.
-    pub(crate) supervisor_direct_finish: Option<SupervisorDirectTurn>,
+    /// Direct supervisor surgical patch turns.
+    pub(crate) supervisor_patch_turns: Vec<SupervisorPatchTurn>,
     /// Final supervisor decision observed by the engine.
     pub(crate) final_decision: Option<SupervisorFeedbackTurn>,
 }
@@ -165,7 +165,7 @@ pub(crate) fn run_default_strategy_engine(
     supervisor_context.record_brief(&worker_brief);
     let mut supervisor_compactions = Vec::new();
     let mut supervisor_takeover_decision = None;
-    let mut supervisor_direct_finish = None;
+    let mut supervisor_patch_turns = Vec::new();
     let mut final_decision = None;
     if !should_stop_before_next_review(&options.stop, opencode_calls) {
         loop {
@@ -228,7 +228,7 @@ pub(crate) fn run_default_strategy_engine(
 
             if decision.verdict_kind() == SupervisorVerdict::TakeOver
                 && default_strategy_policy(options.strategy)
-                    .direct_finish
+                    .supervisor_patch
                     .allows_takeover()
             {
                 let takeover_decision = decision.clone();
@@ -249,9 +249,56 @@ pub(crate) fn run_default_strategy_engine(
                     internal_patch_baselines += 1;
                 }
                 supervisor_takeover_decision = Some(takeover_decision.feedback.clone());
-                supervisor_direct_finish = Some(takeover.direct_finish);
-                final_decision = Some(takeover_decision);
-                break;
+                supervisor_patch_turns.push(takeover.patch.clone());
+                if takeover.patch.action == "stop" {
+                    final_decision = Some(takeover_decision);
+                    break;
+                }
+
+                let worker_decision =
+                    supervisor_patch_verification_decision(&takeover.patch, &takeover_decision);
+                let previous_patch_source = takeover.preparation.previous_patch_source;
+                worker_modes.push(worker_decision.worker_mode.clone());
+                let resume_session_id = default_revision_resume_session_id(
+                    &worker_decision,
+                    &active_opencode_session_id,
+                    &final_out,
+                )?;
+                let revision_task = write_revision_task(
+                    options.root,
+                    options.task_file,
+                    options.strategy_dir,
+                    options.revision_task_label,
+                    &worker_decision,
+                    decision_index,
+                )?;
+                final_out = (options.revision_out_path)(decision_index);
+                let revision_receipt = run_worker_turn_with_options(
+                    options.root,
+                    DelegationMode::Patch,
+                    &revision_task,
+                    &final_out,
+                    options.runner,
+                    options.require_local,
+                    WorkerTurnOptions {
+                        resume_session_id,
+                        allow_auto_followups: options.worker_auto_followups
+                            && options.stop.stop_after_worker_turns.is_none(),
+                        worker_self_review: options.worker_self_review,
+                        supervisor_advisor: live_supervisor_advisor(&live_supervisor),
+                    },
+                )?;
+                (options.verify_worker_run)(&revision_receipt, &final_out)?;
+                write_patch_checkpoint_comparison_from_patch(
+                    &previous_patch_source,
+                    &final_out,
+                    &worker_decision,
+                )?;
+                opencode_calls += 1;
+                worker_run_dirs.push(final_out.clone());
+                write_supervision_loop_summary(options.strategy_dir, &worker_run_dirs)?;
+                active_opencode_session_id = read_opencode_session_id_from_metrics(&final_out)?;
+                pending_supervisor_control = supervisor_control_decision_from_metrics(&final_out)?;
             } else if decision.verdict_kind().is_terminal() {
                 final_decision = Some(decision);
                 break;
@@ -340,7 +387,7 @@ pub(crate) fn run_default_strategy_engine(
         supervisor_samples,
         supervisor_compactions,
         supervisor_takeover_decision,
-        supervisor_direct_finish,
+        supervisor_patch_turns,
         final_decision,
     })
 }
