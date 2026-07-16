@@ -1,10 +1,10 @@
 use crate::*;
 
 use super::util::{copy_budgeted_artifacts, experiment_dir, validate_experiment_name};
-use crate::strategy::default::engine::{
+use crate::strategy::engine::{
     DefaultStrategyEngineOptions, DefaultStrategyStopOptions, run_default_strategy_engine,
 };
-use crate::strategy::default::finalize::{
+use crate::strategy::finalize::{
     DefaultStrategyMetricsInput, DefaultStrategyRequireLocal, build_default_strategy_metrics,
     write_default_strategy_final_patch,
 };

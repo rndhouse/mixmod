@@ -85,17 +85,17 @@ pub use interventions::{
     InterventionSessionPolicy, InterventionTarget,
 };
 pub use report::experiment_report;
-pub(crate) use strategy::default::policy::{
+pub(crate) use strategy::policy::{
     default_strategy_note, default_strategy_policy, supervisor_direct_finish_policy,
     supervisor_feedback_action_schema, supervisor_feedback_strategy_policy,
 };
-pub(crate) use strategy::default::support::{
+pub(crate) use strategy::support::{
     SupervisorCompactionState, default_review_label, default_revision_resume_session_id,
     default_strategy_review_artifacts, live_supervisor_advisor, prepare_default_revision_decision,
     record_default_supervisor_compaction, run_default_supervisor_compaction,
     run_default_supervisor_review, run_default_supervisor_takeover,
 };
-pub(crate) use strategy::default::{DefaultStrategyOptions, run_default_strategy};
+pub(crate) use strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use worker::{run_worker_turn, run_worker_turn_with_local_requirement};
 
 use diff::{diff_without_unchanged_blocks, git_diff_with_untracked};

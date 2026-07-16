@@ -1,12 +1,7 @@
-pub(crate) mod engine;
-pub(crate) mod finalize;
-pub(crate) mod policy;
-pub(crate) mod support;
-
-use engine::{
+use super::engine::{
     DefaultStrategyEngineOptions, DefaultStrategyStopOptions, run_default_strategy_engine,
 };
-use finalize::{
+use super::finalize::{
     DefaultStrategyMetricsInput, DefaultStrategyRequireLocal, build_default_strategy_metrics,
     write_default_strategy_final_patch,
 };
