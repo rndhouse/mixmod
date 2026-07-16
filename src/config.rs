@@ -115,9 +115,6 @@ pub enum DefaultStrategyMode {
     #[default]
     #[value(name = "supervised-worker")]
     SupervisedWorker,
-    /// Use workers for baseline progress, then allow supervisor direct finish.
-    #[value(name = "worker-bootstrap")]
-    WorkerBootstrap,
     /// Use workers for broad construction and supervisor direct fixes.
     #[value(name = "worker-build-supervisor-fix")]
     WorkerBuildSupervisorFix,
@@ -128,7 +125,6 @@ impl DefaultStrategyMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::SupervisedWorker => "supervised-worker",
-            Self::WorkerBootstrap => "worker-bootstrap",
             Self::WorkerBuildSupervisorFix => "worker-build-supervisor-fix",
         }
     }

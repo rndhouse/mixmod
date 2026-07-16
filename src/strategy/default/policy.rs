@@ -61,21 +61,6 @@ const SUPERVISED_WORKER_POLICY: DefaultStrategyPolicy = DefaultStrategyPolicy {
     debug_delegation_decision: false,
 };
 
-const WORKER_BOOTSTRAP_POLICY: DefaultStrategyPolicy = DefaultStrategyPolicy {
-    id: "worker-bootstrap",
-    direct_finish: SupervisorDirectFinishCapability::DirectFinish,
-    review_instruction: "Decide the next worker-bootstrap action. Use approve only when the current source is acceptable. Use revise when the next work is still a substantial separable worker implementation slice. Use take_over when the current patch is a useful baseline and the remaining work is localized edge cases, focused tests, formatting, or debugging that you already understand well enough to finish directly. Use stop only when no useful worker or direct-supervisor path remains. Do not author task-solving source changes during this review turn.",
-    feedback_policy: r#"Strategy mode: worker-bootstrap.
-- Use the worker as much as possible while the next request is a substantial separable implementation slice with a clear file boundary.
-- Choose action=take_over only when the current patch is a useful baseline and the remaining work is localized edge cases, focused tests, formatting, or debugging that you already understand well enough to finish directly.
-- Takeover signals include: you would otherwise ask for small tweaks, semantic edge-case repairs, focused test additions, or verification-driven fixes; recent worker deltas are small; another worker message would mostly restate details already clear from artifacts.
-- Do not take over merely because progress exists, because the worker made one mistake, or because broad implementation work remains separable into a useful worker slice.
-- For take_over, include takeover_reason and direct_plan. Keep direct_plan focused on the exact tests/repairs you will perform after Mixmod compacts the supervisor context."#,
-    direct_finish_policy: "Use the worker's current patch as the baseline. Preserve useful worker work. Finish only the localized remaining work you identified at takeover: edge cases, focused tests, formatting, or small semantic repairs. Do not rewrite broad subsystems unless the current patch is clearly unusable.",
-    metrics_note: "In worker-bootstrap mode, the supervisor may choose take_over when the worker has produced a useful baseline and the remaining work is localized direct-finish work.",
-    debug_delegation_decision: false,
-};
-
 const WORKER_BUILD_SUPERVISOR_FIX_POLICY: DefaultStrategyPolicy = DefaultStrategyPolicy {
     id: "worker-build-supervisor-fix",
     direct_finish: SupervisorDirectFinishCapability::DirectFinish,
@@ -97,7 +82,6 @@ pub(crate) fn default_strategy_policy(
 ) -> &'static DefaultStrategyPolicy {
     match strategy {
         DefaultStrategyMode::SupervisedWorker => &SUPERVISED_WORKER_POLICY,
-        DefaultStrategyMode::WorkerBootstrap => &WORKER_BOOTSTRAP_POLICY,
         DefaultStrategyMode::WorkerBuildSupervisorFix => &WORKER_BUILD_SUPERVISOR_FIX_POLICY,
     }
 }

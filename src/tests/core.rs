@@ -429,7 +429,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         "--worker-backend",
         "codex",
         "--strategy",
-        "worker-bootstrap",
+        "supervised-worker",
         "--worker-model",
         "gpt-5.4:medium",
         "--supervisor-init",
@@ -461,7 +461,7 @@ fn exec_accepts_supervisor_and_worker_model_flags() {
         } => {
             assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
             assert_eq!(worker_backend, Some(WorkerBackend::Codex));
-            assert_eq!(strategy, Some(DefaultStrategyMode::WorkerBootstrap));
+            assert_eq!(strategy, Some(DefaultStrategyMode::SupervisedWorker));
             assert_eq!(worker_model, Some("gpt-5.4:medium".to_string()));
             assert_eq!(supervisor_init, Some(SupervisorInitMode::Investigate));
             assert!(!stop_after_first_worker);
@@ -513,7 +513,7 @@ fn experiment_run_default_accepts_model_override_flags() {
         "--worker-backend",
         "opencode",
         "--strategy",
-        "worker-bootstrap",
+        "worker-build-supervisor-fix",
         "--worker-model",
         "openrouter/qwen/qwen3.6-flash",
         "--supervisor-init",
@@ -548,7 +548,10 @@ fn experiment_run_default_accepts_model_override_flags() {
             assert!(!require_local);
             assert_eq!(supervisor_model, Some("gpt-5.5:high".to_string()));
             assert_eq!(worker_backend, Some(WorkerBackend::OpenCode));
-            assert_eq!(strategy, Some(DefaultStrategyMode::WorkerBootstrap));
+            assert_eq!(
+                strategy,
+                Some(DefaultStrategyMode::WorkerBuildSupervisorFix)
+            );
             assert_eq!(
                 worker_model,
                 Some("openrouter/qwen/qwen3.6-flash".to_string())

@@ -365,7 +365,6 @@ def main() -> int:
         "--strategy",
         choices=[
             "supervised-worker",
-            "worker-bootstrap",
             "worker-build-supervisor-fix",
         ],
         default=None,
