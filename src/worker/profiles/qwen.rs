@@ -15,6 +15,7 @@ pub(super) fn profile() -> WorkerModelProfile {
         max_patch_lines: Some(250),
         supervisor_guidance: vec![
             "This worker is cheap and useful for focused source edits, narrow repo inspection, compact command checks, and proposal turns; avoid broad autonomous design work.".to_string(),
+            "For local Qwen runs, treat all worker tokens as free for dollar-cost comparisons; still bound turns because context, latency, and quality degrade when sessions grow.".to_string(),
             "When the implementation route is clear, prefer handoff=as_given or a short worker_turn_shape=patch_request over detailed supervisor explanation; omit exact_edits, edit_plan, edit_packet, and source_snippets unless that precision is likely to save more worker confusion than supervisor tokens cost.".to_string(),
             "It can spend a while reasoning before editing; do not assume it is stalled while OpenCode is still producing reasoning, tool, or stdout activity.".to_string(),
             "Assume this local Qwen worker has a smaller effective context than long-context OpenRouter workers; size handoffs for short sessions rather than relying on large-context recovery.".to_string(),
