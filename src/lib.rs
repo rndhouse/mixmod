@@ -91,11 +91,9 @@ pub(crate) use strategy::default::policy::{
 };
 pub(crate) use strategy::default::support::{
     SupervisorCompactionState, default_review_label, default_revision_resume_session_id,
-    default_strategy_artifact_byte_sizes, default_strategy_direct_finish_record,
-    default_strategy_outcome_with_direct_finish, default_strategy_phase_labels,
     default_strategy_review_artifacts, live_supervisor_advisor, prepare_default_revision_decision,
     record_default_supervisor_compaction, run_default_supervisor_compaction,
-    run_default_supervisor_review, run_default_supervisor_takeover, supervisor_token_usage_labels,
+    run_default_supervisor_review, run_default_supervisor_takeover,
 };
 pub(crate) use strategy::default::{DefaultStrategyOptions, run_default_strategy};
 pub use worker::{run_worker_turn, run_worker_turn_with_local_requirement};
