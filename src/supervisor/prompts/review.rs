@@ -163,7 +163,7 @@ fn supervisor_feedback_decision_debug(
     strategy: DefaultStrategyMode,
     enabled: bool,
 ) -> FeedbackDecisionDebugPrompt {
-    if !enabled || strategy != DefaultStrategyMode::WorkerBuildSupervisorFix {
+    if !enabled || !default_strategy_policy(strategy).debug_delegation_decision {
         return FeedbackDecisionDebugPrompt {
             requirements: "",
             json_field: "",

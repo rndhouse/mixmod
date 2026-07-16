@@ -132,11 +132,6 @@ impl DefaultStrategyMode {
             Self::WorkerBuildSupervisorFix => "worker-build-supervisor-fix",
         }
     }
-
-    /// Return whether this mode permits supervisor-authored solution edits.
-    pub(crate) fn allows_supervisor_takeover(self) -> bool {
-        matches!(self, Self::WorkerBootstrap | Self::WorkerBuildSupervisorFix)
-    }
 }
 
 /// Strategy-level defaults for supervisor/worker orchestration.

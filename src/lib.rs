@@ -86,8 +86,8 @@ pub use interventions::{
 };
 pub use report::experiment_report;
 pub(crate) use strategy::default::policy::{
-    default_strategy_note, supervisor_direct_finish_policy, supervisor_feedback_action_schema,
-    supervisor_feedback_strategy_policy,
+    default_strategy_note, default_strategy_policy, supervisor_direct_finish_policy,
+    supervisor_feedback_action_schema, supervisor_feedback_strategy_policy,
 };
 pub(crate) use strategy::default::support::{
     SupervisorCompactionState, default_review_label, default_revision_resume_session_id,

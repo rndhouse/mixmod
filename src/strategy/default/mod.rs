@@ -195,7 +195,7 @@ impl DefaultStrategyRun<'_> {
             .collect::<Vec<_>>();
         let metrics = json!({
             "kind": "mixmod-default-strategy",
-            "strategy": strategy.as_str(),
+            "strategy": default_strategy_policy(strategy).id,
             "recorded_at": Utc::now().to_rfc3339(),
             "start_timestamp": run_start.to_rfc3339(),
             "end_timestamp": Utc::now().to_rfc3339(),

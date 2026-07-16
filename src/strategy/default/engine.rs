@@ -227,7 +227,9 @@ pub(crate) fn run_default_strategy_engine(
             append_jsonl(&feedback_path, &decision.feedback)?;
 
             if decision.verdict_kind() == SupervisorVerdict::TakeOver
-                && options.strategy.allows_supervisor_takeover()
+                && default_strategy_policy(options.strategy)
+                    .direct_finish
+                    .allows_takeover()
             {
                 let takeover_decision = decision.clone();
                 let takeover = run_default_supervisor_takeover(
