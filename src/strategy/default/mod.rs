@@ -1,9 +1,13 @@
+pub(crate) mod engine;
 pub(crate) mod policy;
 pub(crate) mod support;
 
-use crate::experiment::{write_revision_task, write_worker_brief_task};
+use engine::{
+    DefaultStrategyEngineOptions, DefaultStrategyEngineOutput, DefaultStrategyStopOptions,
+    run_default_strategy_engine,
+};
+
 use crate::*;
-use std::sync::{Arc, Mutex};
 
 /// Options for running the public Mixmod default strategy.
 pub(crate) struct DefaultStrategyOptions {
@@ -101,240 +105,56 @@ impl DefaultStrategyRun<'_> {
         write_agent_visible_task_file(&absolutize(root, task_arg), &task_file)?;
         let _ = read_task_json(&task_file)?;
 
-        let feedback_path = out_dir.join(SUPERVISOR_FEEDBACK_JSONL);
-        let supervisor_session = Arc::new(Mutex::new(SupervisorCodexSession::start(
-            root,
-            &supervisor,
-        )?));
-        let live_supervisor = live_supervision.enabled.then(|| {
-            Arc::new(LiveSupervisorAdvisor::new(
-                root,
-                &out_dir,
-                &feedback_path,
-                Arc::clone(&supervisor_session),
-                worker_guidance.clone(),
-                live_supervision.clone(),
-            ))
-        });
-        let worker_brief = {
-            let mut supervisor_session = supervisor_session
-                .lock()
-                .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;
-            run_supervisor_brief_turn(
-                &mut supervisor_session,
-                root,
-                &out_dir,
-                &task_file,
-                &worker_guidance,
-                supervisor_init,
-            )?
-        };
-        write_pretty_json(
-            &out_dir.join(WORKER_BRIEF_JSON),
-            &worker_brief.brief,
-            "worker brief",
-        )?;
-        append_jsonl(&feedback_path, &worker_brief.record)?;
-
-        let worker_task = write_worker_brief_task(root, &task_file, &worker_brief.brief, &out_dir)?;
         let worker_runs_dir = out_dir.join("worker-runs");
-        let proposal_out = worker_runs_dir.join("proposal");
-        let proposal_receipt = run_mixmod_task_with_worker_options(
+        let DefaultStrategyEngineOutput {
+            worker_brief,
+            worker_task,
+            worker_run_dirs,
+            final_out,
+            opencode_calls,
+            worker_modes,
+            internal_patch_baselines,
+            supervisor_samples,
+            supervisor_compactions,
+            supervisor_takeover_decision,
+            supervisor_direct_finish,
+            final_decision,
+        } = run_default_strategy_engine(DefaultStrategyEngineOptions {
             root,
-            DelegationMode::Patch,
-            &worker_task,
-            &proposal_out,
-            runner.as_ref(),
-            false,
-            WorkerRunOptions {
-                resume_session_id: options.resume_session.clone(),
-                allow_auto_followups: worker_auto_followups
-                    && !(options.stop_after_first_worker
-                        || options.stop_after_first_review
-                        || options.stop_after_worker_turns.is_some()),
-                worker_self_review,
-                supervisor_advisor: live_supervisor_advisor(&live_supervisor),
+            strategy_dir: &out_dir,
+            task_file: &task_file,
+            runner: runner.as_ref(),
+            supervisor: &supervisor,
+            supervisor_init,
+            strategy,
+            worker_guidance: worker_guidance.clone(),
+            live_supervision,
+            proposal_resume_session: options.resume_session.clone(),
+            require_local: false,
+            worker_self_review,
+            worker_auto_followups,
+            worker_forced_context_focus,
+            stop: DefaultStrategyStopOptions {
+                stop_after_first_worker: options.stop_after_first_worker,
+                stop_after_first_review: options.stop_after_first_review,
+                stop_after_worker_turns: options.stop_after_worker_turns,
             },
-        )?;
-        ensure_worker_run_verified(&out_dir, &proposal_receipt, &proposal_out)?;
-
-        let mut opencode_calls = 1_u64;
-        let mut worker_run_dirs = vec![proposal_out.clone()];
-        write_supervision_loop_summary(&out_dir, &worker_run_dirs)?;
-        let mut worker_modes = Vec::new();
-        let mut active_opencode_session_id = read_opencode_session_id_from_metrics(&proposal_out)?;
-        let mut pending_supervisor_control =
-            supervisor_control_decision_from_metrics(&proposal_out)?;
-        let mut final_out = proposal_out;
-        let mut internal_patch_baselines = 0_u64;
-        let mut supervisor_samples = vec![worker_brief.usage_sample()];
-        let mut supervisor_context = SupervisorCompactionState::default();
-        supervisor_context.record_brief(&worker_brief);
-        let mut supervisor_compactions = Vec::new();
-        let mut supervisor_takeover_decision = None;
-        let mut supervisor_direct_finish = None;
-        let mut final_decision = None;
-        if !should_stop_before_next_review(&options, opencode_calls) {
-            loop {
-                if should_stop_before_next_review(&options, opencode_calls) {
-                    break;
-                }
-                let decision_index = opencode_calls;
-                if let Some(request) = supervisor_context.take_before_review_request() {
-                    let label = format!(
-                        "supervisor-compact-before-{}",
-                        default_review_label(decision_index)
-                    );
-                    let compact = run_default_supervisor_compaction(
-                        &supervisor_session,
-                        &out_dir,
-                        &label,
-                        &request.trigger,
-                        &request.recommendation,
-                        &request.telemetry,
-                    )?;
-                    record_default_supervisor_compaction(
-                        &feedback_path,
-                        &mut supervisor_samples,
-                        &mut supervisor_context,
-                        &mut supervisor_compactions,
-                        &compact,
-                    )?;
-                }
-                let mut compaction_request = None;
-                let mut decision = if let Some(decision) = pending_supervisor_control.take() {
-                    decision
-                } else {
-                    let label = default_review_label(decision_index);
-                    let artifact_paths = default_strategy_review_artifacts(&out_dir, &final_out)?;
-                    let review = run_default_supervisor_review(
-                        &supervisor_session,
-                        root,
-                        &out_dir,
-                        &label,
-                        &artifact_paths,
-                        &worker_guidance,
-                        &mut supervisor_context,
-                        &mut supervisor_samples,
-                        strategy,
-                    )?;
-                    compaction_request = review.compaction_request;
-                    review.decision
-                };
-                if options.stop_after_first_review && decision_index == 1 {
-                    append_jsonl(&feedback_path, &decision.feedback)?;
-                    final_decision = Some(decision);
-                    break;
-                }
-
-                if worker_forced_context_focus {
-                    force_context_focus_after_worker_context_overflow(&mut decision, &final_out)?;
-                }
-                append_jsonl(&feedback_path, &decision.feedback)?;
-
-                if decision.verdict_kind() == SupervisorVerdict::TakeOver
-                    && strategy.allows_supervisor_takeover()
-                {
-                    let takeover_decision = decision.clone();
-                    let takeover = run_default_supervisor_takeover(
-                        &supervisor_session,
-                        root,
-                        &out_dir,
-                        &feedback_path,
-                        &final_out,
-                        decision_index,
-                        &takeover_decision,
-                        &mut supervisor_context,
-                        &mut supervisor_samples,
-                        &mut supervisor_compactions,
-                        strategy,
-                    )?;
-                    if takeover.preparation.created_internal_baseline {
-                        internal_patch_baselines += 1;
-                    }
-                    supervisor_takeover_decision = Some(takeover_decision.feedback.clone());
-                    supervisor_direct_finish = Some(takeover.direct_finish);
-                    final_decision = Some(takeover_decision);
-                    break;
-                } else if decision.verdict_kind().is_terminal() {
-                    final_decision = Some(decision);
-                    break;
-                } else {
-                    if let Some(request) = compaction_request {
-                        let label = format!("supervisor-compact-{decision_index}");
-                        let compact = run_default_supervisor_compaction(
-                            &supervisor_session,
-                            &out_dir,
-                            &label,
-                            &request.trigger,
-                            &request.recommendation,
-                            &request.telemetry,
-                        )?;
-                        record_default_supervisor_compaction(
-                            &feedback_path,
-                            &mut supervisor_samples,
-                            &mut supervisor_context,
-                            &mut supervisor_compactions,
-                            &compact,
-                        )?;
-                    }
-                    let revision_preparation =
-                        prepare_default_revision_decision(root, &final_out, &decision)?;
-                    let worker_decision = revision_preparation.worker_decision;
-                    let previous_patch_source = revision_preparation.previous_patch_source;
-                    if revision_preparation.created_internal_baseline {
-                        internal_patch_baselines += 1;
-                    }
-                    worker_modes.push(worker_decision.worker_mode.clone());
-                    let resume_session_id = default_revision_resume_session_id(
-                        &worker_decision,
-                        &active_opencode_session_id,
-                        &final_out,
-                    )?;
-                    let revision_task = write_revision_task(
-                        root,
-                        &task_file,
-                        &out_dir,
-                        "exec",
-                        &worker_decision,
-                        decision_index,
-                    )?;
-                    let revision_out_name = if decision_index == 1 {
-                        "revision".to_string()
+            proposal_out: worker_runs_dir.join("proposal"),
+            revision_task_label: "exec",
+            revision_out_path: Box::new({
+                let worker_runs_dir = worker_runs_dir.clone();
+                move |decision_index| {
+                    if decision_index == 1 {
+                        worker_runs_dir.join("revision")
                     } else {
-                        format!("revision-{decision_index}")
-                    };
-                    final_out = worker_runs_dir.join(revision_out_name);
-                    let revision_receipt = run_mixmod_task_with_worker_options(
-                        root,
-                        DelegationMode::Patch,
-                        &revision_task,
-                        &final_out,
-                        runner.as_ref(),
-                        false,
-                        WorkerRunOptions {
-                            resume_session_id,
-                            allow_auto_followups: worker_auto_followups
-                                && options.stop_after_worker_turns.is_none(),
-                            worker_self_review,
-                            supervisor_advisor: live_supervisor_advisor(&live_supervisor),
-                        },
-                    )?;
-                    ensure_worker_run_verified(&out_dir, &revision_receipt, &final_out)?;
-                    write_patch_checkpoint_comparison_from_patch(
-                        &previous_patch_source,
-                        &final_out,
-                        &worker_decision,
-                    )?;
-                    opencode_calls += 1;
-                    worker_run_dirs.push(final_out.clone());
-                    write_supervision_loop_summary(&out_dir, &worker_run_dirs)?;
-                    active_opencode_session_id = read_opencode_session_id_from_metrics(&final_out)?;
-                    pending_supervisor_control =
-                        supervisor_control_decision_from_metrics(&final_out)?;
+                        worker_runs_dir.join(format!("revision-{decision_index}"))
+                    }
                 }
-            }
-        }
+            }),
+            verify_worker_run: Box::new(|receipt, run_dir| {
+                ensure_worker_run_verified(&out_dir, receipt, run_dir)
+            }),
+        })?;
 
         let final_patch = if internal_patch_baselines > 0 {
             git_diff_from_base_with_untracked(root, &original_patch_base)?
@@ -353,9 +173,6 @@ impl DefaultStrategyRun<'_> {
             .collect::<Result<Vec<_>>>()?;
         let patch_checkpoint_metrics = patch_checkpoint_metrics(&worker_run_dirs)?;
         let final_metrics = worker_metrics.last().cloned().unwrap_or_else(|| json!({}));
-        if let Some(live_supervisor) = &live_supervisor {
-            supervisor_samples.extend(live_supervisor.drain_usage_samples());
-        }
         let supervisor_usage = aggregate_supervisor_usage(&supervisor_samples);
         let worker_summary = WorkerMetricsSummary::from_metrics(&worker_metrics);
         let outcome = default_strategy_outcome_with_direct_finish(
@@ -534,11 +351,4 @@ fn ensure_worker_run_verified(out_dir: &Path, receipt: &Receipt, run_dir: &Path)
         "local worker inference was required but could not be verified for {}",
         run_dir.display()
     )
-}
-
-fn should_stop_before_next_review(options: &DefaultStrategyOptions, worker_turns: u64) -> bool {
-    options.stop_after_first_worker
-        || options
-            .stop_after_worker_turns
-            .is_some_and(|limit| worker_turns >= limit)
 }
