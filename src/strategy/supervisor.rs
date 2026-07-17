@@ -302,9 +302,9 @@ pub(crate) fn default_strategy_review_artifacts(
 /// Build the supervisor-review label for a default-strategy loop index.
 pub(crate) fn default_review_label(decision_index: u64) -> String {
     if decision_index == 1 {
-        "critique".to_string()
+        "supervisor_direct_review".to_string()
     } else {
-        format!("critique-{decision_index}")
+        format!("supervisor_direct_review-{decision_index}")
     }
 }
 

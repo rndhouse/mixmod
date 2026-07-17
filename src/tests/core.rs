@@ -140,7 +140,7 @@ fn worker_context_overflow_forces_next_revision_context_focus() {
 
     let mut decision = SupervisorFeedbackTurn {
         feedback: json!({
-            "label": "critique",
+            "label": "supervisor_direct_review",
             "feedback": {
                 "action": "revise",
                 "worker_mode": "continue",

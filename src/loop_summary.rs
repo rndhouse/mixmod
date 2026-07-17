@@ -5,8 +5,9 @@ use serde_json::{Value, json};
 
 use crate::{
     CHANGES_PATCH, METRICS_JSON, PATCH_COMPARISON, SUPERVISION_LOOP_SUMMARY_JSON,
-    SUPERVISOR_CONTROL_LOG, TASK_JSON, WORKER_BRIEF_JSON, WORKTREE_PATCH, file_len, get_bool,
-    get_str, get_string_array, get_u64, patch_stats, read_json_file, write_pretty_json,
+    SUPERVISOR_CONTROL_LOG, TASK_JSON, WORKER_BRIEF_JSON, WORKTREE_PATCH, default_review_label,
+    file_len, get_bool, get_str, get_string_array, get_u64, patch_stats, read_json_file,
+    write_pretty_json,
 };
 
 /// Write compact observed worker-loop telemetry for the next supervisor review.
@@ -179,13 +180,8 @@ fn handoff_context(default_dir: &Path, index: usize, run_dir: &Path) -> HandoffC
             .pointer("/context/revision")
             .or_else(|| value.pointer("/context/revision_details"))
     });
-    let supervisor_label = if index == 1 {
-        "critique".to_string()
-    } else {
-        format!("critique-{index}")
-    };
     HandoffContext {
-        supervisor_label: Some(supervisor_label),
+        supervisor_label: Some(default_review_label(index as u64)),
         worker_turn_shape: revision
             .and_then(|value| get_str(value, "worker_turn_shape"))
             .map(ToOwned::to_owned),
