@@ -241,12 +241,61 @@ fn clean_approval_has_no_consistency_rejection() {
     let feedback = json!({
         "action": "approve",
         "message_to_worker": "Focused tests passed in artifacts.",
+        "approval_state": "ready_to_approve",
+        "approval_blocker": "",
+        "approval_contract": [{
+            "requirement": "requested behavior",
+            "status": "passed",
+            "evidence": "report.md says focused test passed"
+        }],
         "required_checks": [],
         "deferred_checks": [],
         "risk": "none"
     });
 
     assert!(approval_consistency_rejection(&feedback).is_none());
+}
+
+#[test]
+fn approval_without_contract_is_inconsistent() {
+    let feedback = json!({
+        "action": "approve",
+        "message_to_worker": "Looks complete.",
+        "required_checks": [],
+        "deferred_checks": [],
+        "risk": "none"
+    });
+
+    let rejection = approval_consistency_rejection(&feedback).unwrap();
+
+    assert!(rejection.contains("approval_state"));
+    assert!(rejection.contains("approval_contract"));
+}
+
+#[test]
+fn approval_with_pending_contract_row_is_inconsistent() {
+    let feedback = json!({
+        "action": "approve",
+        "message_to_worker": "Looks complete.",
+        "approval_state": "approval_possible_after_verification",
+        "approval_blocker": "focused smoke check missing",
+        "approval_contract": [{
+            "requirement": "default behavior remains unchanged",
+            "status": "pending",
+            "evidence": "",
+            "next_check": "cargo test default_behavior"
+        }],
+        "required_checks": [],
+        "deferred_checks": [],
+        "risk": "none"
+    });
+
+    let rejection = approval_consistency_rejection(&feedback).unwrap();
+
+    assert!(rejection.contains("approval_state"));
+    assert!(rejection.contains("approval_blocker"));
+    assert!(rejection.contains("default behavior remains unchanged"));
+    assert!(rejection.contains("status pending"));
 }
 
 #[test]
@@ -266,6 +315,13 @@ fn inconsistent_approval_fallback_becomes_verification_revision() {
         "action": "approve",
         "worker_mode": "context_focus",
         "focus_files": ["src/lib.rs"],
+        "approval_state": "approval_possible_after_verification",
+        "approval_contract": [{
+            "requirement": "task behavior works through public API",
+            "status": "pending",
+            "evidence": "",
+            "next_check": "cargo test public_api_contract"
+        }],
         "required_checks": ["cargo test -p mixmod"],
         "deferred_checks": ["cargo test --doc"],
         "completion_gate": "focused behavior check must pass"
@@ -285,7 +341,8 @@ fn inconsistent_approval_fallback_becomes_verification_revision() {
         vec![
             "Completion gate: focused behavior check must pass",
             "cargo test --doc",
-            "cargo test -p mixmod"
+            "cargo test -p mixmod",
+            "cargo test public_api_contract"
         ]
     );
 }

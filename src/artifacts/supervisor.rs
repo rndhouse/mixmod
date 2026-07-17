@@ -70,6 +70,12 @@ pub struct SupervisorFeedback {
     #[serde(default)]
     pub risk: Option<String>,
     #[serde(default)]
+    pub approval_state: Option<String>,
+    #[serde(default)]
+    pub approval_blocker: Option<String>,
+    #[serde(default)]
+    pub approval_contract: Value,
+    #[serde(default)]
     pub worker_turn_shape: Option<String>,
     #[serde(default)]
     pub turn_goal: Option<String>,

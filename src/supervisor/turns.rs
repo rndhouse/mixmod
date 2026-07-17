@@ -102,7 +102,7 @@ fn approval_consistency_rejection_reason(
         None
     } else {
         Some(format!(
-            "action=approve cannot include pending check/gate field(s): {}",
+            "action=approve requires complete approval evidence and no pending checks/gates: {}",
             pending.join("; ")
         ))
     }
@@ -110,6 +110,24 @@ fn approval_consistency_rejection_reason(
 
 fn pending_approval_check_items(feedback: &SupervisorFeedback) -> Vec<String> {
     let mut pending = Vec::new();
+    match feedback
+        .approval_state
+        .as_deref()
+        .map(normalized_contract_text)
+    {
+        Some(state) if state == "ready_to_approve" => {}
+        Some(state) if !state.is_empty() => pending.push(format!("approval_state: {state}")),
+        _ => pending.push("approval_state: missing".to_string()),
+    }
+    if let Some(blocker) = feedback
+        .approval_blocker
+        .as_deref()
+        .map(str::trim)
+        .filter(|blocker| !blocker.is_empty())
+    {
+        pending.push(format!("approval_blocker: {blocker}"));
+    }
+    pending.extend(pending_approval_contract_items(&feedback.approval_contract));
     pending.extend(
         feedback
             .required_checks
@@ -135,9 +153,76 @@ fn pending_approval_check_items(feedback: &SupervisorFeedback) -> Vec<String> {
     pending
 }
 
+fn pending_approval_contract_items(contract: &Value) -> Vec<String> {
+    let Some(rows) = contract.as_array() else {
+        return vec!["approval_contract: missing".to_string()];
+    };
+    if rows.is_empty() {
+        return vec!["approval_contract: empty".to_string()];
+    }
+
+    let mut pending = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let label = approval_contract_row_label(index, row);
+        let Some(object) = row.as_object() else {
+            pending.push(format!("{label}: malformed row"));
+            continue;
+        };
+        let requirement = object
+            .get("requirement")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if requirement.is_empty() {
+            pending.push(format!("{label}: missing requirement"));
+        }
+        let status = object
+            .get("status")
+            .and_then(Value::as_str)
+            .map(normalized_contract_text)
+            .unwrap_or_default();
+        if status.is_empty() {
+            pending.push(format!("{label}: missing status"));
+            continue;
+        }
+        if !matches!(
+            status.as_str(),
+            "passed" | "covered_by_existing_test" | "not_applicable"
+        ) {
+            pending.push(format!("{label}: status {status}"));
+        }
+        let evidence = object
+            .get("evidence")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if evidence.is_empty() {
+            pending.push(format!("{label}: missing evidence"));
+        }
+    }
+    pending
+}
+
+fn approval_contract_row_label(index: usize, row: &Value) -> String {
+    let requirement = row
+        .get("requirement")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unnamed requirement");
+    format!("approval_contract[{}]: {requirement}", index + 1)
+}
+
+fn normalized_contract_text(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
+}
+
 pub(super) fn verification_revision_for_inconsistent_approval(feedback: &Value) -> Value {
     let typed_feedback = SupervisorFeedback::from_value(feedback);
     let mut checks = Vec::new();
+    checks.extend(approval_contract_revision_checks(
+        &typed_feedback.approval_contract,
+    ));
     checks.extend(
         typed_feedback
             .required_checks
@@ -176,7 +261,7 @@ pub(super) fn verification_revision_for_inconsistent_approval(feedback: &Value) 
         "message_to_worker": "Run the pending focused checks. If any fail, make only targeted fixes for the original task; otherwise report passing evidence.",
         "focus_files": typed_feedback.focus_files,
         "required_checks": checks,
-        "risk": "Supervisor approval listed pending checks without evidence.",
+        "risk": "Supervisor approval lacked complete approval-contract evidence.",
         "worker_turn_shape": "default",
         "turn_goal": "verify accumulated patch before approval",
         "edit_plan": [
@@ -185,6 +270,64 @@ pub(super) fn verification_revision_for_inconsistent_approval(feedback: &Value) 
         ],
         "forbidden_actions": ["inspect verifier internals"]
     })
+}
+
+fn approval_contract_revision_checks(contract: &Value) -> Vec<String> {
+    let Some(rows) = contract.as_array() else {
+        return vec![
+            "Build and run the smallest task-derived approval contract check.".to_string(),
+        ];
+    };
+    if rows.is_empty() {
+        return vec![
+            "Build and run the smallest task-derived approval contract check.".to_string(),
+        ];
+    }
+
+    rows.iter()
+        .filter_map(|row| {
+            let object = row.as_object()?;
+            let requirement = object
+                .get("requirement")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?;
+            let status = object
+                .get("status")
+                .and_then(Value::as_str)
+                .map(normalized_contract_text)
+                .unwrap_or_default();
+            let evidence = object
+                .get("evidence")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            if matches!(
+                status.as_str(),
+                "passed" | "covered_by_existing_test" | "not_applicable"
+            ) && !evidence.is_empty()
+            {
+                return None;
+            }
+            if let Some(next_check) = object
+                .get("next_check")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                return Some(next_check.to_string());
+            }
+            if status == "failed" {
+                Some(format!("Fix failing approval contract: {requirement}"))
+            } else if evidence.is_empty() {
+                Some(format!(
+                    "Collect deterministic evidence for approval contract: {requirement}"
+                ))
+            } else {
+                Some(format!("Verify approval contract: {requirement}"))
+            }
+        })
+        .collect()
 }
 
 fn merge_repair_record(repair_record: &mut Option<Value>, key: &str, value: Value) {

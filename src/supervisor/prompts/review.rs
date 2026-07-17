@@ -53,10 +53,10 @@ Previous JSON:
 ```
 
 Repair only the supervisor decision. Return either:
-- action=approve with required_checks=[], deferred_checks=[], no completion_gate, and compact evidence from artifacts that no further checks or worker turns are needed; or
+- action=approve with approval_state=ready_to_approve, required_checks=[], deferred_checks=[], no completion_gate, and approval_contract rows whose statuses are passed, covered_by_existing_test, or not_applicable with compact artifact/source/check evidence; or
 - action=revise with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
 
-Do not approve while listing checks that still need to run. Do not solve by authoring source changes."#
+Do not approve while listing checks that still need to run or approval_contract rows without deterministic evidence. Do not solve by authoring source changes."#
     );
 
     supervisor_feedback_prompt(
@@ -102,6 +102,7 @@ fn supervisor_feedback_prompt_inner(
     let review_context = supervisor_feedback_review_context(artifact_paths);
     let shape_contract = supervisor_worker_shape_contract(worker_guidance);
     let session_context_economics = supervisor_feedback_session_context_economics();
+    let approval_contract_policy = supervisor_feedback_approval_contract_policy();
     let context_telemetry = serde_json::to_string_pretty(&context_telemetry.to_prompt_json())
         .context("failed to serialize supervisor context telemetry")?;
     let worker_guidance = render_worker_guidance(worker_guidance);
@@ -124,6 +125,8 @@ Worker shape contract:
 {slice_sizing_policy}
 
 {session_context_economics}
+
+{approval_contract_policy}
 
 {strategy_policy}
 {decision_debug_requirements}
@@ -149,6 +152,7 @@ Artifact index:
         worktree_policy = worktree_policy,
         slice_sizing_policy = slice_sizing_policy,
         strategy_policy = strategy_policy,
+        approval_contract_policy = approval_contract_policy,
         decision_debug_requirements = decision_debug.requirements,
         action_schema = action_schema,
     ))
@@ -189,6 +193,15 @@ fn supervisor_feedback_session_context_economics() -> &'static str {
 - Prefer worker_mode=continue when the next edit depends on recent worker context and worker_session_token_peak/context pressure are modest.
 - Prefer worker_mode=context_focus after broad investigation, large tool-call bursts, stale context, context overflow, high worker_session_token_peak, or a phase boundary where the next slice can be restated compactly.
 - Use patch_decision=accept_current_baseline with worker_mode=context_focus when useful incomplete progress should remain in the source tree but the next worker turn should start with a clean active diff and fresh session context."#
+}
+
+fn supervisor_feedback_approval_contract_policy() -> &'static str {
+    r#"Approval contract policy:
+- On every review after a non-empty patch, maintain approval_contract rows derived from the original task and likely regression risks. Use generic categories: required behavior, default/disabled behavior, boundary cases, error behavior, integration/API surface, and focused regression checks when relevant.
+- Do not copy a fixed checklist across tasks. Choose rows from the actual task, changed source surface, and worker evidence.
+- Set approval_state to not_close, broad_work_remaining, approval_possible_after_verification, ready_to_approve, or blocked. Start checking whether approval is possible as soon as any useful patch exists; keep it cheap until approval_possible_after_verification.
+- Use approval_possible_after_verification when broad construction appears complete but deterministic evidence is still missing. The next action should normally be a fixed task-derived smoke check, a targeted repair from a failing check, or take_over only for a surgical known fix.
+- Use ready_to_approve only when each approval_contract row is passed, covered_by_existing_test with evidence, or not_applicable with a reason. Approval requires deterministic artifact/source/check evidence, not worker confidence or summary text alone."#
 }
 
 #[derive(Default)]
@@ -308,7 +321,7 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
 - Minimize supervisor input tokens: do not inspect more artifacts, logs, or diff content once the next action is clear.
 - For generated-output diffs, inspect authored-source changes and patch stats first. Avoid opening whole generated files; judge whether generated changes are bounded expected outputs and free of transient tool sidecars.
 - Approve only when the current source state appears to satisfy the original task and no worker action or check remains. Before approving, inspect task.json and enough source/diff state to verify completion.
-- Treat a false approval as a terminal correctness failure. If evidence is missing for the main requested behavior or a likely edge case, choose revise for a targeted verification or repair turn.
+- Treat a false approval as a terminal correctness failure. If approval_contract evidence is missing for the main requested behavior or a likely edge case, choose revise for a targeted verification or repair turn.
 - On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
 - Revise when a useful worker path remains; message_to_worker must be concrete and worker-executable.
 - Stop only for a blocked or inconclusive worker result when no useful worker path remains.

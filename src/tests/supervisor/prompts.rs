@@ -16,6 +16,15 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
 
     assert!(prompt.contains("Core review contract"));
     assert!(prompt.contains("Worker session context economics:"));
+    assert!(prompt.contains("Approval contract policy:"));
+    assert!(prompt.contains("approval_contract rows derived from the original task"));
+    assert!(prompt.contains("required behavior, default/disabled behavior, boundary cases"));
+    assert!(prompt.contains("Do not copy a fixed checklist across tasks"));
+    assert!(prompt.contains("approval_possible_after_verification"));
+    assert!(prompt.contains("ready_to_approve"));
+    assert!(prompt.contains("\"approval_contract\""));
+    assert!(prompt.contains("\"approval_state\""));
+    assert!(prompt.contains("\"approval_blocker\""));
     assert!(prompt.contains("worker_mode=continue reuses useful recent file/tool context"));
     assert!(prompt.contains("worker_mode=context_focus starts a fresh worker session"));
     assert!(prompt.contains("Cached input tokens are cheaper than uncached input"));
@@ -53,8 +62,10 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("Avoid opening whole generated files"));
     assert!(prompt.contains("transient tool sidecars"));
     assert!(prompt.contains("Approve only when the current source state appears to satisfy"));
+    assert!(prompt.contains("Approval requires deterministic artifact/source/check evidence"));
     assert!(prompt.contains("Before approving, inspect task.json and enough source/diff state"));
     assert!(prompt.contains("false approval as a terminal correctness failure"));
+    assert!(prompt.contains("approval_contract evidence is missing"));
     assert!(prompt.contains("main requested behavior or a likely edge case"));
     assert!(prompt.contains("Revise when a useful worker path remains"));
     assert!(prompt.contains("Stop only for a blocked or inconclusive worker result"));
