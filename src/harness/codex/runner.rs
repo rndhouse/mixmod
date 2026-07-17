@@ -8,6 +8,8 @@ use super::sandbox::CodexSandbox;
 use crate::MixmodConfig;
 use crate::harness::{AgentBackend, AgentHarness, AgentOutput, AgentRequest};
 
+const CODEX_WORKER_SANDBOX_ENV: &str = "MIXMOD_CODEX_WORKER_SANDBOX";
+
 /// Codex app-server worker harness.
 pub struct ShellCodexRunner {
     config: MixmodConfig,
@@ -37,10 +39,11 @@ impl AgentHarness for ShellCodexRunner {
             .lock()
             .map_err(|_| anyhow!("Codex worker server lock was poisoned"))?;
         if request.resume_session_id.is_none() {
+            let sandbox = codex_worker_sandbox_from_env()?;
             *guard = Some(CodexAppServer::start(
                 &request.root,
                 &self.config.codex_worker,
-                CodexSandbox::WorkspaceWrite,
+                sandbox,
             )?);
         }
 
@@ -60,6 +63,7 @@ impl AgentHarness for ShellCodexRunner {
             );
         }
 
+        let sandbox = server.sandbox();
         let result = server.run_turn(&request.out_dir, "codex-worker", &request.instruction)?;
         let success = result.exit_status == Some(0);
         let session_reused = request.resume_session_id.is_some();
@@ -69,7 +73,10 @@ impl AgentHarness for ShellCodexRunner {
         let reasoning_effort = result.reasoning_effort.clone();
         let model_arg = format!("{}:{}", model, reasoning_effort);
         let mut verification_notes = vec![
-            "Codex worker ran through app-server with workspace-write sandbox.".to_string(),
+            format!(
+                "Codex worker ran through app-server with {} sandbox.",
+                sandbox.as_thread_arg()
+            ),
             "Local inference verification is not applicable to the Codex worker backend."
                 .to_string(),
         ];
@@ -101,6 +108,7 @@ impl AgentHarness for ShellCodexRunner {
                 "output_tokens": result.usage.output_tokens,
                 "reasoning_tokens": result.usage.reasoning_tokens,
                 "total_tokens": result.usage.total_tokens,
+                "sandbox": sandbox.as_thread_arg(),
                 "token_usage_source": result.token_usage_source.clone(),
                 "token_usage_scope": result.token_usage_scope.clone(),
                 "token_usage_comparable": result.token_usage_comparable,
@@ -134,4 +142,8 @@ impl AgentHarness for ShellCodexRunner {
             verification_notes,
         })
     }
+}
+
+fn codex_worker_sandbox_from_env() -> Result<CodexSandbox> {
+    CodexSandbox::from_env_var(CODEX_WORKER_SANDBOX_ENV, CodexSandbox::WorkspaceWrite)
 }

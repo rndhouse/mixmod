@@ -1151,6 +1151,28 @@ fn codex_app_server_can_run_without_inner_sandbox() {
 }
 
 #[test]
+fn codex_sandbox_labels_are_parsed_consistently() {
+    assert_eq!(
+        CodexSandbox::from_label("read-only").unwrap(),
+        CodexSandbox::ReadOnly
+    );
+    assert_eq!(
+        CodexSandbox::from_label("workspace-write").unwrap(),
+        CodexSandbox::WorkspaceWrite
+    );
+    assert_eq!(
+        CodexSandbox::from_label("danger-full-access").unwrap(),
+        CodexSandbox::DangerFullAccess
+    );
+    assert!(
+        CodexSandbox::from_label("workspace")
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported Codex sandbox value")
+    );
+}
+
+#[test]
 fn patch_stats_counts_files_and_lines() {
     let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1,2 @@\n-old\n+new\n+line\n";
     let stats = patch_stats(patch);

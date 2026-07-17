@@ -215,6 +215,7 @@ class MixmodAgent(BaseInstalledAgent):
         env.update(
             {
                 "MIXMOD_CODEX_SUPERVISOR_SANDBOX": "danger-full-access",
+                "MIXMOD_CODEX_WORKER_SANDBOX": "danger-full-access",
                 "MIXMOD_DEBUG_COMMANDS": "1",
                 "MIXMOD_STATE_DIR": state_dir.as_posix(),
             }

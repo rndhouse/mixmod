@@ -1,7 +1,6 @@
-use std::env;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 
 use crate::SupervisorConfig;
 use crate::harness::codex::{CodexAppServer, CodexSandbox, CodexTurnResult};
@@ -36,26 +35,14 @@ impl SupervisorCodexSession {
 }
 
 fn supervisor_codex_sandbox_from_env() -> Result<CodexSandbox> {
-    match env::var("MIXMOD_CODEX_SUPERVISOR_SANDBOX") {
-        Ok(value) => supervisor_codex_sandbox_from_value(&value),
-        Err(env::VarError::NotPresent) => Ok(supervisor_default_codex_sandbox()),
-        Err(error) => Err(error).context("failed to read MIXMOD_CODEX_SUPERVISOR_SANDBOX"),
-    }
+    CodexSandbox::from_env_var(
+        "MIXMOD_CODEX_SUPERVISOR_SANDBOX",
+        supervisor_default_codex_sandbox(),
+    )
 }
 
 fn supervisor_default_codex_sandbox() -> CodexSandbox {
     CodexSandbox::WorkspaceWrite
-}
-
-fn supervisor_codex_sandbox_from_value(value: &str) -> Result<CodexSandbox> {
-    match value {
-        "read-only" => Ok(CodexSandbox::ReadOnly),
-        "workspace-write" => Ok(CodexSandbox::WorkspaceWrite),
-        "danger-full-access" => Ok(CodexSandbox::DangerFullAccess),
-        _ => bail!(
-            "unsupported MIXMOD_CODEX_SUPERVISOR_SANDBOX value `{value}`; expected read-only, workspace-write, or danger-full-access"
-        ),
-    }
 }
 
 #[cfg(test)]
@@ -73,7 +60,7 @@ mod tests {
     #[test]
     fn supervisor_codex_sandbox_env_value_still_allows_read_only_override() {
         assert_eq!(
-            supervisor_codex_sandbox_from_value("read-only").unwrap(),
+            CodexSandbox::from_label("read-only").unwrap(),
             CodexSandbox::ReadOnly
         );
     }

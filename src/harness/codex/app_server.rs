@@ -313,6 +313,11 @@ impl CodexAppServer {
         })
     }
 
+    /// Return the sandbox used for thread and turn requests.
+    pub(crate) fn sandbox(&self) -> CodexSandbox {
+        self.sandbox
+    }
+
     /// Return the active app-server thread id.
     pub(crate) fn thread_id(&self) -> &str {
         &self.thread_id
