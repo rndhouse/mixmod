@@ -91,7 +91,8 @@ pub(crate) use strategy::policy::{
     supervisor_feedback_strategy_policy,
 };
 pub(crate) use strategy::revision::{
-    default_revision_resume_session_id, prepare_default_revision_decision,
+    default_revision_resume_session_id, force_fresh_session_for_revision_policy,
+    prepare_default_revision_decision,
 };
 pub(crate) use strategy::supervisor::{
     default_review_label, default_strategy_review_artifacts, live_supervisor_advisor,

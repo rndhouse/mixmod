@@ -266,9 +266,67 @@ impl RevisionHandoff {
             && self.worker_turn_shape() == Some(WorkerTurnShape::PlanningProbe)
     }
 
+    /// Return why this handoff must start a fresh worker session, if any.
+    pub(crate) fn fresh_session_reason(&self, message_to_worker: &str) -> Option<&'static str> {
+        if self.is_planning_probe() {
+            return Some("planning_probe");
+        }
+        if self.expect_patch == Some(false) {
+            return Some("expect_patch_false");
+        }
+        if self.is_verification_only(message_to_worker) {
+            return Some("verification_only");
+        }
+        if self.contains_session_boundary_forbidden_action(message_to_worker) {
+            return Some("forbidden_action_session_boundary");
+        }
+        None
+    }
+
+    /// Return whether this handoff must start a fresh worker session.
+    pub(crate) fn requires_fresh_worker_session(&self, message_to_worker: &str) -> bool {
+        self.fresh_session_reason(message_to_worker).is_some()
+    }
+
+    /// Return whether no repository delta should be expected for this handoff.
+    pub(crate) fn suppresses_revision_delta(&self, message_to_worker: &str) -> bool {
+        self.is_planning_probe()
+            || self.expect_patch == Some(false)
+            || self.forbids_repository_edits(message_to_worker)
+            || self.is_verification_only(message_to_worker)
+    }
+
     /// Return the normalized worker turn shape, when one was supplied.
     pub(crate) fn worker_turn_shape(&self) -> Option<WorkerTurnShape> {
         WorkerTurnShape::from_raw(self.worker_turn_shape.as_deref())
+    }
+
+    fn contains_session_boundary_forbidden_action(&self, message_to_worker: &str) -> bool {
+        self.session_policy_texts(message_to_worker)
+            .any(session_boundary_forbidden_action)
+    }
+
+    fn forbids_repository_edits(&self, message_to_worker: &str) -> bool {
+        self.session_policy_texts(message_to_worker)
+            .any(|text| normalized_policy_text(text).contains("do not edit"))
+    }
+
+    fn is_verification_only(&self, message_to_worker: &str) -> bool {
+        self.session_policy_texts(message_to_worker)
+            .any(verification_only_text)
+    }
+
+    fn session_policy_texts<'a>(
+        &'a self,
+        message_to_worker: &'a str,
+    ) -> impl Iterator<Item = &'a str> {
+        std::iter::once(message_to_worker)
+            .chain(self.turn_goal.as_deref())
+            .chain(self.stop_condition.as_deref())
+            .chain(self.completion_gate.as_deref())
+            .chain(self.exact_edits.iter().map(String::as_str))
+            .chain(self.edit_plan.iter().map(String::as_str))
+            .chain(self.forbidden_actions.iter().map(String::as_str))
     }
 }
 
@@ -287,6 +345,63 @@ impl SupervisorFeedbackTurn {
     pub(crate) fn patch_decision_kind(&self) -> PatchDecision {
         PatchDecision::from_raw(Some(&self.patch_decision))
     }
+
+    /// Return why the next worker turn must start a fresh session, if any.
+    pub(crate) fn fresh_worker_session_reason(&self) -> Option<&'static str> {
+        if self.is_supervisor_control_turn() {
+            return Some("supervisor_control");
+        }
+        self.revision_handoff.fresh_session_reason(&self.hint)
+    }
+
+    /// Return whether the next worker turn must start a fresh session.
+    pub(crate) fn requires_fresh_worker_session(&self) -> bool {
+        self.fresh_worker_session_reason().is_some()
+    }
+
+    fn is_supervisor_control_turn(&self) -> bool {
+        value_str(&self.feedback, "label") == Some("supervisor-control")
+            || value_str(&self.feedback, "supervisor_control_action").is_some()
+            || self.feedback.get("source_run").is_some()
+    }
+}
+
+fn value_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
+fn session_boundary_forbidden_action(text: &str) -> bool {
+    let normalized = normalized_policy_text(text);
+    [
+        "do not edit",
+        "do not run",
+        "do not commit",
+        "do not switch branches",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn verification_only_text(text: &str) -> bool {
+    let normalized = normalized_policy_text(text);
+    [
+        "verification only",
+        "verify only",
+        "only verify",
+        "verification step only",
+        "verification turn only",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+fn normalized_policy_text(text: &str) -> String {
+    text.trim()
+        .to_ascii_lowercase()
+        .replace(['-', '_'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[derive(Debug)]

@@ -228,6 +228,7 @@ pub(crate) fn run_default_strategy_engine(
             if options.worker_forced_context_focus {
                 force_context_focus_after_worker_context_overflow(&mut decision, &final_out)?;
             }
+            force_fresh_session_for_revision_policy(&mut decision);
             append_jsonl(&feedback_path, &decision.feedback)?;
 
             if decision.verdict_kind() == SupervisorVerdict::TakeOver

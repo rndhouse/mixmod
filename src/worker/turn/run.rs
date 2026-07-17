@@ -307,6 +307,11 @@ impl WorkerTurn<'_> {
                 "revision worker run expected a new delta but no changes.patch was captured"
                     .to_string(),
             );
+            let revision_noop_session_policy = if revision_context.requires_fresh_worker_session() {
+                InterventionSessionPolicy::FreshSession
+            } else {
+                InterventionSessionPolicy::SameSession
+            };
             match run_revision_noop_followup(RevisionNoopFollowupRequest {
                 root,
                 mode,
@@ -356,7 +361,7 @@ impl WorkerTurn<'_> {
                                 "no_patch_created"
                             },
                         )
-                        .with_session_policy(InterventionSessionPolicy::SameSession)
+                        .with_session_policy(revision_noop_session_policy)
                         .with_artifacts(vec![
                             format!("revision-noop-followup/{TASK_JSON}"),
                             format!("revision-noop-followup/{OPENCODE_INSTRUCTIONS_MD}"),
@@ -387,7 +392,7 @@ impl WorkerTurn<'_> {
                                 .unwrap_or("revision no-op follow-up failed before it could run"),
                             "failed",
                         )
-                        .with_session_policy(InterventionSessionPolicy::SameSession)
+                        .with_session_policy(revision_noop_session_policy)
                         .with_performed(false)
                         .with_artifacts(vec![
                             format!("revision-noop-followup/{TASK_JSON}"),

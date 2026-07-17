@@ -475,6 +475,70 @@ fn revision_noop_followup_reuses_worker_session_and_requires_delta() {
 }
 
 #[test]
+fn revision_noop_followup_uses_fresh_session_for_session_boundary() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    init_git(root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("README.md"), "base\n").unwrap();
+    Command::new("git")
+        .args(["add", "README.md"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["commit", "-m", "base"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+
+    let task = root.join("revision.task.json");
+    atomic_write(
+        &task,
+        br#"{
+  "title": "Revision task",
+  "instructions": "Original task.\n\nMessage to worker: Apply the exact requested revision now without running commands.",
+  "expect_patch": true,
+  "files": ["src/revised.rs"],
+  "tests": [],
+  "context": {
+    "expect_patch": true,
+    "revision": {
+      "delta_expected": true,
+      "expect_patch": true,
+      "message_to_worker": "Apply the exact requested revision now without running commands.",
+      "worker_mode": "continue",
+      "patch_decision": "revise_current",
+      "focus_files": ["src/revised.rs"],
+      "forbidden_actions": ["Do not run commands in this turn."]
+    }
+  }
+}"#,
+    )
+    .unwrap();
+    let runner = RevisionNoopFreshFollowupRunner::new();
+    let run_dir = state_layout(root).runs().join("revision");
+    let receipt = run_worker_turn_with_session(
+        root,
+        DelegationMode::Patch,
+        &task,
+        &run_dir,
+        &runner,
+        false,
+        Some("ses_stale_revision".to_string()),
+    )
+    .unwrap();
+
+    assert_eq!(receipt.status, "success");
+    assert_eq!(runner.calls.load(AtomicOrdering::SeqCst), 2);
+    let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
+    assert!(patch.contains("src/revised.rs"));
+    let interventions = fs::read_to_string(run_dir.join("interventions.jsonl")).unwrap();
+    assert!(interventions.contains("\"kind\":\"revision_noop_followup\""));
+    assert!(interventions.contains("\"session_policy\":\"fresh_session\""));
+}
+
+#[test]
 fn empty_patch_is_allowed_when_patch_not_expected() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

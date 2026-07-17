@@ -93,37 +93,39 @@ pub(super) struct RevisionNoopContext {
 impl RevisionNoopContext {
     pub(super) fn from_task(task: &Value) -> Option<Self> {
         let revision = task.get("context")?.get("revision")?;
-        let delta_expected = get_bool(revision, "delta_expected").unwrap_or_else(|| {
+        let mut delta_expected = get_bool(revision, "delta_expected").unwrap_or_else(|| {
             let patch_decision = get_str(revision, "patch_decision").unwrap_or("");
             matches!(
                 patch_decision,
                 "accept_current_baseline" | "revise_current" | "revise_previous"
             )
         });
+        let message_to_worker = get_str(revision, "message_to_worker")
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let revision_handoff = RevisionHandoff {
+            expect_patch: get_bool(revision, "expect_patch"),
+            worker_turn_shape: get_str(revision, "worker_turn_shape").map(ToOwned::to_owned),
+            turn_goal: get_str(revision, "turn_goal").map(ToOwned::to_owned),
+            exact_edits: get_string_array(revision, "exact_edits"),
+            edit_plan: get_string_array(revision, "edit_plan"),
+            deferred_checks: get_string_array(revision, "deferred_checks"),
+            defer_checks_until_patch_exists: get_bool(revision, "defer_checks_until_patch_exists"),
+            stop_condition: get_str(revision, "stop_condition").map(ToOwned::to_owned),
+            completion_gate: get_str(revision, "completion_gate").map(ToOwned::to_owned),
+            forbidden_actions: get_string_array(revision, "forbidden_actions"),
+        };
+        if revision_handoff.suppresses_revision_delta(&message_to_worker) {
+            delta_expected = false;
+        }
         if !delta_expected {
             return None;
         }
         Some(Self {
             delta_expected,
-            message_to_worker: get_str(revision, "message_to_worker")
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            revision_handoff: RevisionHandoff {
-                expect_patch: get_bool(revision, "expect_patch"),
-                worker_turn_shape: get_str(revision, "worker_turn_shape").map(ToOwned::to_owned),
-                turn_goal: get_str(revision, "turn_goal").map(ToOwned::to_owned),
-                exact_edits: get_string_array(revision, "exact_edits"),
-                edit_plan: get_string_array(revision, "edit_plan"),
-                deferred_checks: get_string_array(revision, "deferred_checks"),
-                defer_checks_until_patch_exists: get_bool(
-                    revision,
-                    "defer_checks_until_patch_exists",
-                ),
-                stop_condition: get_str(revision, "stop_condition").map(ToOwned::to_owned),
-                completion_gate: get_str(revision, "completion_gate").map(ToOwned::to_owned),
-                forbidden_actions: get_string_array(revision, "forbidden_actions"),
-            },
+            message_to_worker,
+            revision_handoff,
             focus_files: get_string_array(revision, "focus_files"),
             required_checks: get_string_array(revision, "required_checks"),
             worker_mode: get_str(revision, "worker_mode")
@@ -135,6 +137,11 @@ impl RevisionNoopContext {
                 .trim()
                 .to_string(),
         })
+    }
+
+    pub(super) fn requires_fresh_worker_session(&self) -> bool {
+        self.revision_handoff
+            .requires_fresh_worker_session(&self.message_to_worker)
     }
 }
 
@@ -166,9 +173,14 @@ pub(super) fn run_revision_noop_followup(
         output,
         revision,
     } = request;
-    let resume_session_id = output.session_id.clone().ok_or_else(|| {
-        anyhow!("cannot run revision no-op follow-up without a worker session id")
-    })?;
+    let fresh_session_required = revision.requires_fresh_worker_session();
+    let resume_session_id = if fresh_session_required {
+        None
+    } else {
+        Some(output.session_id.clone().ok_or_else(|| {
+            anyhow!("cannot run revision no-op follow-up without a worker session id")
+        })?)
+    };
     let followup_dir = out_dir.join("revision-noop-followup");
     fs::create_dir_all(&followup_dir).with_context(|| {
         format!(
@@ -240,8 +252,12 @@ pub(super) fn run_revision_noop_followup(
         out_dir: followup_dir.clone(),
         instruction_path,
         instruction,
-        session_id: original_request.session_id.clone(),
-        resume_session_id: Some(resume_session_id),
+        session_id: if fresh_session_required {
+            make_run_id("worker-session")
+        } else {
+            original_request.session_id.clone()
+        },
+        resume_session_id,
         require_local,
         supervisor_advisor: original_request.supervisor_advisor.clone(),
     };
@@ -595,6 +611,42 @@ mod tests {
             patch.push_str(&format!("+line {line}\n"));
         }
         patch
+    }
+
+    #[test]
+    fn revision_noop_context_skips_verification_only_turns() {
+        let task = json!({
+            "context": {
+                "revision": {
+                    "delta_expected": true,
+                    "expect_patch": true,
+                    "message_to_worker": "Verification-only: run cargo test and report evidence.",
+                    "worker_mode": "continue",
+                    "patch_decision": "revise_current"
+                }
+            }
+        });
+
+        assert!(RevisionNoopContext::from_task(&task).is_none());
+    }
+
+    #[test]
+    fn revision_noop_context_requires_fresh_session_for_no_run_boundary() {
+        let task = json!({
+            "context": {
+                "revision": {
+                    "delta_expected": true,
+                    "expect_patch": true,
+                    "message_to_worker": "Apply the smallest source edit.",
+                    "worker_mode": "continue",
+                    "patch_decision": "revise_current",
+                    "forbidden_actions": ["Do not run commands in this turn."]
+                }
+            }
+        });
+        let context = RevisionNoopContext::from_task(&task).unwrap();
+
+        assert!(context.requires_fresh_worker_session());
     }
 
     #[test]

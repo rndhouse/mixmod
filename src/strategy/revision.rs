@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
+use serde_json::{Value, json};
 
 use crate::create_patch_baseline_checkpoint;
 use crate::{
@@ -51,11 +52,28 @@ pub(crate) fn prepare_default_revision_decision(
             previous_worker_run_dir.join(WORKTREE_PATCH)
         }
     };
+    force_fresh_session_for_revision_policy(&mut worker_decision);
     Ok(DefaultRevisionPreparation {
         worker_decision,
         previous_patch_source,
         created_internal_baseline,
     })
+}
+
+/// Force context-focused worker session policy for structured session boundaries.
+pub(crate) fn force_fresh_session_for_revision_policy(
+    decision: &mut SupervisorFeedbackTurn,
+) -> bool {
+    let Some(reason) = decision.fresh_worker_session_reason() else {
+        return false;
+    };
+    if decision.worker_mode_kind() != WorkerMode::Continue {
+        return false;
+    }
+
+    decision.worker_mode = WorkerMode::ContextFocus.as_str().to_string();
+    record_fresh_session_hygiene(&mut decision.feedback, reason);
+    true
 }
 
 /// Resolve the worker session to resume for a revision turn.
@@ -64,6 +82,9 @@ pub(crate) fn default_revision_resume_session_id(
     active_session_id: &Option<String>,
     previous_worker_run_dir: &Path,
 ) -> Result<Option<String>> {
+    if decision.requires_fresh_worker_session() {
+        return Ok(None);
+    }
     if decision.worker_mode_kind() != WorkerMode::Continue {
         return Ok(None);
     }
@@ -73,6 +94,24 @@ pub(crate) fn default_revision_resume_session_id(
             previous_worker_run_dir.join(METRICS_JSON).display()
         )
     })
+}
+
+fn record_fresh_session_hygiene(feedback: &mut Value, reason: &str) {
+    let hygiene = json!({
+        "worker_mode_forced": true,
+        "from": "continue",
+        "to": "context_focus",
+        "reason": reason,
+    });
+
+    let Value::Object(map) = feedback else {
+        return;
+    };
+    map.insert("session_hygiene".to_string(), hygiene);
+    map.insert("worker_mode".to_string(), json!("context_focus"));
+    if let Some(Value::Object(inner)) = map.get_mut("feedback") {
+        inner.insert("worker_mode".to_string(), json!("context_focus"));
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +152,15 @@ mod tests {
         }
     }
 
+    fn resume_id(decision: &SupervisorFeedbackTurn) -> Option<String> {
+        default_revision_resume_session_id(
+            decision,
+            &Some("ses_active".to_string()),
+            Path::new("/tmp/previous-run"),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn revise_previous_without_checkpoint_falls_back_to_current_patch() {
         let temp = TempDir::new().unwrap();
@@ -138,5 +186,92 @@ mod tests {
             get_str(&decision.feedback["feedback"], "action"),
             Some("revise")
         );
+    }
+
+    #[test]
+    fn fresh_session_policy_forces_context_focus_for_no_patch_boundaries() {
+        let mut decision = feedback(json!("continue"));
+        decision.revision_handoff = RevisionHandoff {
+            expect_patch: Some(false),
+            worker_turn_shape: Some("planning_probe".to_string()),
+            ..RevisionHandoff::default()
+        };
+
+        assert!(force_fresh_session_for_revision_policy(&mut decision));
+        assert_eq!(decision.worker_mode, "context_focus");
+        assert_eq!(resume_id(&decision), None);
+        assert_eq!(
+            get_str(&decision.feedback["feedback"], "worker_mode"),
+            Some("context_focus")
+        );
+        assert_eq!(
+            get_str(&decision.feedback["session_hygiene"], "reason"),
+            Some("planning_probe")
+        );
+    }
+
+    #[test]
+    fn fresh_session_policy_does_not_resume_verification_only_turns() {
+        let mut decision = feedback(json!("continue"));
+        decision.hint =
+            "Verification-only: run cargo test -p mixmod and report evidence.".to_string();
+        decision.revision_handoff = RevisionHandoff {
+            expect_patch: Some(true),
+            turn_goal: Some("verification-only confidence check".to_string()),
+            ..RevisionHandoff::default()
+        };
+
+        assert!(force_fresh_session_for_revision_policy(&mut decision));
+        assert_eq!(decision.worker_mode, "context_focus");
+        assert_eq!(resume_id(&decision), None);
+        assert_eq!(
+            get_str(&decision.feedback["session_hygiene"], "reason"),
+            Some("verification_only")
+        );
+    }
+
+    #[test]
+    fn fresh_session_policy_does_not_resume_forbidden_action_boundaries() {
+        let mut decision = feedback(json!("continue"));
+        decision.revision_handoff = RevisionHandoff {
+            expect_patch: Some(true),
+            forbidden_actions: vec!["Do not run commands in this turn.".to_string()],
+            ..RevisionHandoff::default()
+        };
+
+        assert!(force_fresh_session_for_revision_policy(&mut decision));
+        assert_eq!(decision.worker_mode, "context_focus");
+        assert_eq!(resume_id(&decision), None);
+        assert_eq!(
+            get_str(&decision.feedback["session_hygiene"], "reason"),
+            Some("forbidden_action_session_boundary")
+        );
+    }
+
+    #[test]
+    fn fresh_session_policy_does_not_resume_supervisor_control_turns() {
+        let mut decision = feedback(json!("continue"));
+        decision.feedback = json!({
+            "label": "supervisor-control",
+            "feedback": {
+                "action": "revise",
+                "worker_mode": "continue"
+            }
+        });
+
+        assert!(force_fresh_session_for_revision_policy(&mut decision));
+        assert_eq!(decision.worker_mode, "context_focus");
+        assert_eq!(resume_id(&decision), None);
+        assert_eq!(
+            get_str(&decision.feedback["session_hygiene"], "reason"),
+            Some("supervisor_control")
+        );
+    }
+
+    #[test]
+    fn implementation_continuation_still_reuses_active_session() {
+        let decision = feedback(json!("continue"));
+
+        assert_eq!(resume_id(&decision), Some("ses_active".to_string()));
     }
 }

@@ -126,6 +126,49 @@ impl AgentHarness for RevisionNoopThenPatchRunner {
     }
 }
 
+struct RevisionNoopFreshFollowupRunner {
+    calls: AtomicUsize,
+}
+
+impl RevisionNoopFreshFollowupRunner {
+    fn new() -> Self {
+        Self {
+            calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl AgentHarness for RevisionNoopFreshFollowupRunner {
+    fn run(&self, request: &AgentRequest) -> Result<AgentOutput> {
+        let call = self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+        let stdout = if call == 0 {
+            assert_eq!(
+                request.resume_session_id.as_deref(),
+                Some("ses_stale_revision")
+            );
+            b"Summary: inspected files but made no revision delta.\n".to_vec()
+        } else {
+            assert!(request.resume_session_id.is_none());
+            assert_ne!(request.session_id, "ses_stale_revision");
+            assert!(request.instruction.contains("Revision No-Op Follow-Up"));
+            fs::create_dir_all(request.root.join("src"))?;
+            atomic_write(
+                &request.root.join("src/revised.rs"),
+                b"pub fn revised() -> &'static str {\n    \"fresh\"\n}\n",
+            )?;
+            b"Summary: applied the requested revision delta from a fresh session.\n".to_vec()
+        };
+
+        Ok(fake_successful_opencode_output(
+            request,
+            stdout,
+            "ses_fresh_revision".to_string(),
+            vec![json!({"call": call})],
+            request.resume_session_id.clone(),
+        ))
+    }
+}
+
 struct PatchThenSelfReviewRunner {
     calls: AtomicUsize,
 }
