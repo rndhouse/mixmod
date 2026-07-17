@@ -142,6 +142,7 @@ fn default_config_content() -> String {
 
 [strategy]
 supervisor_init = "compact"
+spin_out_supervisor_review = true
 worker_self_review = false
 
 [strategy.live_supervision]

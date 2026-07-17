@@ -41,6 +41,19 @@ fn init_config_does_not_include_worker_model_profile_blocks() {
 }
 
 #[test]
+fn init_config_enables_spin_out_supervisor_review_by_default() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    init_project(root).unwrap();
+
+    let config_text = fs::read_to_string(state_layout(root).config()).unwrap();
+    let config = load_config(root).unwrap();
+    assert!(config_text.contains("spin_out_supervisor_review = true"));
+    assert!(config.strategy.spin_out_supervisor_review);
+}
+
+#[test]
 fn codex_app_server_uses_mixmod_scoped_codex_home() {
     assert_eq!(
         codex_home_for_work_dir(Path::new("/tmp/work")),

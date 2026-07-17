@@ -2,6 +2,7 @@ mod codex;
 mod live;
 mod normalize;
 mod prompts;
+mod review_packet;
 #[cfg(test)]
 mod tests;
 mod turns;
@@ -15,11 +16,13 @@ pub(crate) use normalize::normalize_worker_mode;
 #[cfg(test)]
 pub(crate) use prompts::{
     supervisor_feedback_prompt, supervisor_feedback_prompt_with_debug_profile_fit,
-    supervisor_live_control_prompt, supervisor_worker_brief_prompt,
+    supervisor_live_control_prompt, supervisor_spin_out_feedback_prompt,
+    supervisor_spin_out_feedback_prompt_with_debug_profile_fit, supervisor_worker_brief_prompt,
     supervisor_worker_brief_prompt_with_debug_profile_fit,
 };
 pub(crate) use turns::{
-    run_supervisor_brief_turn, run_supervisor_compaction, run_supervisor_feedback_turn,
+    run_spin_out_supervisor_feedback_turn, run_supervisor_brief_turn, run_supervisor_compaction,
+    run_supervisor_feedback_turn,
 };
 pub(crate) use types::{
     PatchDecision, RevisionHandoff, SupervisorBriefTurn, SupervisorCompactionTurn,

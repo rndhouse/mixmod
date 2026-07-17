@@ -13,8 +13,10 @@ use super::normalize::{
 };
 use super::prompts::{
     supervisor_feedback_approval_consistency_repair_prompt, supervisor_feedback_prompt,
-    supervisor_worker_brief_prompt,
+    supervisor_spin_out_feedback_approval_consistency_repair_prompt,
+    supervisor_spin_out_feedback_prompt, supervisor_worker_brief_prompt,
 };
+use super::review_packet::{build_supervisor_review_packet, write_supervisor_review_packet};
 use super::types::{
     RevisionHandoff, SupervisorBriefTurn, SupervisorCompactionTurn, SupervisorContextTelemetry,
     SupervisorFeedbackTurn, SupervisorVerdict,
@@ -369,7 +371,88 @@ pub(crate) fn run_supervisor_feedback_turn(
         context_telemetry,
         strategy,
     )?;
-    let result = session.run_turn(budgeted_dir, label, &prompt)?;
+    run_supervisor_feedback_turn_from_prompt(
+        session,
+        budgeted_dir,
+        label,
+        &prompt,
+        "persistent-supervisor-thread",
+        Value::Null,
+        |previous_feedback, rejection_reason| {
+            supervisor_feedback_approval_consistency_repair_prompt(
+                work_dir,
+                artifact_paths,
+                worker_guidance,
+                context_telemetry,
+                strategy,
+                previous_feedback,
+                rejection_reason,
+            )
+        },
+    )
+}
+
+pub(crate) fn run_spin_out_supervisor_feedback_turn(
+    supervisor: &SupervisorConfig,
+    work_dir: &Path,
+    budgeted_dir: &Path,
+    label: &str,
+    artifact_paths: &[PathBuf],
+    instruction: &str,
+    worker_guidance: &WorkerSupervisorGuidance,
+    context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
+) -> Result<SupervisorFeedbackTurn> {
+    let review_packet =
+        build_supervisor_review_packet(work_dir, artifact_paths, instruction, context_telemetry)?;
+    let review_packet_path = write_supervisor_review_packet(budgeted_dir, label, &review_packet)?;
+    let prompt = supervisor_spin_out_feedback_prompt(
+        work_dir,
+        artifact_paths,
+        instruction,
+        worker_guidance,
+        context_telemetry,
+        strategy,
+        &review_packet.value,
+    )?;
+    let mut session = SupervisorCodexSession::start_spin_out_review(work_dir, supervisor)?;
+    let review_context_record = json!({
+        "packet_path": display_path(work_dir, &review_packet_path),
+        "packet_included_chars": review_packet.included_chars,
+        "packet_truncated_artifacts": review_packet.truncated_artifacts.clone()
+    });
+    run_supervisor_feedback_turn_from_prompt(
+        &mut session,
+        budgeted_dir,
+        label,
+        &prompt,
+        "spin-out-supervisor-review",
+        review_context_record,
+        |previous_feedback, rejection_reason| {
+            supervisor_spin_out_feedback_approval_consistency_repair_prompt(
+                work_dir,
+                artifact_paths,
+                worker_guidance,
+                context_telemetry,
+                strategy,
+                &review_packet.value,
+                previous_feedback,
+                rejection_reason,
+            )
+        },
+    )
+}
+
+fn run_supervisor_feedback_turn_from_prompt(
+    session: &mut SupervisorCodexSession,
+    budgeted_dir: &Path,
+    label: &str,
+    prompt: &str,
+    review_backend: &str,
+    review_context_record: Value,
+    mut approval_repair_prompt: impl FnMut(&Value, &str) -> Result<String>,
+) -> Result<SupervisorFeedbackTurn> {
+    let result = session.run_turn(budgeted_dir, label, prompt)?;
     let parsed_feedback = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
             "action": if result.exit_status == Some(0) { "approve" } else { "revise" },
@@ -396,15 +479,7 @@ pub(crate) fn run_supervisor_feedback_turn(
     let mut typed_feedback = SupervisorFeedback::from_value(&parsed_feedback);
     if let Some(rejection_reason) = approval_consistency_rejection_reason(verdict, &typed_feedback)
     {
-        let repair_prompt = supervisor_feedback_approval_consistency_repair_prompt(
-            work_dir,
-            artifact_paths,
-            worker_guidance,
-            context_telemetry,
-            strategy,
-            &parsed_feedback,
-            &rejection_reason,
-        )?;
+        let repair_prompt = approval_repair_prompt(&parsed_feedback, &rejection_reason)?;
         let repair = session.run_turn(
             budgeted_dir,
             &format!("{label}-approval-repair"),
@@ -489,6 +564,8 @@ pub(crate) fn run_supervisor_feedback_turn(
             "feedback": parsed_feedback,
             "repair": repair_record,
             "codex_exit_status": result.exit_status,
+            "supervisor_review_backend": review_backend,
+            "supervisor_review_context": review_context_record,
             "supervisor_model": result.model.clone(),
             "supervisor_reasoning_effort": result.reasoning_effort.clone(),
             "supervisor_input_tokens": input_tokens,

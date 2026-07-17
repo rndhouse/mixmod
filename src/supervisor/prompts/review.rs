@@ -69,6 +69,65 @@ Do not approve while listing checks that still need to run or approval_contract 
     )
 }
 
+pub(crate) fn supervisor_spin_out_feedback_prompt(
+    work_dir: &Path,
+    artifact_paths: &[PathBuf],
+    instruction: &str,
+    worker_guidance: &WorkerSupervisorGuidance,
+    context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
+    review_packet: &Value,
+) -> Result<String> {
+    supervisor_spin_out_feedback_prompt_inner(
+        work_dir,
+        artifact_paths,
+        instruction,
+        worker_guidance,
+        context_telemetry,
+        strategy,
+        review_packet,
+        env_bool(DEBUG_PROFILE_FIT_ENV).unwrap_or(false),
+    )
+}
+
+pub(crate) fn supervisor_spin_out_feedback_approval_consistency_repair_prompt(
+    work_dir: &Path,
+    artifact_paths: &[PathBuf],
+    worker_guidance: &WorkerSupervisorGuidance,
+    context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
+    review_packet: &Value,
+    previous_feedback: &Value,
+    rejection_reason: &str,
+) -> Result<String> {
+    let previous_feedback = serde_json::to_string_pretty(previous_feedback)
+        .context("failed to serialize inconsistent supervisor feedback")?;
+    let instruction = format!(
+        r#"Your previous supervisor JSON was internally inconsistent: {rejection_reason}
+
+Previous JSON:
+```json
+{previous_feedback}
+```
+
+Repair only the supervisor decision using the same REVIEW_PACKET. Return either:
+- action=approve with approval_state=ready_to_approve, required_checks=[], deferred_checks=[], no completion_gate, and approval_contract rows whose statuses are passed, covered_by_existing_test, or not_applicable with compact packet/source/check evidence; or
+- action=revise with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
+
+Do not approve while listing checks that still need to run or approval_contract rows without deterministic evidence. Do not solve by authoring source changes."#
+    );
+
+    supervisor_spin_out_feedback_prompt(
+        work_dir,
+        artifact_paths,
+        &instruction,
+        worker_guidance,
+        context_telemetry,
+        strategy,
+        review_packet,
+    )
+}
+
 #[cfg(test)]
 pub(crate) fn supervisor_feedback_prompt_with_debug_profile_fit(
     work_dir: &Path,
@@ -85,6 +144,28 @@ pub(crate) fn supervisor_feedback_prompt_with_debug_profile_fit(
         worker_guidance,
         context_telemetry,
         strategy,
+        true,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn supervisor_spin_out_feedback_prompt_with_debug_profile_fit(
+    work_dir: &Path,
+    artifact_paths: &[PathBuf],
+    instruction: &str,
+    worker_guidance: &WorkerSupervisorGuidance,
+    context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
+    review_packet: &Value,
+) -> Result<String> {
+    supervisor_spin_out_feedback_prompt_inner(
+        work_dir,
+        artifact_paths,
+        instruction,
+        worker_guidance,
+        context_telemetry,
+        strategy,
+        review_packet,
         true,
     )
 }
@@ -150,6 +231,77 @@ Artifact index:
 "#,
         work_dir = work_dir.display(),
         worktree_policy = worktree_policy,
+        slice_sizing_policy = slice_sizing_policy,
+        strategy_policy = strategy_policy,
+        approval_contract_policy = approval_contract_policy,
+        decision_debug_requirements = decision_debug.requirements,
+        action_schema = action_schema,
+    ))
+}
+
+fn supervisor_spin_out_feedback_prompt_inner(
+    work_dir: &Path,
+    artifact_paths: &[PathBuf],
+    instruction: &str,
+    worker_guidance: &WorkerSupervisorGuidance,
+    context_telemetry: &SupervisorContextTelemetry,
+    strategy: DefaultStrategyMode,
+    review_packet: &Value,
+    debug_profile_fit: bool,
+) -> Result<String> {
+    let review_packet = serde_json::to_string_pretty(review_packet)
+        .context("failed to serialize supervisor review packet")?;
+    let review_context = supervisor_feedback_review_context(artifact_paths);
+    let shape_contract = supervisor_worker_shape_contract(worker_guidance);
+    let session_context_economics = supervisor_feedback_session_context_economics();
+    let approval_contract_policy = supervisor_feedback_approval_contract_policy();
+    let context_telemetry = serde_json::to_string_pretty(&context_telemetry.to_prompt_json())
+        .context("failed to serialize supervisor context telemetry")?;
+    let worker_guidance = render_worker_guidance(worker_guidance);
+    let slice_sizing_policy = supervisor_implementation_slice_policy();
+    let strategy_policy = supervisor_feedback_strategy_policy(strategy);
+    let decision_debug = supervisor_feedback_decision_debug(strategy, debug_profile_fit);
+    let action_schema = supervisor_feedback_action_schema(strategy, decision_debug.json_field);
+    Ok(format!(
+        r#"You are a one-shot spin-out supervisor reviewer for Mixmod.
+Use only REVIEW_PACKET below. Do not run commands, inspect files, browse the repository, or use tools. Paths in the packet are labels for evidence already collected by Mixmod.
+If the packet is insufficient, do not fetch more context. Return a revise or stop decision with "insufficient_context":true and "requested_context":["small bounded missing evidence"].
+Do not ask the user for approval.
+Treat supervisor input tokens as scarce. Decide from the packet and stop once the next action is clear.
+Existing review policy may say "inspect", "open", or "read" artifacts; in this spin-out mode that means use packet excerpts only.
+{worker_guidance}
+Worker shape contract:
+{shape_contract}
+
+{slice_sizing_policy}
+
+{session_context_economics}
+
+{approval_contract_policy}
+
+{strategy_policy}
+{decision_debug_requirements}
+
+Supervisor context telemetry:
+```json
+{context_telemetry}
+```
+
+If you choose revise, shape the worker request yourself before emitting JSON.
+Always include context_recommendation. Use action="compact_now" only at a clean semantic boundary where the next supervisor turn can rely on compacted history plus fresh artifacts. Use action="compact_after_next_worker" when the next worker turn should happen first but the following supervisor review should start from compacted history. Otherwise use action="continue". Mixmod makes the final compaction decision from this recommendation and hard telemetry.
+Return only JSON matching this schema, plus optional insufficient_context/requested_context fields when the packet lacks needed evidence:
+{action_schema}
+Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
+{review_context}
+Working repo: {work_dir}
+Instruction: {instruction}
+
+REVIEW_PACKET:
+```json
+{review_packet}
+```
+"#,
+        work_dir = work_dir.display(),
         slice_sizing_policy = slice_sizing_policy,
         strategy_policy = strategy_policy,
         approval_contract_policy = approval_contract_policy,

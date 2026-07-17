@@ -233,6 +233,65 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
 }
 
 #[test]
+fn supervisor_spin_out_feedback_prompt_uses_packet_without_artifact_reads() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let report = root.join(REPORT_MD);
+    atomic_write(&report, b"SECRET_PACKET_CONTENT").unwrap();
+    let packet = json!({
+        "kind": "mixmod-spin-out-supervisor-review-packet",
+        "artifacts": [{
+            "path": "worker/report.md",
+            "file_name": REPORT_MD,
+            "content": "SECRET_PACKET_CONTENT"
+        }]
+    });
+
+    let prompt = supervisor_spin_out_feedback_prompt(
+        root,
+        &[report],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+        &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::SupervisedWorker,
+        &packet,
+    )
+    .unwrap();
+
+    assert!(prompt.contains("one-shot spin-out supervisor reviewer"));
+    assert!(prompt.contains("Use only REVIEW_PACKET"));
+    assert!(prompt.contains("Do not run commands"));
+    assert!(prompt.contains("inspect files"));
+    assert!(prompt.contains("do not fetch more context"));
+    assert!(prompt.contains("insufficient_context"));
+    assert!(prompt.contains("Existing review policy may say"));
+    assert!(prompt.contains("use packet excerpts only"));
+    assert!(prompt.contains("SECRET_PACKET_CONTENT"));
+    assert!(!prompt.contains("Inspect the listed core artifact files directly"));
+    assert!(!prompt.contains("Artifact index:"));
+}
+
+#[test]
+fn supervisor_spin_out_debug_prompt_keeps_delegation_decision_audit() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let prompt = supervisor_spin_out_feedback_prompt_with_debug_profile_fit(
+        root,
+        &[],
+        "decide",
+        &WorkerSupervisorGuidance::default(),
+        &SupervisorContextTelemetry::default(),
+        DefaultStrategyMode::WorkerBuildSupervisorFix,
+        &json!({"kind":"mixmod-spin-out-supervisor-review-packet","artifacts":[]}),
+    )
+    .unwrap();
+
+    assert!(prompt.contains("Debug delegation-decision audit"));
+    assert!(prompt.contains("\"delegation_decision\""));
+    assert!(prompt.contains("takeover worker patch"));
+}
+
+#[test]
 fn supervisor_prompts_include_selected_worker_model_guidance() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

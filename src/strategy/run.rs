@@ -87,6 +87,8 @@ impl DefaultStrategyRun<'_> {
             .unwrap_or(config.strategy.supervisor_init);
         let strategy = options.strategy.unwrap_or(config.strategy.mode);
         let live_supervision = config.strategy.live_supervision.clone();
+        let spin_out_supervisor_review = env_bool("MIXMOD_SPIN_OUT_SUPERVISOR_REVIEW")
+            .unwrap_or(config.strategy.spin_out_supervisor_review);
         let worker_guidance = config
             .worker_supervisor_guidance()
             .with_patch_line_overrides(
@@ -120,6 +122,7 @@ impl DefaultStrategyRun<'_> {
             strategy,
             worker_guidance: worker_guidance.clone(),
             live_supervision,
+            spin_out_supervisor_review,
             proposal_resume_session: options.resume_session.clone(),
             require_local: false,
             worker_self_review,
@@ -166,6 +169,7 @@ impl DefaultStrategyRun<'_> {
             supervisor_init,
             strategy,
             worker_guidance: &worker_guidance,
+            spin_out_supervisor_review,
             worker_self_review,
             worker_auto_followups,
             worker_forced_context_focus,

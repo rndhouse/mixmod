@@ -18,6 +18,15 @@ impl SupervisorCodexSession {
         Ok(Self { server })
     }
 
+    /// Start a fresh read-only Codex app-server session for bounded review.
+    pub(crate) fn start_spin_out_review(
+        work_dir: &Path,
+        supervisor: &SupervisorConfig,
+    ) -> Result<Self> {
+        let server = CodexAppServer::start(work_dir, supervisor, CodexSandbox::ReadOnly)?;
+        Ok(Self { server })
+    }
+
     /// Run one supervisor turn on the existing app-server thread.
     pub(crate) fn run_turn(
         &mut self,

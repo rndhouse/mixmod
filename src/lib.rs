@@ -132,13 +132,14 @@ pub(crate) use supervisor::{
     LiveSupervisorAdvisor, PatchDecision, RevisionHandoff, SupervisorBriefTurn,
     SupervisorCodexSession, SupervisorCompactionTurn, SupervisorContextTelemetry,
     SupervisorFeedbackTurn, SupervisorUsageSample, SupervisorVerdict, WorkerMode,
-    aggregate_supervisor_usage, normalize_worker_mode, run_supervisor_brief_turn,
-    run_supervisor_compaction, run_supervisor_feedback_turn,
+    aggregate_supervisor_usage, normalize_worker_mode, run_spin_out_supervisor_feedback_turn,
+    run_supervisor_brief_turn, run_supervisor_compaction, run_supervisor_feedback_turn,
 };
 #[cfg(test)]
 pub(crate) use supervisor::{
     normalize_feedback_value, supervisor_feedback_prompt,
-    supervisor_feedback_prompt_with_debug_profile_fit, supervisor_worker_brief_prompt,
+    supervisor_feedback_prompt_with_debug_profile_fit, supervisor_spin_out_feedback_prompt,
+    supervisor_spin_out_feedback_prompt_with_debug_profile_fit, supervisor_worker_brief_prompt,
     supervisor_worker_brief_prompt_with_debug_profile_fit,
 };
 pub(crate) use tool_events::{build_opencode_events_jsonl, build_tool_events_jsonl};

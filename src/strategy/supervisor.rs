@@ -13,7 +13,8 @@ use crate::{
     SupervisorAdvisor, SupervisorCodexSession, SupervisorCompactionTurn,
     SupervisorContextTelemetry, SupervisorFeedbackTurn, SupervisorUsageSample, SupervisorVerdict,
     WorkerMode, append_jsonl, append_patch_checkpoint_artifacts, display_path, get_str,
-    run_supervisor_compaction, run_supervisor_feedback_turn, supervisor_review_artifact_paths,
+    run_spin_out_supervisor_feedback_turn, run_supervisor_compaction, run_supervisor_feedback_turn,
+    supervisor_review_artifact_paths,
 };
 
 /// Convert the optional live supervisor into the generic harness advisor trait.
@@ -73,6 +74,7 @@ pub(crate) fn record_default_supervisor_compaction(
 /// Run a normal supervisor feedback turn and update context accounting.
 pub(crate) fn run_default_supervisor_review(
     supervisor_session: &Arc<Mutex<SupervisorCodexSession>>,
+    supervisor: &crate::SupervisorConfig,
     root: &Path,
     strategy_dir: &Path,
     label: &str,
@@ -81,9 +83,22 @@ pub(crate) fn run_default_supervisor_review(
     supervisor_context: &mut SupervisorCompactionState,
     supervisor_samples: &mut Vec<SupervisorUsageSample>,
     strategy: DefaultStrategyMode,
+    spin_out_supervisor_review: bool,
 ) -> Result<DefaultSupervisorReview> {
     let context_telemetry = supervisor_context.telemetry(artifact_paths);
-    let decision = {
+    let decision = if spin_out_supervisor_review {
+        run_spin_out_supervisor_feedback_turn(
+            supervisor,
+            root,
+            strategy_dir,
+            label,
+            artifact_paths,
+            default_strategy_review_instruction(strategy),
+            worker_guidance,
+            &context_telemetry,
+            strategy,
+        )?
+    } else {
         let mut supervisor_session = supervisor_session
             .lock()
             .map_err(|_| anyhow!("supervisor Codex session lock was poisoned"))?;

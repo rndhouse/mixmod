@@ -141,6 +141,8 @@ pub struct StrategyConfig {
     pub supervisor_init: SupervisorInitMode,
     /// Periodic supervisor checks while a worker turn is still running.
     pub live_supervision: LiveSupervisionConfig,
+    /// Use fresh bounded supervisor review sessions for ordinary reviews.
+    pub spin_out_supervisor_review: bool,
     /// Optional same-session worker cleanup pass before supervisor review.
     pub worker_self_review: bool,
 }
@@ -151,6 +153,7 @@ impl Default for StrategyConfig {
             mode: DefaultStrategyMode::SupervisedWorker,
             supervisor_init: SupervisorInitMode::Compact,
             live_supervision: LiveSupervisionConfig::default(),
+            spin_out_supervisor_review: true,
             worker_self_review: false,
         }
     }

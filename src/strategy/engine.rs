@@ -38,6 +38,8 @@ pub(crate) struct DefaultStrategyEngineOptions<'a> {
     pub(crate) worker_guidance: WorkerSupervisorGuidance,
     /// Live supervision configuration for this run.
     pub(crate) live_supervision: LiveSupervisionConfig,
+    /// Run ordinary supervisor reviews in fresh bounded review sessions.
+    pub(crate) spin_out_supervisor_review: bool,
     /// Optional worker session to resume for the proposal turn.
     pub(crate) proposal_resume_session: Option<String>,
     /// Whether worker turns should require local inference verification.
@@ -207,6 +209,7 @@ pub(crate) fn run_default_strategy_engine(
                     default_strategy_review_artifacts(options.strategy_dir, &final_out)?;
                 let review = run_default_supervisor_review(
                     &supervisor_session,
+                    options.supervisor,
                     options.root,
                     options.strategy_dir,
                     &label,
@@ -215,6 +218,7 @@ pub(crate) fn run_default_strategy_engine(
                     &mut supervisor_context,
                     &mut supervisor_samples,
                     options.strategy,
+                    options.spin_out_supervisor_review,
                 )?;
                 compaction_request = review.compaction_request;
                 review.decision

@@ -41,6 +41,8 @@ pub(crate) struct DefaultStrategyMetricsInput<'a> {
     pub(crate) strategy: DefaultStrategyMode,
     /// Worker guidance applied to supervisor prompts.
     pub(crate) worker_guidance: &'a WorkerSupervisorGuidance,
+    /// Whether ordinary supervisor reviews used fresh bounded review sessions.
+    pub(crate) spin_out_supervisor_review: bool,
     /// Whether worker self-review was enabled.
     pub(crate) worker_self_review: bool,
     /// Whether worker auto-followups were enabled.
@@ -123,8 +125,28 @@ pub(crate) fn build_default_strategy_metrics(
         }
         DefaultStrategyRequireLocal::Fixed(value) => value,
     };
+    let supervisor_session_note = if input.spin_out_supervisor_review {
+        "Default strategy uses one persistent supervisor app-server thread for handoff, compaction, and live-control turns; ordinary reviews run in fresh spin-out reviewer sessions from bounded packets; takeover patches run in fresh worker sessions."
+    } else {
+        "Default strategy reused one supervisor app-server thread for handoff, review, compaction, and live-control turns; takeover patches run in fresh worker sessions."
+    };
+    let supervisor_review_backend = if input.spin_out_supervisor_review {
+        "spin-out-supervisor-review"
+    } else {
+        "persistent-supervisor-thread"
+    };
+    let codex_backend = if input.spin_out_supervisor_review {
+        "app-server-persistent-with-spin-out-review"
+    } else {
+        "app-server-persistent"
+    };
+    let artifact_files_read_by_codex = if input.spin_out_supervisor_review {
+        json!(["*-supervisor-review-packet.json"])
+    } else {
+        json!(CODEX_REVIEW_ARTIFACTS)
+    };
     let mut notes = vec![
-        "Default strategy reused one supervisor app-server thread for handoff, review, compaction, and live-control turns; takeover patches run in fresh worker sessions.".to_string(),
+        supervisor_session_note.to_string(),
         default_strategy_note(input.strategy).to_string(),
         "The worker backend was selected through the Mixmod worker settings.".to_string(),
     ];
@@ -139,6 +161,8 @@ pub(crate) fn build_default_strategy_metrics(
         "wall_clock_ms": input.wall_clock_ms,
         "supervisor_model": input.supervisor.model,
         "supervisor_init": input.supervisor_init.as_str(),
+        "spin_out_supervisor_review": input.spin_out_supervisor_review,
+        "supervisor_review_backend": supervisor_review_backend,
         "supervisor_reasoning_effort": input.supervisor.reasoning_effort,
         "supervisor_input_tokens": supervisor_usage.input_tokens,
         "supervisor_output_tokens": supervisor_usage.output_tokens,
@@ -150,7 +174,7 @@ pub(crate) fn build_default_strategy_metrics(
         "codex_visible_bytes": supervisor_usage.input_bytes,
         "supervision_turn_count": supervisor_usage.turn_count,
         "codex_calls": supervisor_usage.turn_count,
-        "codex_backend": "app-server-persistent",
+        "codex_backend": codex_backend,
         "codex_app_server_thread_ids": supervisor_usage.thread_ids.clone(),
         "codex_app_server_turn_ids": supervisor_usage.turn_ids.clone(),
         "codex_app_server_thread_count": supervisor_usage.thread_count(),
@@ -174,7 +198,7 @@ pub(crate) fn build_default_strategy_metrics(
         "takeover_worker_patch": input.engine.takeover_worker_patch_turns.last().cloned().unwrap_or(Value::Null),
         "did_codex_read_full_mixmod_session": false,
         "did_codex_read_raw_logs": false,
-        "artifact_files_read_by_codex": CODEX_REVIEW_ARTIFACTS,
+        "artifact_files_read_by_codex": artifact_files_read_by_codex,
         "strategy_phases": strategy_phases,
         "codex_loop_exit": outcome.final_verdict.clone(),
         "supervisor_takeover": input.engine.supervisor_takeover_decision.is_some(),
