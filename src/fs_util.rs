@@ -131,7 +131,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
         revision_handoff,
         focus_files: get_string_array(event, "focus_files"),
         required_checks: get_string_array(event, "required_checks"),
-        takeover_reason: None,
+        supervisor_direct_edit_reason: None,
         direct_plan: Vec::new(),
         input_tokens: 0,
         output_tokens: 0,

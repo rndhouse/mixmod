@@ -112,7 +112,7 @@ pub(crate) fn build_default_strategy_metrics(
     let supervisor_token_usage =
         supervisor_token_usage_labels(supervisor_usage.token_usage_comparable);
     let strategy_phases =
-        default_strategy_phase_labels(!input.engine.takeover_worker_patch_turns.is_empty());
+        default_strategy_phase_labels(!input.engine.supervisor_direct_edit_turns.is_empty());
     let worker_run_dirs = input
         .engine
         .worker_run_dirs
@@ -126,9 +126,9 @@ pub(crate) fn build_default_strategy_metrics(
         DefaultStrategyRequireLocal::Fixed(value) => value,
     };
     let supervisor_session_note = if input.spin_out_supervisor_review {
-        "Default strategy uses one persistent supervisor app-server thread for handoff, compaction, and live-control turns; ordinary reviews run in fresh spin-out reviewer sessions from bounded packets; takeover patches run in fresh worker sessions."
+        "Default strategy uses one persistent supervisor app-server thread for handoff, compaction, and live-control turns; ordinary reviews run in fresh spin-out reviewer sessions from bounded packets; supervisor_direct_edit runs in fresh GPT patch sessions."
     } else {
-        "Default strategy reused one supervisor app-server thread for handoff, review, compaction, and live-control turns; takeover patches run in fresh worker sessions."
+        "Default strategy reused one supervisor app-server thread for handoff, review, compaction, and live-control turns; supervisor_direct_edit runs in fresh GPT patch sessions."
     };
     let supervisor_review_backend = if input.spin_out_supervisor_review {
         "spin-out-supervisor-review"
@@ -193,16 +193,16 @@ pub(crate) fn build_default_strategy_metrics(
         "supervisor_patch_output_tokens": 0,
         "supervisor_patch_reasoning_tokens": 0,
         "supervisor_patch_total_tokens": 0,
-        "takeover_worker_patch_count": input.engine.takeover_worker_patch_turns.len() as u64,
-        "takeover_worker_patch_turns": input.engine.takeover_worker_patch_turns.clone(),
-        "takeover_worker_patch": input.engine.takeover_worker_patch_turns.last().cloned().unwrap_or(Value::Null),
+        "supervisor_direct_edit_count": input.engine.supervisor_direct_edit_turns.len() as u64,
+        "supervisor_direct_edit_turns": input.engine.supervisor_direct_edit_turns.clone(),
+        "supervisor_direct_edit_latest": input.engine.supervisor_direct_edit_turns.last().cloned().unwrap_or(Value::Null),
         "did_codex_read_full_mixmod_session": false,
         "did_codex_read_raw_logs": false,
         "artifact_files_read_by_codex": artifact_files_read_by_codex,
         "strategy_phases": strategy_phases,
         "codex_loop_exit": outcome.final_verdict.clone(),
-        "supervisor_takeover": input.engine.supervisor_takeover_decision.is_some(),
-        "supervisor_takeover_decision": input.engine.supervisor_takeover_decision.clone(),
+        "supervisor_direct_edit_selected": input.engine.supervisor_direct_edit_decision.is_some(),
+        "supervisor_direct_edit_decision": input.engine.supervisor_direct_edit_decision.clone(),
         "supervisor_direct_finish": Value::Null,
         "final_worker_mode": outcome.final_worker_mode,
         "worker_modes": input.engine.worker_modes.clone(),
@@ -309,7 +309,7 @@ pub(crate) fn default_strategy_outcome(
         match final_decision.map(SupervisorFeedbackTurn::verdict_kind) {
             Some(SupervisorVerdict::Approve) => "approved_by_codex",
             Some(SupervisorVerdict::Stop) => "stopped_by_codex",
-            Some(SupervisorVerdict::TakeOver) => "needs_takeover_worker_patch",
+            Some(SupervisorVerdict::SupervisorDirectEdit) => "needs_supervisor_direct_edit",
             _ => "needs_review",
         }
     };
@@ -321,12 +321,12 @@ pub(crate) fn default_strategy_outcome(
 }
 
 /// Return the stable phase labels for default-strategy metrics.
-pub(crate) fn default_strategy_phase_labels(has_takeover_worker_patch: bool) -> Value {
-    if has_takeover_worker_patch {
+pub(crate) fn default_strategy_phase_labels(has_supervisor_direct_edit: bool) -> Value {
+    if has_supervisor_direct_edit {
         json!([
             "codex_worker_brief",
             "codex_worker_decision_loop",
-            "gpt_takeover_worker_patch"
+            "gpt_supervisor_direct_edit"
         ])
     } else {
         json!(["codex_worker_brief", "codex_worker_decision_loop"])
@@ -386,17 +386,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn takeover_verdict_without_worker_patch_needs_takeover_worker_patch() {
+    fn supervisor_direct_edit_verdict_needs_supervisor_direct_edit() {
         let decision = SupervisorFeedbackTurn {
             feedback: json!({}),
-            verdict: "take_over".to_string(),
+            verdict: "supervisor_direct_edit".to_string(),
             worker_mode: "continue".to_string(),
             patch_decision: "accept_current".to_string(),
             hint: String::new(),
             revision_handoff: RevisionHandoff::default(),
             focus_files: Vec::new(),
             required_checks: Vec::new(),
-            takeover_reason: None,
+            supervisor_direct_edit_reason: None,
             direct_plan: Vec::new(),
             input_tokens: 0,
             output_tokens: 0,
@@ -412,8 +412,8 @@ mod tests {
 
         let outcome = default_strategy_outcome(Some(&decision), false, false, None, 2);
 
-        assert_eq!(outcome.final_verdict, "take_over");
+        assert_eq!(outcome.final_verdict, "supervisor_direct_edit");
         assert_eq!(outcome.final_worker_mode, "continue");
-        assert_eq!(outcome.final_status, "needs_takeover_worker_patch");
+        assert_eq!(outcome.final_status, "needs_supervisor_direct_edit");
     }
 }

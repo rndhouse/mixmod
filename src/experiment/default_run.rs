@@ -83,9 +83,9 @@ impl DefaultExperimentRun<'_> {
             && worker_guidance.worker_self_review_enabled();
         let worker_auto_followups = worker_guidance.auto_followups_enabled();
         let worker_forced_context_focus = worker_guidance.forced_context_focus_enabled();
-        let mut takeover_config = config.clone();
-        takeover_config.worker.backend = WorkerBackend::Codex;
-        takeover_config.codex_worker = supervisor.clone();
+        let mut supervisor_direct_edit_config = config.clone();
+        supervisor_direct_edit_config.worker.backend = WorkerBackend::Codex;
+        supervisor_direct_edit_config.codex_worker = supervisor.clone();
         let default_dir = exp_dir.join("default");
         let logs_dir = default_dir.join("logs");
         fs::create_dir_all(&logs_dir).with_context(|| {
@@ -105,7 +105,8 @@ impl DefaultExperimentRun<'_> {
             ensure_agent_visible_task_file(&task_file)?;
         }
         let _ = read_task_json(&task_file)?;
-        let takeover_runner = worker_harness_for_config(takeover_config);
+        let supervisor_direct_edit_runner =
+            worker_harness_for_config(supervisor_direct_edit_config);
         let runner = worker_harness_for_config(config);
         let runs_dir = state_layout(&work_dir).runs();
         let engine = run_default_strategy_engine(DefaultStrategyEngineOptions {
@@ -113,7 +114,7 @@ impl DefaultExperimentRun<'_> {
             strategy_dir: &default_dir,
             task_file: &task_file,
             runner: runner.as_ref(),
-            takeover_runner: takeover_runner.as_ref(),
+            supervisor_direct_edit_runner: supervisor_direct_edit_runner.as_ref(),
             supervisor: &supervisor,
             supervisor_init,
             strategy,
@@ -142,9 +143,11 @@ impl DefaultExperimentRun<'_> {
                     }
                 }
             }),
-            takeover_out_path: Box::new({
+            supervisor_direct_edit_out_path: Box::new({
                 let runs_dir = runs_dir.clone();
-                move |decision_index| runs_dir.join(format!("default-takeover-{decision_index}"))
+                move |decision_index| {
+                    runs_dir.join(format!("default-supervisor-direct-edit-{decision_index}"))
+                }
             }),
             verify_worker_run: Box::new(|receipt, run_dir| {
                 ensure_local_run_verified(

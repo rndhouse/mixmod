@@ -11,8 +11,8 @@ pub(crate) enum SupervisorVerdict {
     Approve,
     /// The worker should make another focused attempt.
     Revise,
-    /// The supervisor should make a bounded surgical patch directly.
-    TakeOver,
+    /// The supervisor should execute a bounded surgical direct edit.
+    SupervisorDirectEdit,
     /// The loop should stop without approval.
     Stop,
 }
@@ -23,7 +23,7 @@ impl SupervisorVerdict {
         match self {
             Self::Approve => "approve",
             Self::Revise => "revise",
-            Self::TakeOver => "take_over",
+            Self::SupervisorDirectEdit => "supervisor_direct_edit",
             Self::Stop => "stop",
         }
     }
@@ -33,8 +33,15 @@ impl SupervisorVerdict {
         match value.trim().to_ascii_lowercase().as_str() {
             "approve" | "approved" => Self::Approve,
             "stop" | "stopped" | "halt" | "done" | "needs_user" | "needs-user" => Self::Stop,
-            "take_over" | "take-over" | "takeover" | "supervisor_direct" | "supervisor-direct"
-            | "direct_finish" | "direct-finish" => Self::TakeOver,
+            "supervisor_direct_edit"
+            | "supervisor-direct-edit"
+            | "supervisor_direct"
+            | "supervisor-direct"
+            | "take_over"
+            | "take-over"
+            | "takeover"
+            | "direct_finish"
+            | "direct-finish" => Self::SupervisorDirectEdit,
             "revise" | "revision" | "needs_revision" | "needs-review" | "needs_review"
             | "reject" | "rejected" => Self::Revise,
             _ => Self::Revise,
@@ -43,7 +50,10 @@ impl SupervisorVerdict {
 
     /// Return whether the ordinary revise loop should not start immediately.
     pub(crate) fn is_terminal(self) -> bool {
-        matches!(self, Self::Approve | Self::Stop | Self::TakeOver)
+        matches!(
+            self,
+            Self::Approve | Self::Stop | Self::SupervisorDirectEdit
+        )
     }
 }
 
@@ -162,7 +172,7 @@ pub(crate) struct SupervisorFeedbackTurn {
     pub(crate) revision_handoff: RevisionHandoff,
     pub(crate) focus_files: Vec<String>,
     pub(crate) required_checks: Vec<String>,
-    pub(crate) takeover_reason: Option<String>,
+    pub(crate) supervisor_direct_edit_reason: Option<String>,
     pub(crate) direct_plan: Vec<String>,
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,

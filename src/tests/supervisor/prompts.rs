@@ -95,15 +95,19 @@ fn worker_build_supervisor_fix_feedback_prompt_prefers_direct_correction() {
 
     assert!(prompt.contains("Strategy mode: worker-build-supervisor-fix"));
     assert!(prompt.contains("Use the worker for construction"));
-    assert!(prompt.contains("Use action=take_over only for surgical correction"));
+    assert!(prompt.contains("Use action=supervisor_direct_edit only for surgical correction"));
     assert!(prompt.contains("Before action=revise, classify the next request"));
     assert!(prompt.contains("named residual defects"));
     assert!(prompt.contains("Choose revise when the next step needs broad search"));
-    assert!(prompt.contains("Before action=take_over, confirm the direct_plan can be executed"));
+    assert!(
+        prompt.contains(
+            "Before action=supervisor_direct_edit, confirm the direct_plan can be executed"
+        )
+    );
     assert!(prompt.contains("Put broad or command-based checks in a later worker"));
     assert!(prompt.contains("Corrections can appear before every broad task area is complete"));
-    assert!(prompt.contains("\"action\":\"approve|revise|take_over|stop\""));
-    assert!(prompt.contains("\"takeover_reason\""));
+    assert!(prompt.contains("\"action\":\"approve|revise|supervisor_direct_edit|stop\""));
+    assert!(prompt.contains("\"supervisor_direct_edit_reason\""));
     assert!(prompt.contains("\"direct_plan\""));
     assert!(!prompt.contains("\"delegation_decision\""));
 }
@@ -125,11 +129,9 @@ fn worker_build_supervisor_fix_debug_prompt_requires_delegation_decision() {
     assert!(prompt.contains("Debug delegation-decision audit"));
     assert!(prompt.contains("delegation_decision.next_owner"));
     assert!(prompt.contains("delegation_decision.work_type"));
-    assert!(
-        prompt.contains(
-            "why the next step belongs with the normal worker or a takeover worker patch"
-        )
-    );
+    assert!(prompt.contains(
+        "why the next step belongs with the normal worker or a supervisor_direct_edit patch"
+    ));
     assert!(prompt.contains("\"delegation_decision\""));
     assert!(prompt.contains("\"worker_fit\""));
     assert!(prompt.contains("\"direct_fit\""));
@@ -288,7 +290,7 @@ fn supervisor_spin_out_debug_prompt_keeps_delegation_decision_audit() {
 
     assert!(prompt.contains("Debug delegation-decision audit"));
     assert!(prompt.contains("\"delegation_decision\""));
-    assert!(prompt.contains("takeover worker patch"));
+    assert!(prompt.contains("supervisor_direct_edit patch"));
 }
 
 #[test]

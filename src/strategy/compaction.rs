@@ -309,7 +309,7 @@ mod tests {
             revision_handoff: RevisionHandoff::default(),
             focus_files: Vec::new(),
             required_checks: Vec::new(),
-            takeover_reason: None,
+            supervisor_direct_edit_reason: None,
             direct_plan: Vec::new(),
             input_tokens: 0,
             output_tokens: 0,

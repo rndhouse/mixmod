@@ -556,7 +556,7 @@ fn run_supervisor_feedback_turn_from_prompt(
         revision_handoff,
         focus_files: typed_feedback.focus_files,
         required_checks: typed_feedback.required_checks,
-        takeover_reason: typed_feedback.takeover_reason,
+        supervisor_direct_edit_reason: typed_feedback.supervisor_direct_edit_reason,
         direct_plan: typed_feedback.direct_plan,
         feedback: json!({
             "label": label,

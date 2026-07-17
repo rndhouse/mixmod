@@ -331,10 +331,10 @@ Debug delegation-decision audit:
 - Include "delegation_decision" on every review decision.
 - delegation_decision.next_owner must be "worker", "supervisor", or "none".
 - delegation_decision.work_type must be "construction", "correction", "verification", "approval", or "blocked".
-- delegation_decision.why must explain why the next step belongs with the normal worker or a takeover worker patch under worker-build-supervisor-fix.
-- If action=revise, delegation_decision.worker_fit must name the broad construction slice that remains worker-scale; if you cannot name one, choose action=take_over instead.
-- If action=take_over, delegation_decision.direct_fit must name the localized correction the fresh GPT worker patch session will make."#,
-        json_field: r#","delegation_decision":{"next_owner":"worker|supervisor|none","work_type":"construction|correction|verification|approval|blocked","why":"debug-only","worker_fit":"debug-only when revising","direct_fit":"debug-only when taking over"}"#,
+- delegation_decision.why must explain why the next step belongs with the normal worker or a supervisor_direct_edit patch under worker-build-supervisor-fix.
+- If action=revise, delegation_decision.worker_fit must name the broad construction slice that remains worker-scale; if you cannot name one, choose action=supervisor_direct_edit instead.
+- If action=supervisor_direct_edit, delegation_decision.direct_fit must name the localized correction the fresh GPT patch session will make."#,
+        json_field: r#","delegation_decision":{"next_owner":"worker|supervisor|none","work_type":"construction|correction|verification|approval|blocked","why":"debug-only","worker_fit":"debug-only when revising","direct_fit":"debug-only when using supervisor_direct_edit"}"#,
     }
 }
 
@@ -352,7 +352,7 @@ fn supervisor_feedback_approval_contract_policy() -> &'static str {
 - On every review after a non-empty patch, maintain approval_contract rows derived from the original task and likely regression risks. Use generic categories: required behavior, default/disabled behavior, boundary cases, error behavior, integration/API surface, and focused regression checks when relevant.
 - Do not copy a fixed checklist across tasks. Choose rows from the actual task, changed source surface, and worker evidence.
 - Set approval_state to not_close, broad_work_remaining, approval_possible_after_verification, ready_to_approve, or blocked. Start checking whether approval is possible as soon as any useful patch exists; keep it cheap until approval_possible_after_verification.
-- Use approval_possible_after_verification when broad construction appears complete but deterministic evidence is still missing. The next action should normally be a fixed task-derived smoke check, a targeted repair from a failing check, or take_over only for a surgical known fix.
+- Use approval_possible_after_verification when broad construction appears complete but deterministic evidence is still missing. The next action should normally be a fixed task-derived smoke check, a targeted repair from a failing check, or supervisor_direct_edit only for a surgical known fix.
 - Use ready_to_approve only when each approval_contract row is passed, covered_by_existing_test with evidence, or not_applicable with a reason. Approval requires deterministic artifact/source/check evidence, not worker confidence or summary text alone."#
 }
 

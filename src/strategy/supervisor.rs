@@ -123,47 +123,52 @@ pub(crate) fn run_default_supervisor_review(
     })
 }
 
-/// Prepare a fresh GPT-worker patch request from a supervisor takeover plan.
-pub(crate) fn prepare_default_takeover_worker_patch(
+/// Prepare a fresh GPT patch request from a supervisor direct-edit plan.
+pub(crate) fn prepare_default_supervisor_direct_edit(
     root: &Path,
     final_out: &Path,
-    takeover_decision: &SupervisorFeedbackTurn,
+    supervisor_direct_edit_decision: &SupervisorFeedbackTurn,
 ) -> Result<DefaultRevisionPreparation> {
-    let mut preparation = prepare_default_revision_decision(root, final_out, takeover_decision)?;
-    preparation.worker_decision = takeover_worker_patch_decision(&preparation.worker_decision);
+    let mut preparation =
+        prepare_default_revision_decision(root, final_out, supervisor_direct_edit_decision)?;
+    preparation.worker_decision =
+        supervisor_direct_edit_worker_decision(&preparation.worker_decision);
     Ok(preparation)
 }
 
-/// Build a strict worker handoff for executing a known takeover patch.
-pub(crate) fn takeover_worker_patch_decision(
-    takeover_decision: &SupervisorFeedbackTurn,
+/// Build a strict worker handoff for executing a known supervisor direct edit.
+pub(crate) fn supervisor_direct_edit_worker_decision(
+    supervisor_direct_edit_decision: &SupervisorFeedbackTurn,
 ) -> SupervisorFeedbackTurn {
-    let direct_plan = non_empty_strings(&takeover_decision.direct_plan);
+    let direct_plan = non_empty_strings(&supervisor_direct_edit_decision.direct_plan);
     let exact_edits = if direct_plan.is_empty() {
-        non_empty_strings(&takeover_decision.revision_handoff.exact_edits)
+        non_empty_strings(&supervisor_direct_edit_decision.revision_handoff.exact_edits)
     } else {
         direct_plan.clone()
     };
-    let fallback_goal = takeover_decision
-        .takeover_reason
+    let fallback_goal = supervisor_direct_edit_decision
+        .supervisor_direct_edit_reason
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or("apply the supervisor-directed surgical patch");
-    let turn_goal = takeover_decision
+        .unwrap_or("apply the supervisor-directed surgical direct edit");
+    let turn_goal = supervisor_direct_edit_decision
         .revision_handoff
         .turn_goal
         .clone()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "apply supervisor-directed surgical patch".to_string());
-    let hint = if takeover_decision.hint.trim().is_empty() {
-        format!("Apply only the supervisor-directed surgical patch: {fallback_goal}.")
+        .unwrap_or_else(|| "apply supervisor-directed surgical direct edit".to_string());
+    let hint = if supervisor_direct_edit_decision.hint.trim().is_empty() {
+        format!("Apply only the supervisor-directed surgical direct edit: {fallback_goal}.")
     } else {
         format!(
-            "Apply only the supervisor-directed surgical patch: {}",
-            takeover_decision.hint.trim()
+            "Apply only the supervisor-directed surgical direct edit: {}",
+            supervisor_direct_edit_decision.hint.trim()
         )
     };
-    let mut forbidden_actions = takeover_decision.revision_handoff.forbidden_actions.clone();
+    let mut forbidden_actions = supervisor_direct_edit_decision
+        .revision_handoff
+        .forbidden_actions
+        .clone();
     for rule in [
         "broaden beyond the supervisor direct_plan",
         "run broad test suites unless explicitly listed by the supervisor",
@@ -174,32 +179,35 @@ pub(crate) fn takeover_worker_patch_decision(
             forbidden_actions.push(rule.to_string());
         }
     }
-    let deferred_checks = takeover_decision.revision_handoff.deferred_checks.clone();
-    let takeover_feedback = takeover_decision
+    let deferred_checks = supervisor_direct_edit_decision
+        .revision_handoff
+        .deferred_checks
+        .clone();
+    let supervisor_direct_edit_feedback = supervisor_direct_edit_decision
         .feedback
         .get("feedback")
-        .unwrap_or(&takeover_decision.feedback);
+        .unwrap_or(&supervisor_direct_edit_decision.feedback);
     let feedback = json!({
-        "type": "takeover_worker_patch_handoff",
+        "type": "supervisor_direct_edit_handoff",
         "feedback": {
             "action": "revise",
             "expect_patch": true,
             "worker_mode": "context_focus",
-            "patch_decision": takeover_decision.patch_decision.clone(),
+            "patch_decision": supervisor_direct_edit_decision.patch_decision.clone(),
             "message_to_worker": hint.clone(),
-            "focus_files": takeover_decision.focus_files.clone(),
-            "required_checks": takeover_decision.required_checks.clone(),
-            "risk": get_str(takeover_feedback, "risk")
-                .unwrap_or("takeover worker patch pending"),
+            "focus_files": supervisor_direct_edit_decision.focus_files.clone(),
+            "required_checks": supervisor_direct_edit_decision.required_checks.clone(),
+            "risk": get_str(supervisor_direct_edit_feedback, "risk")
+                .unwrap_or("supervisor_direct_edit pending"),
             "worker_turn_shape": "patch_request",
             "turn_goal": turn_goal.clone(),
             "exact_edits": exact_edits.clone(),
             "deferred_checks": deferred_checks.clone(),
             "defer_checks_until_patch_exists": true,
-            "stop_condition": "Stop after applying the named surgical patch and any explicitly listed focused checks; do not continue into broad repair.",
+            "stop_condition": "Stop after applying the named surgical direct edit and any explicitly listed focused checks; do not continue into broad repair.",
             "completion_gate": "The patch implements only the supervisor direct_plan in the named target files.",
             "forbidden_actions": forbidden_actions.clone(),
-            "takeover_reason": takeover_decision.takeover_reason.clone(),
+            "supervisor_direct_edit_reason": supervisor_direct_edit_decision.supervisor_direct_edit_reason.clone(),
             "direct_plan": direct_plan.clone()
         }
     });
@@ -208,7 +216,7 @@ pub(crate) fn takeover_worker_patch_decision(
         feedback,
         verdict: SupervisorVerdict::Revise.as_str().to_string(),
         worker_mode: WorkerMode::ContextFocus.as_str().to_string(),
-        patch_decision: takeover_decision.patch_decision.clone(),
+        patch_decision: supervisor_direct_edit_decision.patch_decision.clone(),
         hint,
         revision_handoff: RevisionHandoff {
             expect_patch: Some(true),
@@ -217,7 +225,7 @@ pub(crate) fn takeover_worker_patch_decision(
             exact_edits,
             deferred_checks,
             defer_checks_until_patch_exists: Some(true),
-            stop_condition: Some("Stop after applying the named surgical patch and any explicitly listed focused checks; do not continue into broad repair.".to_string()),
+            stop_condition: Some("Stop after applying the named surgical direct edit and any explicitly listed focused checks; do not continue into broad repair.".to_string()),
             completion_gate: Some(
                 "The patch implements only the supervisor direct_plan in the named target files."
                     .to_string(),
@@ -225,9 +233,9 @@ pub(crate) fn takeover_worker_patch_decision(
             forbidden_actions,
             ..RevisionHandoff::default()
         },
-        focus_files: takeover_decision.focus_files.clone(),
-        required_checks: takeover_decision.required_checks.clone(),
-        takeover_reason: takeover_decision.takeover_reason.clone(),
+        focus_files: supervisor_direct_edit_decision.focus_files.clone(),
+        required_checks: supervisor_direct_edit_decision.required_checks.clone(),
+        supervisor_direct_edit_reason: supervisor_direct_edit_decision.supervisor_direct_edit_reason.clone(),
         direct_plan,
         input_tokens: 0,
         output_tokens: 0,
@@ -242,22 +250,22 @@ pub(crate) fn takeover_worker_patch_decision(
     }
 }
 
-/// Record that a supervisor takeover was executed by a GPT worker turn.
-pub(crate) fn takeover_worker_patch_record(
+/// Record that a supervisor direct edit was executed by a GPT patch turn.
+pub(crate) fn supervisor_direct_edit_record(
     root: &Path,
     decision_index: u64,
-    takeover_decision: &SupervisorFeedbackTurn,
+    supervisor_direct_edit_decision: &SupervisorFeedbackTurn,
     worker_decision: &SupervisorFeedbackTurn,
     worker_task: &Path,
     worker_run_dir: &Path,
     receipt: &Receipt,
 ) -> Value {
     json!({
-        "label": format!("takeover-worker-patch-{decision_index}"),
+        "label": format!("supervisor-direct-edit-{decision_index}"),
         "timestamp": Utc::now().to_rfc3339(),
-        "type": "takeover_worker_patch",
-        "trigger": "supervisor_takeover",
-        "takeover_feedback": takeover_decision.feedback.clone(),
+        "type": "supervisor_direct_edit",
+        "trigger": "supervisor_direct_edit",
+        "supervisor_direct_edit_feedback": supervisor_direct_edit_decision.feedback.clone(),
         "worker_handoff": worker_decision.feedback.clone(),
         "worker_task": display_path(root, worker_task),
         "worker_run_dir": display_path(root, worker_run_dir),
@@ -304,15 +312,15 @@ pub(crate) fn default_review_label(decision_index: u64) -> String {
 mod tests {
     use super::*;
 
-    fn takeover_feedback() -> SupervisorFeedbackTurn {
+    fn supervisor_direct_edit_feedback() -> SupervisorFeedbackTurn {
         SupervisorFeedbackTurn {
             feedback: json!({
                 "feedback": {
-                    "action": "take_over",
+                    "action": "supervisor_direct_edit",
                     "risk": "shadowed binding remains wrong"
                 }
             }),
-            verdict: "take_over".to_string(),
+            verdict: "supervisor_direct_edit".to_string(),
             worker_mode: "context_focus".to_string(),
             patch_decision: "revise_current".to_string(),
             hint: "Fix scoped constraint lookup only.".to_string(),
@@ -327,7 +335,7 @@ mod tests {
                 "vm/vmLetExpr.go".to_string(),
             ],
             required_checks: Vec::new(),
-            takeover_reason: Some("Known scoped binding defect.".to_string()),
+            supervisor_direct_edit_reason: Some("Known scoped binding defect.".to_string()),
             direct_plan: vec![
                 "Add value-owner scoped constraint lookup.".to_string(),
                 "Use it for identifier assignment.".to_string(),
@@ -346,8 +354,8 @@ mod tests {
     }
 
     #[test]
-    fn takeover_worker_patch_decision_builds_fresh_patch_request() {
-        let decision = takeover_worker_patch_decision(&takeover_feedback());
+    fn supervisor_direct_edit_worker_decision_builds_fresh_patch_request() {
+        let decision = supervisor_direct_edit_worker_decision(&supervisor_direct_edit_feedback());
 
         assert_eq!(decision.verdict, "revise");
         assert_eq!(decision.worker_mode, "context_focus");

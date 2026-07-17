@@ -96,8 +96,9 @@ pub(crate) use strategy::revision::{
 };
 pub(crate) use strategy::supervisor::{
     default_review_label, default_strategy_review_artifacts, live_supervisor_advisor,
-    prepare_default_takeover_worker_patch, record_default_supervisor_compaction,
-    run_default_supervisor_compaction, run_default_supervisor_review, takeover_worker_patch_record,
+    prepare_default_supervisor_direct_edit, record_default_supervisor_compaction,
+    run_default_supervisor_compaction, run_default_supervisor_review,
+    supervisor_direct_edit_record,
 };
 pub(crate) use strategy::{DefaultStrategyOptions, run_default_strategy};
 pub use worker::{run_worker_turn, run_worker_turn_with_local_requirement};
