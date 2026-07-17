@@ -29,6 +29,7 @@ pub(super) fn profile() -> WorkerModelProfile {
         enable_worker_self_review: false,
         enable_forced_context_focus: false,
         worker_timeout_seconds: Some(0),
+        idle_timeout_seconds: None,
         opencode_output_token_limit: Some(4_096),
     }
 }

@@ -31,6 +31,11 @@ pub(crate) struct WorkerModelProfile {
     /// A value of `0` disables the total-duration worker timeout while leaving
     /// idle timeout handling intact.
     pub(crate) worker_timeout_seconds: Option<u64>,
+    /// Override the OpenCode idle timeout in seconds.
+    ///
+    /// A value of `0` disables automatic idle timeout kills. Live supervision
+    /// still sees last-output age and may choose to wait, interrupt, or abort.
+    pub(crate) idle_timeout_seconds: Option<u64>,
     /// Override the OpenCode model output-token limit for this worker.
     pub(crate) opencode_output_token_limit: Option<u64>,
 }
@@ -69,6 +74,10 @@ pub(crate) struct WorkerSupervisorGuidance {
     ///
     /// `Some(0)` disables the total timeout for the selected worker profile.
     pub(crate) worker_timeout_seconds: Option<u64>,
+    /// Effective OpenCode idle timeout override in seconds.
+    ///
+    /// `Some(0)` disables idle timeout kills for the selected worker profile.
+    pub(crate) idle_timeout_seconds: Option<u64>,
     /// Effective OpenCode model output-token limit for the worker profile.
     pub(crate) opencode_output_token_limit: Option<u64>,
 }
@@ -82,6 +91,7 @@ impl WorkerSupervisorGuidance {
             && !self.enable_worker_self_review
             && !self.enable_forced_context_focus
             && self.worker_timeout_seconds.is_none()
+            && self.idle_timeout_seconds.is_none()
             && self.opencode_output_token_limit.is_none()
     }
 
@@ -117,6 +127,11 @@ impl WorkerSupervisorGuidance {
     /// Return the profile's OpenCode worker timeout override, if any.
     pub(crate) fn worker_timeout_seconds(&self) -> Option<u64> {
         self.worker_timeout_seconds
+    }
+
+    /// Return the profile's OpenCode idle timeout override, if any.
+    pub(crate) fn idle_timeout_seconds(&self) -> Option<u64> {
+        self.idle_timeout_seconds
     }
 }
 

@@ -687,7 +687,8 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
     let guidance = config.worker_supervisor_guidance();
 
     assert_eq!(guidance.model, DEFAULT_OPENCODE_MODEL);
-    assert_eq!(guidance.worker_timeout_seconds(), None);
+    assert_eq!(guidance.worker_timeout_seconds(), Some(0));
+    assert_eq!(guidance.idle_timeout_seconds(), Some(0));
     assert!(guidance.auto_followups_enabled());
     assert!(guidance.worker_self_review_enabled());
     assert!(guidance.forced_context_focus_enabled());
@@ -696,6 +697,12 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
             .guidance
             .iter()
             .any(|item| item.contains("reasoning before editing"))
+    );
+    assert!(
+        guidance
+            .guidance
+            .iter()
+            .any(|item| item.contains("elapsed time alone"))
     );
     assert!(
         guidance
@@ -752,6 +759,10 @@ fn qwen_worker_profile_is_selected_by_default_and_alias() {
     let guidance = config.worker_supervisor_guidance();
 
     assert_eq!(guidance.model, DEFAULT_OPENCODE_MODEL);
+    assert_eq!(config.opencode.worker_timeout_seconds, 0);
+    assert_eq!(config.opencode.idle_timeout_seconds, 0);
+    assert_eq!(guidance.worker_timeout_seconds(), Some(0));
+    assert_eq!(guidance.idle_timeout_seconds(), Some(0));
     assert!(guidance.auto_followups_enabled());
     assert!(guidance.worker_self_review_enabled());
     assert!(guidance.forced_context_focus_enabled());
@@ -857,9 +868,12 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
 
     assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
     assert_eq!(config.opencode.model_output_token_limit, Some(4_096));
+    assert_eq!(config.opencode.worker_timeout_seconds, 0);
+    assert_eq!(config.opencode.idle_timeout_seconds, 300);
     assert_eq!(guidance.target_patch_lines, Some(180));
     assert_eq!(guidance.max_patch_lines, Some(450));
     assert_eq!(guidance.worker_timeout_seconds(), Some(0));
+    assert_eq!(guidance.idle_timeout_seconds(), None);
     assert_eq!(guidance.opencode_output_token_limit, Some(4_096));
     assert!(!guidance.auto_followups_enabled());
     assert!(!guidance.worker_self_review_enabled());
@@ -924,7 +938,10 @@ fn openrouter_minimax_m3_worker_profile_is_selected_by_alias() {
     assert!(!config.opencode.require_local);
     assert_eq!(guidance.model, "openrouter/minimax/minimax-m3");
     assert_eq!(config.opencode.model_output_token_limit, Some(4_096));
+    assert_eq!(config.opencode.worker_timeout_seconds, 0);
+    assert_eq!(config.opencode.idle_timeout_seconds, 300);
     assert_eq!(guidance.worker_timeout_seconds(), Some(0));
+    assert_eq!(guidance.idle_timeout_seconds(), None);
     assert_eq!(guidance.opencode_output_token_limit, Some(4_096));
     assert!(!guidance.auto_followups_enabled());
     assert!(!guidance.worker_self_review_enabled());
@@ -945,9 +962,12 @@ fn openrouter_deepseek_v4_flash_worker_profile_is_selected_by_alias() {
 
     assert_eq!(guidance.model, "openrouter/deepseek/deepseek-v4-flash");
     assert_eq!(config.opencode.model_output_token_limit, None);
+    assert_eq!(config.opencode.worker_timeout_seconds, 0);
+    assert_eq!(config.opencode.idle_timeout_seconds, 300);
     assert_eq!(guidance.target_patch_lines, Some(220));
     assert_eq!(guidance.max_patch_lines, Some(550));
     assert_eq!(guidance.worker_timeout_seconds(), Some(0));
+    assert_eq!(guidance.idle_timeout_seconds(), None);
     assert_eq!(guidance.opencode_output_token_limit, None);
     assert!(!guidance.auto_followups_enabled());
     assert!(!guidance.worker_self_review_enabled());
@@ -999,6 +1019,8 @@ fn openrouter_deepseek_v4_flash_worker_profile_is_selected_by_alias() {
     assert!(!config.opencode.require_local);
     assert_eq!(guidance.model, "openrouter/deepseek/deepseek-v4-flash");
     assert_eq!(config.opencode.model_output_token_limit, None);
+    assert_eq!(config.opencode.worker_timeout_seconds, 0);
+    assert_eq!(config.opencode.idle_timeout_seconds, 300);
 }
 
 #[test]

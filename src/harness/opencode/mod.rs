@@ -85,10 +85,9 @@ impl AgentHarness for ShellOpenCodeRunner {
             out_dir = %request.out_dir.display(),
                 "running OpenCode command"
         );
-        let worker_timeout_seconds_override = self
-            .config
-            .worker_supervisor_guidance()
-            .worker_timeout_seconds();
+        let worker_guidance = self.config.worker_supervisor_guidance();
+        let worker_timeout_seconds_override = worker_guidance.worker_timeout_seconds();
+        let idle_timeout_seconds_override = worker_guidance.idle_timeout_seconds();
         let verification = run_with_local_verification(
             &command,
             &rendered_args,
@@ -96,6 +95,7 @@ impl AgentHarness for ShellOpenCodeRunner {
             &self.config.opencode,
             &selection,
             worker_timeout_seconds_override,
+            idle_timeout_seconds_override,
         );
 
         match verification {

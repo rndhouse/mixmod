@@ -76,6 +76,7 @@ impl MixmodConfig {
                     enable_worker_self_review: profile.enable_worker_self_review,
                     enable_forced_context_focus: profile.enable_forced_context_focus,
                     worker_timeout_seconds: profile.worker_timeout_seconds,
+                    idle_timeout_seconds: profile.idle_timeout_seconds,
                     opencode_output_token_limit: profile.opencode_output_token_limit,
                 })
                 .unwrap_or_default(),
@@ -448,10 +449,20 @@ fn known_openrouter_worker_slug(value: &str) -> Option<String> {
 }
 
 fn apply_worker_profile_opencode_overrides(config: &mut OpenCodeConfig) {
-    config.model_output_token_limit = default_worker_model_profiles()
+    if let Some(profile) = default_worker_model_profiles()
         .into_iter()
         .find(|profile| profile.matches_opencode_worker(config))
-        .and_then(|profile| profile.opencode_output_token_limit);
+    {
+        if let Some(worker_timeout_seconds) = profile.worker_timeout_seconds {
+            config.worker_timeout_seconds = worker_timeout_seconds;
+        }
+        if let Some(idle_timeout_seconds) = profile.idle_timeout_seconds {
+            config.idle_timeout_seconds = idle_timeout_seconds;
+        }
+        config.model_output_token_limit = profile.opencode_output_token_limit;
+    } else {
+        config.model_output_token_limit = None;
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
