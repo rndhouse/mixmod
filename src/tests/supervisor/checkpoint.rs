@@ -39,7 +39,7 @@ diff --git a/testing/test_assertrewrite.py b/testing/test_assertrewrite.py
     atomic_write(&current.join("changes.patch"), b"").unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "continue".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Fix assertion rewrite.".to_string(),
@@ -313,7 +313,7 @@ fn checkpoint_records_patch_request_delta_observations() {
     atomic_write(&current.join(CHANGES_PATCH), destructive_patch.as_bytes()).unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "continue".to_string(),
         patch_decision: "revise_current".to_string(),
         hint: "Add one builder branch.".to_string(),

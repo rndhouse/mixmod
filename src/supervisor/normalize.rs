@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::get_str;
+use crate::{get_bool, get_str};
 
 use super::types::{PatchDecision, SupervisorVerdict, WorkerMode};
 
@@ -92,21 +92,45 @@ fn first_object_string<'a>(
 pub(crate) fn normalize_feedback_value(mut value: Value) -> (Value, SupervisorVerdict) {
     let raw = get_str(&value, "verdict")
         .or_else(|| get_str(&value, "action"))
-        .unwrap_or("revise")
+        .unwrap_or("worker_edit")
         .to_string();
-    let verdict = normalize_supervisor_verdict(&raw);
+    let verdict = normalize_supervisor_verdict_for_feedback(&value, &raw);
     if let Value::Object(map) = &mut value {
         if raw != verdict.as_str() {
             map.insert("raw_verdict".to_string(), json!(raw));
         }
         map.insert("verdict".to_string(), json!(verdict.as_str()));
         map.insert("action".to_string(), json!(verdict.as_str()));
+        match verdict {
+            SupervisorVerdict::WorkerInspect => {
+                map.insert("expect_patch".to_string(), json!(false));
+            }
+            SupervisorVerdict::WorkerEdit => {
+                map.insert("expect_patch".to_string(), json!(true));
+            }
+            _ => {}
+        }
     }
     (value, verdict)
 }
 
 pub(super) fn normalize_supervisor_verdict(value: &str) -> SupervisorVerdict {
     SupervisorVerdict::from_raw(value)
+}
+
+fn normalize_supervisor_verdict_for_feedback(value: &Value, raw: &str) -> SupervisorVerdict {
+    let verdict = normalize_supervisor_verdict(raw);
+    if verdict != SupervisorVerdict::WorkerEdit {
+        return verdict;
+    }
+    let raw = raw.trim().to_ascii_lowercase().replace('-', "_");
+    if matches!(raw.as_str(), "revise" | "revision" | "needs_revision")
+        && (get_bool(value, "expect_patch") == Some(false)
+            || get_str(value, "worker_turn_shape") == Some("planning_probe"))
+    {
+        return SupervisorVerdict::WorkerInspect;
+    }
+    verdict
 }
 
 pub(super) fn normalize_patch_decision_kind(value: Option<&str>) -> PatchDecision {

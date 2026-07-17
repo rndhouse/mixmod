@@ -158,7 +158,7 @@ pub(super) fn build_revision_noop_followup_instruction(
     let files = string_list_or_none(&revision_focus_files(task, revision));
     let checks = string_list_or_none(&revision.required_checks);
     let message = if revision.message_to_worker.trim().is_empty() {
-        "Apply the supervisor-requested revision from the current task context.".to_string()
+        "Apply the supervisor-requested worker_edit from the current task context.".to_string()
     } else {
         revision.message_to_worker.trim().to_string()
     };
@@ -170,13 +170,13 @@ Expected repository patch: yes
 
 Mixmod-managed state lives outside this repository. Do not inspect Mixmod state or artifact directories. The task content you need is embedded below.
 
-Your previous revision turn made no repository changes. The supervisor requested a revision, so that turn is incomplete.
+Your previous worker_edit turn made no repository changes. The supervisor requested an edit, so that turn is incomplete.
 
-Apply the requested revision now in the existing worktree, or return exactly `BLOCKED: <reason>` if you cannot make the edit.
+Apply the requested edit now in the existing worktree, or return exactly `BLOCKED: <reason>` if you cannot make the edit.
 
 Do not only inspect files. Do not restate the plan. Do not finalize unless you have changed the repository or returned `BLOCKED`.
 
-Required revision:
+Required worker_edit:
 {message}
 
 Patch decision: {patch_decision}
@@ -278,7 +278,7 @@ Expected repository patch: yes
 
 Mixmod-managed state lives outside this repository. Do not inspect Mixmod state or artifact directories.
 
-Your previous revision turn made no new repository delta. That turn is incomplete.
+Your previous worker_edit turn made no new repository delta. That turn is incomplete.
 
 Continue in the existing worktree and follow the supervisor's requested patch request now.
 {hard_rules_note}

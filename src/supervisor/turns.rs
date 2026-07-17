@@ -88,7 +88,9 @@ pub(super) fn approval_consistency_repair_is_accepted(feedback: &Value) -> bool 
     let (feedback, verdict) = normalize_feedback_value(feedback.clone());
     matches!(
         verdict,
-        SupervisorVerdict::Approve | SupervisorVerdict::Revise
+        SupervisorVerdict::Approve
+            | SupervisorVerdict::WorkerEdit
+            | SupervisorVerdict::WorkerInspect
     ) && approval_consistency_rejection(&feedback).is_none()
 }
 
@@ -256,8 +258,9 @@ pub(super) fn verification_revision_for_inconsistent_approval(feedback: &Value) 
     };
 
     json!({
-        "action": "revise",
-        "verdict": "revise",
+        "action": "worker_edit",
+        "verdict": "worker_edit",
+        "expect_patch": true,
         "worker_mode": normalize_worker_mode(typed_feedback.worker_mode.as_deref()),
         "patch_decision": "revise_current",
         "message_to_worker": "Run the pending focused checks. If any fail, make only targeted fixes for the original task; otherwise report passing evidence.",
@@ -455,7 +458,7 @@ fn run_supervisor_feedback_turn_from_prompt(
     let result = session.run_turn(budgeted_dir, label, prompt)?;
     let parsed_feedback = parse_feedback_json(&result.last_message).unwrap_or_else(|| {
         json!({
-            "action": if result.exit_status == Some(0) { "approve" } else { "revise" },
+            "action": if result.exit_status == Some(0) { "approve" } else { "worker_edit" },
             "worker_mode": "continue",
             "message_to_worker": truncate_for_report(&result.last_message, 180),
             "focus_files": [],

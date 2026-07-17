@@ -19,7 +19,7 @@ fn revision_task_preserves_codex_focus_files() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "continue".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Update the discount code and its test.".to_string(),
@@ -90,7 +90,7 @@ fn context_focus_revision_task_uses_focused_prompt() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "context_focus".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Ignore dependency setup and edit the focused files first.".to_string(),
@@ -142,7 +142,7 @@ fn no_patch_revision_task_is_verification_only() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_inspect".to_string(),
         worker_mode: "context_focus".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Verify the supervisor surgical patch.".to_string(),
@@ -182,7 +182,7 @@ fn no_patch_revision_task_is_verification_only() {
         &"Do not edit files; run or inspect only the requested verification.".to_string()
     ));
     let instructions = get_str(&revision, "instructions").unwrap();
-    assert!(instructions.contains("Noninteractive verification revision"));
+    assert!(instructions.contains("Noninteractive worker_inspect verification"));
     assert!(instructions.contains("Do not edit files"));
     assert!(instructions.contains("Focused checks:"));
     assert!(instructions.contains("python -m unittest tests.test_checkout"));
@@ -212,7 +212,7 @@ fn planning_probe_revision_task_is_no_patch_and_no_delta_expected() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_inspect".to_string(),
         worker_mode: "continue".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Inspect the current checkout/type flow and propose the next source slice."
@@ -260,7 +260,7 @@ fn planning_probe_revision_task_is_no_patch_and_no_delta_expected() {
     );
     let instructions = get_str(&revision, "instructions").unwrap();
     assert!(instructions.contains("Noninteractive planning probe"));
-    assert!(instructions.contains("This is a no-patch revision turn"));
+    assert!(instructions.contains("This is a no-patch worker_inspect turn"));
     assert!(instructions.contains("Do not edit files."));
     assert!(instructions.contains("Do not run tests."));
     assert!(instructions.contains("Prefer targeted searches"));
@@ -288,7 +288,7 @@ fn revision_task_mentions_revise_previous_checkpoint_decision() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "context_focus".to_string(),
         patch_decision: "revise_previous".to_string(),
         hint: "Recover the earlier source edit and remove unrelated files.".to_string(),
@@ -344,7 +344,7 @@ fn revision_task_mentions_accept_current_baseline_checkpoint_decision() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "context_focus".to_string(),
         patch_decision: "accept_current_baseline".to_string(),
         hint: "Add the next focused validation branch.".to_string(),
@@ -406,7 +406,7 @@ fn patch_request_revision_task_preserves_explicit_supervisor_gate() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "continue".to_string(),
         patch_decision: "revise_current".to_string(),
         hint: "Add the nested item discount branch and one focused assertion.".to_string(),
@@ -501,7 +501,7 @@ fn patch_request_revision_task_allows_goal_without_exact_edits() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "continue".to_string(),
         patch_decision: "revise_current".to_string(),
         hint: "Fix checkout totals.".to_string(),
@@ -567,7 +567,7 @@ fn revision_task_keeps_mixmod_artifacts_out_of_repo_files() {
     .unwrap();
     let decision = SupervisorFeedbackTurn {
         feedback: json!({}),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "context_focus".to_string(),
         patch_decision: "accept_current".to_string(),
         hint: "Use the latest focused task and edit the source file.".to_string(),

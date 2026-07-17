@@ -22,7 +22,7 @@ pub(super) fn profile() -> WorkerModelProfile {
             "When route or file choice is unclear, use a planning_probe that asks for candidate files, anchors, expected patch size, and risks; do not let the worker decide task completion.".to_string(),
             "It may still over-read, over-generalize, or produce plausible but incomplete integration patches; before approval, check end-to-end task behavior and likely edge cases against the accumulated diff.".to_string(),
             "It may eagerly regenerate files or keep generator sidecars after a source edit; ask it to leave only intentional tracked outputs and summarize the generator command/result when generated output changes.".to_string(),
-            "If the worker starts broad repo reading, generated-file inspection, or test-before-edit behavior without a useful diff, revise with a tighter patch_request rather than expanding context further.".to_string(),
+            "If the worker starts broad repo reading, generated-file inspection, or test-before-edit behavior without a useful diff, issue worker_edit with a tighter patch_request rather than expanding context further.".to_string(),
             "Prefer worker_mode=context_focus for the next MiniMax turn after a broad investigation phase, large tool-call burst, generated-output cleanup, context overflow, or high worker_session_token_peak. Restate the current patch state and the next focused goal rather than continuing a long worker session.".to_string(),
         ],
         enable_auto_followups: false,

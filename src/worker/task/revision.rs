@@ -168,7 +168,7 @@ pub(crate) fn write_revision_task(
         )
     } else {
         format!(
-            "{original_instructions}\n\nSupervisor decision: revise\nWorker mode: continue\nSame worker session should be reused when available.{patch_decision_note}\nMessage to worker: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for supervisor review.",
+            "{original_instructions}\n\nSupervisor decision: worker_edit\nWorker mode: continue\nSame worker session should be reused when available.{patch_decision_note}\nMessage to worker: {}\n{focus_note}\nRequired checks: {:?}\nContinue work from the current working tree and return compact artifacts for supervisor review.",
             decision.hint, decision.required_checks
         )
     };
@@ -277,7 +277,7 @@ fn no_patch_revision_instructions(
     let file_list = file_list_or_none(focus_files);
 
     format!(
-        r#"Noninteractive verification revision. This is a no-patch worker turn for supervisor review.
+        r#"Noninteractive worker_inspect verification. This is a no-patch worker turn for supervisor review.
 
 Original task:{original_context}
 Current source state includes supervisor or worker edits that are not yet accepted as the full solution.{patch_decision_note}
@@ -342,7 +342,7 @@ fn planning_probe_revision_instructions(
     let file_list = file_list_or_none(focus_files);
 
     format!(
-        r#"Noninteractive planning probe. This is a no-patch revision turn for the supervisor. No user will answer questions.
+        r#"Noninteractive planning probe. This is a no-patch worker_inspect turn for the supervisor. No user will answer questions.
 
 Original task context, for alignment only:
 {original_instructions}
@@ -587,7 +587,7 @@ fn revision_delta_expected(decision: &SupervisorFeedbackTurn) -> bool {
     if decision.revision_handoff.expect_patch == Some(false) {
         return false;
     }
-    decision.verdict_kind() == SupervisorVerdict::Revise
+    decision.verdict_kind() == SupervisorVerdict::WorkerEdit
         || matches!(
             decision.patch_decision_kind(),
             PatchDecision::AcceptCurrentBaseline

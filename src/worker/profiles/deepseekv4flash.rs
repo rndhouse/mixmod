@@ -20,7 +20,7 @@ pub(super) fn profile() -> WorkerModelProfile {
             "After a successful bounded patch_request, the supervisor may widen the next patch_request within the same source area when prior worker evidence shows DeepSeek handled it cleanly. Keep the widened request one reviewable implementation slice with bounded files, goal, checks, and stopping point.".to_string(),
             "When route or file choice is unclear, use a planning_probe that asks for candidate files, anchors, expected patch size, and risks; do not let the worker decide task completion.".to_string(),
             "It may over-read, over-generalize, or produce plausible but incomplete integration patches; before approval, check end-to-end task behavior and likely edge cases against the accumulated diff.".to_string(),
-            "If the worker starts broad repo reading, generated-file inspection, or test-before-edit behavior without a useful diff, revise with a tighter patch_request rather than expanding context further.".to_string(),
+            "If the worker starts broad repo reading, generated-file inspection, or test-before-edit behavior without a useful diff, issue worker_edit with a tighter patch_request rather than expanding context further.".to_string(),
             "Prefer worker_mode=context_focus after a broad investigation phase, large tool-call burst, generated-output cleanup, context overflow, or high worker_session_token_peak. Restate the current patch state and the next focused goal rather than continuing a long worker session.".to_string(),
         ],
         enable_auto_followups: false,

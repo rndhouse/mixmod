@@ -49,7 +49,8 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("context_recommendation"));
     assert!(prompt.contains("compact_now"));
     assert!(prompt.contains("compact_after_next_worker"));
-    assert!(prompt.contains("worker_turn_shape=\"planning_probe\""));
+    assert!(prompt.contains("action=\"worker_inspect\""));
+    assert!(prompt.contains("\"expect_patch\":false"));
     assert!(prompt.contains("After a planning_probe result"));
     assert!(prompt.contains("fresh worker session"));
     assert!(prompt.contains("For ordinary worker-turn review"));
@@ -67,7 +68,7 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("false approval as a terminal correctness failure"));
     assert!(prompt.contains("approval_contract evidence is missing"));
     assert!(prompt.contains("main requested behavior or a likely edge case"));
-    assert!(prompt.contains("Revise when a useful worker path remains"));
+    assert!(prompt.contains("Use worker_edit or worker_inspect when a useful worker path remains"));
     assert!(prompt.contains("Stop only for a blocked or inconclusive worker result"));
     assert!(prompt.contains("The worker owns implementation"));
     assert!(prompt.contains("Prefer patch_decision for checkpoint control"));
@@ -96,9 +97,13 @@ fn worker_build_supervisor_fix_feedback_prompt_prefers_direct_correction() {
     assert!(prompt.contains("Strategy mode: worker-build-supervisor-fix"));
     assert!(prompt.contains("Use the worker for construction"));
     assert!(prompt.contains("Use action=supervisor_direct_edit only for surgical correction"));
-    assert!(prompt.contains("Before action=revise, classify the next request"));
+    assert!(
+        prompt.contains(
+            "Before action=worker_edit or action=worker_inspect, classify the next request"
+        )
+    );
     assert!(prompt.contains("named residual defects"));
-    assert!(prompt.contains("Choose revise when the next step needs broad search"));
+    assert!(prompt.contains("Choose worker_edit when the next step needs broad search"));
     assert!(
         prompt.contains(
             "Before action=supervisor_direct_edit, confirm the direct_plan can be executed"
@@ -106,7 +111,11 @@ fn worker_build_supervisor_fix_feedback_prompt_prefers_direct_correction() {
     );
     assert!(prompt.contains("Put broad or command-based checks in a later worker"));
     assert!(prompt.contains("Corrections can appear before every broad task area is complete"));
-    assert!(prompt.contains("\"action\":\"approve|revise|supervisor_direct_edit|stop\""));
+    assert!(
+        prompt.contains(
+            "\"action\":\"approve|worker_edit|worker_inspect|supervisor_direct_edit|stop\""
+        )
+    );
     assert!(prompt.contains("\"supervisor_direct_edit_reason\""));
     assert!(prompt.contains("\"direct_plan\""));
     assert!(!prompt.contains("\"delegation_decision\""));

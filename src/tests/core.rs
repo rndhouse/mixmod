@@ -142,12 +142,12 @@ fn worker_context_overflow_forces_next_revision_context_focus() {
         feedback: json!({
             "label": "supervisor_direct_review",
             "feedback": {
-                "action": "revise",
+                "action": "worker_edit",
                 "worker_mode": "continue",
                 "message_to_worker": "make the next focused edit"
             }
         }),
-        verdict: "revise".to_string(),
+        verdict: "worker_edit".to_string(),
         worker_mode: "continue".to_string(),
         patch_decision: "revise_current".to_string(),
         hint: "make the next focused edit".to_string(),

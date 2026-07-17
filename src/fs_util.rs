@@ -9,7 +9,7 @@ use chrono::Utc;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::{METRICS_JSON, RevisionHandoff, SupervisorFeedbackTurn, WorkerMode};
+use crate::{METRICS_JSON, RevisionHandoff, SupervisorFeedbackTurn, SupervisorVerdict, WorkerMode};
 
 pub(crate) fn append_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -78,7 +78,7 @@ pub(crate) fn supervisor_control_decision_from_metrics(
     {
         return Ok(None);
     }
-    let verdict = "revise";
+    let verdict = SupervisorVerdict::WorkerEdit.as_str();
     let control = event.get("control").unwrap_or(event);
     let control_source = get_str(control, "source")
         .or_else(|| get_str(event, "source"))

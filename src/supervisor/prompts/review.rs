@@ -54,7 +54,7 @@ Previous JSON:
 
 Repair only the supervisor decision. Return either:
 - action=approve with approval_state=ready_to_approve, required_checks=[], deferred_checks=[], no completion_gate, and approval_contract rows whose statuses are passed, covered_by_existing_test, or not_applicable with compact artifact/source/check evidence; or
-- action=revise with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
+- action=worker_edit with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
 
 Do not approve while listing checks that still need to run or approval_contract rows without deterministic evidence. Do not solve by authoring source changes."#
     );
@@ -112,7 +112,7 @@ Previous JSON:
 
 Repair only the supervisor decision using the same REVIEW_PACKET. Return either:
 - action=approve with approval_state=ready_to_approve, required_checks=[], deferred_checks=[], no completion_gate, and approval_contract rows whose statuses are passed, covered_by_existing_test, or not_applicable with compact packet/source/check evidence; or
-- action=revise with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
+- action=worker_edit with patch_decision=revise_current and a verification-focused message_to_worker that asks the worker to run the smallest pending task-derived check and make only targeted fixes if it fails.
 
 Do not approve while listing checks that still need to run or approval_contract rows without deterministic evidence. Do not solve by authoring source changes."#
     );
@@ -217,11 +217,11 @@ Supervisor context telemetry:
 {context_telemetry}
 ```
 
-If you choose revise, shape the worker request yourself before emitting JSON.
+If you choose worker_edit or worker_inspect, shape the worker request yourself before emitting JSON.
 Always include context_recommendation. Use action="compact_now" only at a clean semantic boundary where the next supervisor turn can rely on compacted history plus fresh artifacts. Use action="compact_after_next_worker" when the next worker turn should happen first but the following supervisor review should start from compacted history. Otherwise use action="continue". Mixmod makes the final compaction decision from this recommendation and hard telemetry.
 Return only JSON matching this schema:
 {action_schema}
-Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
+Use action="worker_inspect" with "expect_patch":false when the next useful worker turn should only inspect bounded repo context, verify, or propose the next patch request. Use action="worker_edit" with "expect_patch":true when the worker should change repo state. After a planning_probe result, approve or trim its proposal by issuing a normal worker_edit implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}
 Instruction: {instruction}
@@ -265,7 +265,7 @@ fn supervisor_spin_out_feedback_prompt_inner(
     Ok(format!(
         r#"You are a one-shot spin-out supervisor reviewer for Mixmod.
 Use only REVIEW_PACKET below. Do not run commands, inspect files, browse the repository, or use tools. Paths in the packet are labels for evidence already collected by Mixmod.
-If the packet is insufficient, do not fetch more context. Return a revise or stop decision with "insufficient_context":true and "requested_context":["small bounded missing evidence"].
+If the packet is insufficient, do not fetch more context. Return a worker_inspect or stop decision with "insufficient_context":true and "requested_context":["small bounded missing evidence"].
 Do not ask the user for approval.
 Treat supervisor input tokens as scarce. Decide from the packet and stop once the next action is clear.
 Existing review policy may say "inspect", "open", or "read" artifacts; in this spin-out mode that means use packet excerpts only.
@@ -287,11 +287,11 @@ Supervisor context telemetry:
 {context_telemetry}
 ```
 
-If you choose revise, shape the worker request yourself before emitting JSON.
+If you choose worker_edit or worker_inspect, shape the worker request yourself before emitting JSON.
 Always include context_recommendation. Use action="compact_now" only at a clean semantic boundary where the next supervisor turn can rely on compacted history plus fresh artifacts. Use action="compact_after_next_worker" when the next worker turn should happen first but the following supervisor review should start from compacted history. Otherwise use action="continue". Mixmod makes the final compaction decision from this recommendation and hard telemetry.
 Return only JSON matching this schema, plus optional insufficient_context/requested_context fields when the packet lacks needed evidence:
 {action_schema}
-Use "expect_patch":false with worker_turn_shape="planning_probe" when the next useful worker turn should only inspect bounded repo context and propose the next patch request. After a planning_probe result, approve or trim its proposal by issuing a normal revise implementation turn; do not approve the whole task merely because the plan is reasonable.
+Use action="worker_inspect" with "expect_patch":false when the next useful worker turn should only inspect bounded repo context, verify, or propose the next patch request. Use action="worker_edit" with "expect_patch":true when the worker should change repo state. After a planning_probe result, approve or trim its proposal by issuing a normal worker_edit implementation turn; do not approve the whole task merely because the plan is reasonable.
 {review_context}
 Working repo: {work_dir}
 Instruction: {instruction}
@@ -332,7 +332,7 @@ Debug delegation-decision audit:
 - delegation_decision.next_owner must be "worker", "supervisor", or "none".
 - delegation_decision.work_type must be "construction", "correction", "verification", "approval", or "blocked".
 - delegation_decision.why must explain why the next step belongs with the normal worker or a supervisor_direct_edit patch under worker-build-supervisor-fix.
-- If action=revise, delegation_decision.worker_fit must name the broad construction slice that remains worker-scale; if you cannot name one, choose action=supervisor_direct_edit instead.
+- If action=worker_edit, delegation_decision.worker_fit must name the broad construction slice that remains worker-scale; if you cannot name one, choose action=supervisor_direct_edit or action=worker_inspect as appropriate.
 - If action=supervisor_direct_edit, delegation_decision.direct_fit must name the localized correction the fresh GPT patch session will make."#,
         json_field: r#","delegation_decision":{"next_owner":"worker|supervisor|none","work_type":"construction|correction|verification|approval|blocked","why":"debug-only","worker_fit":"debug-only when revising","direct_fit":"debug-only when using supervisor_direct_edit"}"#,
     }
@@ -376,9 +376,9 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Patch request context:
 - Treat a first non-empty delta as progress, not proof of completion.
-- If more work is needed, make the next revision one implementation slice with a bounded patch goal; include exact_edits only when precision saves supervisor output.
+- If more work is needed, make the next worker_edit one implementation slice with a bounded patch goal; include exact_edits only when precision saves supervisor output.
 - A useful incomplete active diff may be a baseline candidate before the next slice; apply the session economics policy when choosing worker_mode and patch_decision.
-- Otherwise revise from the current worktree and preserve useful existing edits.
+- Otherwise issue worker_edit from the current worktree and preserve useful existing edits.
 - Put checks in deferred_checks until a non-empty patch exists unless artifacts show the edit already exists."#
                 .to_string(),
         );
@@ -389,7 +389,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
             r#"No-diff patch-request context:
 - The latest changes.patch appears empty.
 - If worker artifacts show broad reading, generated-file inspection, tests-before-edit, invalid or unavailable tool churn, or no clear external blocker, treat the prior request as likely too broad or under-anchored.
-- A revise must shrink at least one dimension: fewer files, fewer implementation layers, fewer checks, or more concrete anchors/exact_edits.
+- A worker_edit after an empty patch_request must shrink at least one dimension: fewer files, fewer implementation layers, fewer checks, or more concrete anchors/exact_edits.
 - Do not resend the same broad patch_request just because the worker reported tool problems."#
                 .to_string(),
         );
@@ -409,7 +409,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Context-pressure context:
 - The worker artifacts indicate context overflow or high token pressure.
-- If another revision is needed, shrink the next request.
+- If another worker_edit is needed, shrink the next request.
 - This is a context_focus-favored signal under the session economics policy."#
                 .to_string(),
         );
@@ -419,7 +419,7 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
         sections.push(
             r#"Live-control context:
 - Supervisor control already intervened during a worker turn.
-- Judge whether the previous request was too broad, too vague, or stale before issuing another revision.
+- Judge whether the previous request was too broad, too vague, or stale before issuing another worker_edit or worker_inspect.
 - Prefer one focused repair or verification step over adding a new feature concern in the same handoff."#
                 .to_string(),
         );
@@ -462,7 +462,7 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
     let tool_evidence = if signals.has_any(&[TOOL_EVENTS_JSONL]) || signals.tool_events_available {
         "- Use tool-events.jsonl only as command/tool-call evidence when checking worker claims."
     } else {
-        "- If command evidence is unavailable, rely on report/review-signals cautiously and revise for verification when important."
+        "- If command evidence is unavailable, rely on report/review-signals cautiously and use worker_inspect or worker_edit for verification when important."
     };
     format!(
         r#"Core review contract:
@@ -473,9 +473,9 @@ fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -
 - Minimize supervisor input tokens: do not inspect more artifacts, logs, or diff content once the next action is clear.
 - For generated-output diffs, inspect authored-source changes and patch stats first. Avoid opening whole generated files; judge whether generated changes are bounded expected outputs and free of transient tool sidecars.
 - Approve only when the current source state appears to satisfy the original task and no worker action or check remains. Before approving, inspect task.json and enough source/diff state to verify completion.
-- Treat a false approval as a terminal correctness failure. If approval_contract evidence is missing for the main requested behavior or a likely edge case, choose revise for a targeted verification or repair turn.
+- Treat a false approval as a terminal correctness failure. If approval_contract evidence is missing for the main requested behavior or a likely edge case, choose worker_inspect for targeted verification or worker_edit for repair.
 - On approve, required_checks and deferred_checks must be empty and completion_gate must be absent or empty.
-- Revise when a useful worker path remains; message_to_worker must be concrete and worker-executable.
+- Use worker_edit or worker_inspect when a useful worker path remains; message_to_worker must be concrete and worker-executable.
 - Stop only for a blocked or inconclusive worker result when no useful worker path remains.
 - The worker owns implementation. Do not author task-solving source changes.
 - Put only repo source/test paths in focus_files. Do not ask the worker to inspect Mixmod artifacts.

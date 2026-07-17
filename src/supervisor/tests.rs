@@ -329,7 +329,7 @@ fn inconsistent_approval_fallback_becomes_verification_revision() {
 
     let revision = verification_revision_for_inconsistent_approval(&feedback);
 
-    assert_eq!(get_str(&revision, "action"), Some("revise"));
+    assert_eq!(get_str(&revision, "action"), Some("worker_edit"));
     assert_eq!(get_str(&revision, "patch_decision"), Some("revise_current"));
     assert_eq!(get_str(&revision, "worker_mode"), Some("context_focus"));
     assert_eq!(

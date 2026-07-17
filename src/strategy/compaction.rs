@@ -298,11 +298,11 @@ mod tests {
         SupervisorFeedbackTurn {
             feedback: json!({
                 "feedback": {
-                    "action": "revise",
+                    "action": "worker_edit",
                     "context_recommendation": context_recommendation
                 }
             }),
-            verdict: "revise".to_string(),
+            verdict: "worker_edit".to_string(),
             worker_mode: "continue".to_string(),
             patch_decision: "accept_current".to_string(),
             hint: String::new(),

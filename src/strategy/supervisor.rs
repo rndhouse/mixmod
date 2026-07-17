@@ -190,7 +190,7 @@ pub(crate) fn supervisor_direct_edit_worker_decision(
     let feedback = json!({
         "type": "supervisor_direct_edit_handoff",
         "feedback": {
-            "action": "revise",
+            "action": "worker_edit",
             "expect_patch": true,
             "worker_mode": "context_focus",
             "patch_decision": supervisor_direct_edit_decision.patch_decision.clone(),
@@ -214,7 +214,7 @@ pub(crate) fn supervisor_direct_edit_worker_decision(
 
     SupervisorFeedbackTurn {
         feedback,
-        verdict: SupervisorVerdict::Revise.as_str().to_string(),
+        verdict: SupervisorVerdict::WorkerEdit.as_str().to_string(),
         worker_mode: WorkerMode::ContextFocus.as_str().to_string(),
         patch_decision: supervisor_direct_edit_decision.patch_decision.clone(),
         hint,
@@ -357,7 +357,7 @@ mod tests {
     fn supervisor_direct_edit_worker_decision_builds_fresh_patch_request() {
         let decision = supervisor_direct_edit_worker_decision(&supervisor_direct_edit_feedback());
 
-        assert_eq!(decision.verdict, "revise");
+        assert_eq!(decision.verdict, "worker_edit");
         assert_eq!(decision.worker_mode, "context_focus");
         assert_eq!(decision.patch_decision, "revise_current");
         assert_eq!(

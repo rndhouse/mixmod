@@ -1,7 +1,7 @@
 use super::super::*;
 
 #[test]
-fn feedback_reject_is_normalized_to_revise() {
+fn feedback_reject_is_normalized_to_worker_edit() {
     let (feedback, verdict) = normalize_feedback_value(json!({
         "verdict": "reject",
         "hint": "No patch was captured.",
@@ -9,9 +9,40 @@ fn feedback_reject_is_normalized_to_revise() {
         "required_checks": ["python -m unittest -q"]
     }));
 
-    assert_eq!(verdict, SupervisorVerdict::Revise);
-    assert_eq!(get_str(&feedback, "verdict"), Some("revise"));
+    assert_eq!(verdict, SupervisorVerdict::WorkerEdit);
+    assert_eq!(get_str(&feedback, "verdict"), Some("worker_edit"));
+    assert_eq!(get_str(&feedback, "action"), Some("worker_edit"));
+    assert_eq!(get_bool(&feedback, "expect_patch"), Some(true));
     assert_eq!(get_str(&feedback, "raw_verdict"), Some("reject"));
+}
+
+#[test]
+fn feedback_worker_inspect_defaults_to_no_patch() {
+    let (feedback, verdict) = normalize_feedback_value(json!({
+        "action": "worker_inspect",
+        "message_to_worker": "Inspect the current parser path and propose the next edit."
+    }));
+
+    assert_eq!(verdict, SupervisorVerdict::WorkerInspect);
+    assert_eq!(get_str(&feedback, "verdict"), Some("worker_inspect"));
+    assert_eq!(get_str(&feedback, "action"), Some("worker_inspect"));
+    assert_eq!(get_bool(&feedback, "expect_patch"), Some(false));
+}
+
+#[test]
+fn feedback_legacy_no_patch_revise_normalizes_to_worker_inspect() {
+    let (feedback, verdict) = normalize_feedback_value(json!({
+        "action": "revise",
+        "expect_patch": false,
+        "worker_turn_shape": "planning_probe",
+        "message_to_worker": "Inspect only."
+    }));
+
+    assert_eq!(verdict, SupervisorVerdict::WorkerInspect);
+    assert_eq!(get_str(&feedback, "verdict"), Some("worker_inspect"));
+    assert_eq!(get_str(&feedback, "action"), Some("worker_inspect"));
+    assert_eq!(get_str(&feedback, "raw_verdict"), Some("revise"));
+    assert_eq!(get_bool(&feedback, "expect_patch"), Some(false));
 }
 
 #[test]

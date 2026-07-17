@@ -26,7 +26,7 @@ fn supervisor_control_metrics_become_revision_decision() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(decision.verdict, "revise");
+    assert_eq!(decision.verdict, "worker_edit");
     assert_eq!(decision.worker_mode, "context_focus");
     assert!(decision.hint.contains("edit sympy/core/numbers.py"));
     assert_eq!(decision.focus_files, vec!["sympy/core/numbers.py"]);
@@ -97,7 +97,7 @@ fn live_supervisor_no_delta_control_becomes_patch_request_revision() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(decision.verdict, "revise");
+    assert_eq!(decision.verdict, "worker_edit");
     assert_eq!(decision.worker_mode, "context_focus");
     assert_eq!(decision.patch_decision, "revise_current");
     assert!(decision.revision_handoff.is_patch_request());

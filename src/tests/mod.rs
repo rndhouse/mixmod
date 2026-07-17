@@ -99,7 +99,7 @@ impl AgentHarness for RevisionNoopThenPatchRunner {
             assert!(
                 request
                     .instruction
-                    .contains("Your previous revision turn made no repository changes")
+                    .contains("Your previous worker_edit turn made no repository changes")
             );
             assert!(
                 request

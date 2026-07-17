@@ -9,8 +9,10 @@ use crate::SupervisorFeedback;
 pub(crate) enum SupervisorVerdict {
     /// The accumulated patch is accepted.
     Approve,
-    /// The worker should make another focused attempt.
-    Revise,
+    /// The worker should make a focused repository edit.
+    WorkerEdit,
+    /// The worker should inspect, verify, or plan without editing.
+    WorkerInspect,
     /// The supervisor should execute a bounded surgical direct edit.
     SupervisorDirectEdit,
     /// The loop should stop without approval.
@@ -22,7 +24,8 @@ impl SupervisorVerdict {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Approve => "approve",
-            Self::Revise => "revise",
+            Self::WorkerEdit => "worker_edit",
+            Self::WorkerInspect => "worker_inspect",
             Self::SupervisorDirectEdit => "supervisor_direct_edit",
             Self::Stop => "stop",
         }
@@ -42,13 +45,15 @@ impl SupervisorVerdict {
             | "takeover"
             | "direct_finish"
             | "direct-finish" => Self::SupervisorDirectEdit,
-            "revise" | "revision" | "needs_revision" | "needs-review" | "needs_review"
-            | "reject" | "rejected" => Self::Revise,
-            _ => Self::Revise,
+            "worker_inspect" | "worker-inspect" | "worker_review" | "worker-review" | "inspect"
+            | "inspection" | "planning_probe" | "planning-probe" => Self::WorkerInspect,
+            "worker_edit" | "worker-edit" | "edit" | "revise" | "revision" | "needs_revision"
+            | "needs-review" | "needs_review" | "reject" | "rejected" => Self::WorkerEdit,
+            _ => Self::WorkerEdit,
         }
     }
 
-    /// Return whether the ordinary revise loop should not start immediately.
+    /// Return whether the ordinary worker loop should not start immediately.
     pub(crate) fn is_terminal(self) -> bool {
         matches!(
             self,
