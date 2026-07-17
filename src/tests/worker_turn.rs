@@ -38,6 +38,7 @@ fn worker_turn_writes_full_artifact_bundle() {
         "receipt.json",
         "task.json",
         "report.md",
+        "review-signals.json",
         "session.jsonl",
         "reasoning-trace.jsonl",
         "tool-events.jsonl",
@@ -54,6 +55,10 @@ fn worker_turn_writes_full_artifact_bundle() {
     assert!(receipt.interventions.ends_with("interventions.jsonl"));
     let patch = fs::read_to_string(run_dir.join("changes.patch")).unwrap();
     assert!(patch.contains("src/generated.rs"));
+    let review_signals = read_json_file(&run_dir.join("review-signals.json")).unwrap();
+    assert_eq!(get_str(&review_signals, "status"), Some("success"));
+    assert_eq!(get_u64(&review_signals, "changed_file_count"), Some(1));
+    assert_eq!(get_u64(&review_signals, "tool_event_count"), Some(0));
     let interventions = fs::read_to_string(run_dir.join("interventions.jsonl")).unwrap();
     assert_eq!(interventions.lines().count(), 1);
     let handoff: Value = serde_json::from_str(interventions.lines().next().unwrap()).unwrap();

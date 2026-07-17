@@ -81,8 +81,6 @@ pub(super) fn build_worker_turn_report(input: WorkerTurnReportInput<'_>) -> Stri
         root,
         out_dir,
     } = input;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
     let reasoning_trace_path = out_dir.join(REASONING_TRACE_JSONL);
     let reasoning_trace = fs::read_to_string(&reasoning_trace_path).unwrap_or_default();
     let reasoning_event_count = reasoning_trace
@@ -166,44 +164,32 @@ Worker-facing check guidance from task metadata:
 
 {worker_check_guidance}
 
-## Worker Reasoning Trace
+## Review Signals
 
-- Events: {reasoning_event_count}
-- Artifact: `{reasoning_trace_artifact}`
+- Artifact: `{review_signals}`
 
-```jsonl
-{reasoning_trace_excerpt}
-```
+## Conditional Diagnostics
 
-## Worker Tool Events
+Detailed artifacts are for targeted debugging or evidence checks; normal
+supervisor review should not open them unless review-signals.json or the
+task evidence makes them relevant.
 
-- Events: {tool_event_count}
-- Artifact: `{tool_events_artifact}`
+- Worker reasoning events: {reasoning_event_count}; `{reasoning_trace_artifact}`
+- Worker tool events: {tool_event_count}; `{tool_events_artifact}`
+- Worker stdout bytes: {stdout_bytes}
+- Worker stderr bytes: {stderr_bytes}
 
-## Worker Stdout Excerpt
-
-```text
-{stdout_excerpt}
-```
-
-## Worker Stderr Excerpt
-
-```text
-{stderr_excerpt}
-```
-
-## Compact Artifact Paths
+## Core Review Artifact Paths
 
 - `{receipt}`
 - `{report}`
-- `{reasoning_trace_artifact}`
-- `{tool_events_artifact}`
-- `{worktree_patch}`
+- `{review_signals}`
 - `{patch}`
-- `{interventions}`
-- `{metrics}`
 
-Raw session and logs are available under `{out_dir}` when needed.
+Diagnostic artifacts are available under `{out_dir}` when needed.
+Worktree patch: `{worktree_patch}`
+Interventions: `{interventions}`
+Metrics: `{metrics}`
 Heartbeat log: `{heartbeat}`
 
 ## Notes
@@ -247,13 +233,13 @@ Heartbeat log: `{heartbeat}`
         worker_check_guidance = worker_check_guidance,
         reasoning_event_count = reasoning_event_count,
         reasoning_trace_artifact = display_path(root, &reasoning_trace_path),
-        reasoning_trace_excerpt = truncate_for_report(&reasoning_trace, 6000),
         tool_event_count = tool_event_count,
         tool_events_artifact = display_path(root, &tool_events_path),
-        stdout_excerpt = truncate_for_report(&stdout, 4000),
-        stderr_excerpt = truncate_for_report(&stderr, 4000),
+        stdout_bytes = output.stdout.len(),
+        stderr_bytes = output.stderr.len(),
         receipt = display_path(root, &out_dir.join(RECEIPT_JSON)),
         report = display_path(root, &out_dir.join(REPORT_MD)),
+        review_signals = display_path(root, &out_dir.join(REVIEW_SIGNALS_JSON)),
         worktree_patch = display_path(root, &out_dir.join(WORKTREE_PATCH)),
         patch = display_path(root, &out_dir.join(CHANGES_PATCH)),
         interventions = display_path(root, &out_dir.join(INTERVENTIONS_JSONL)),

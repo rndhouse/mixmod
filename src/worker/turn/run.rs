@@ -284,7 +284,7 @@ impl WorkerTurn<'_> {
             );
         }
         notes.push(
-            "worktree.patch contains the accumulated current repository diff for supervisor review."
+            "worktree.patch contains the accumulated current repository diff for conditional supervisor review."
                 .to_string(),
         );
 
@@ -671,7 +671,7 @@ impl WorkerTurn<'_> {
         atomic_write(&out_dir.join(REPORT_MD), report.as_bytes())?;
         intervention_log.write_jsonl(&interventions_path)?;
 
-        let compact_artifacts = RUN_COMPACT_ARTIFACTS;
+        let core_review_artifacts = RUN_CORE_REVIEW_ARTIFACTS;
         let report_bytes = file_len(&out_dir.join(REPORT_MD))?;
         let patch_bytes = file_len(&out_dir.join(CHANGES_PATCH))?;
         let worktree_patch_bytes = file_len(&out_dir.join(WORKTREE_PATCH))?;
@@ -759,7 +759,7 @@ impl WorkerTurn<'_> {
             codex_token_usage: worker_token_accounting.codex_token_usage,
             approximate_codex_input_bytes: None,
             approximate_codex_output_bytes: None,
-            artifact_files_read_by_codex: compact_artifacts
+            artifact_files_read_by_codex: core_review_artifacts
                 .iter()
                 .map(|name| (*name).to_string())
                 .collect::<Vec<_>>(),
@@ -782,13 +782,28 @@ impl WorkerTurn<'_> {
             logs: display_path(root, &logs_dir),
         };
         write_pretty_json(&out_dir.join(RECEIPT_JSON), &receipt, "worker turn receipt")?;
-        let compact_total = compact_artifacts
+
+        let review_signals = build_worker_review_signals(
+            root,
+            &out_dir,
+            &receipt,
+            &metrics,
+            reasoning_trace_event_count,
+            tool_event_count,
+        );
+        write_pretty_json(
+            &out_dir.join(REVIEW_SIGNALS_JSON),
+            &review_signals,
+            "worker review signals",
+        )?;
+
+        let compact_total = core_review_artifacts
             .iter()
             .filter_map(|name| file_len(&out_dir.join(*name)).ok())
             .sum();
         metrics.approximate_codex_input_bytes = Some(compact_total);
         write_pretty_json(&out_dir.join(METRICS_JSON), &metrics, "worker turn metrics")?;
-        let compact_total_after_metrics_update = compact_artifacts
+        let compact_total_after_metrics_update = core_review_artifacts
             .iter()
             .filter_map(|name| file_len(&out_dir.join(*name)).ok())
             .sum();
@@ -803,12 +818,104 @@ impl WorkerTurn<'_> {
             out_dir.display()
         );
         println!("status: {}", receipt.status);
-        println!("compact artifacts:");
-        for &artifact in compact_artifacts {
+        println!("core review artifacts:");
+        for &artifact in core_review_artifacts {
             println!("  {}", display_path(root, &out_dir.join(artifact)));
         }
         Ok(receipt)
     }
+}
+
+fn build_worker_review_signals(
+    root: &Path,
+    out_dir: &Path,
+    receipt: &Receipt,
+    metrics: &RunMetrics,
+    reasoning_trace_event_count: u64,
+    tool_event_count: u64,
+) -> Value {
+    json!({
+        "kind": "worker-review-signals",
+        "purpose": "Compact supervisor review routing signals. Use full metrics and diagnostic artifacts only when these signals make them relevant.",
+        "status": receipt.status.clone(),
+        "mode": receipt.mode.clone(),
+        "summary": receipt.summary.clone(),
+        "worker_backend": metrics.worker_backend.clone(),
+        "opencode_exit_status": metrics.opencode_exit_status,
+        "expect_patch": metrics.expect_patch,
+        "interrupted_by_supervisor": metrics.interrupted_by_supervisor,
+        "supervisor_control_action": metrics.supervisor_control_action.clone(),
+        "opencode_timed_out": metrics.opencode_timed_out,
+        "opencode_idle_timed_out": metrics.opencode_idle_timed_out,
+        "context_overflow_count": metrics.context_overflow_count,
+        "worker_session_token_peak": metrics.worker_session_token_peak,
+        "latest_delta_bytes": metrics.patch_bytes,
+        "accumulated_patch_bytes": metrics.worktree_patch_bytes,
+        "changed_file_count": metrics.changed_file_count,
+        "changed_line_count": metrics.changed_line_count,
+        "reasoning_trace_event_count": reasoning_trace_event_count,
+        "tool_event_count": tool_event_count,
+        "intervention_count": metrics.intervention_count,
+        "intervention_kinds": metrics.intervention_kinds.clone(),
+        "local_inference_verified": metrics.local_inference_verified,
+        "gpu_activity_observed": metrics.gpu_activity_observed,
+        "backend_activity_observed": metrics.backend_activity_observed,
+        "verification_notes": metrics.verification_notes.clone(),
+        "diagnostic_artifact_names": RUN_DIAGNOSTIC_ARTIFACTS,
+        "core_artifacts": [
+            {
+                "name": RECEIPT_JSON,
+                "path": display_path(root, &out_dir.join(RECEIPT_JSON)),
+                "use": "worker status and artifact pointers"
+            },
+            {
+                "name": REPORT_MD,
+                "path": display_path(root, &out_dir.join(REPORT_MD)),
+                "use": "compact worker-turn summary"
+            },
+            {
+                "name": REVIEW_SIGNALS_JSON,
+                "path": display_path(root, &out_dir.join(REVIEW_SIGNALS_JSON)),
+                "use": "review routing signals and conditional artifact paths"
+            },
+            {
+                "name": CHANGES_PATCH,
+                "path": display_path(root, &out_dir.join(CHANGES_PATCH)),
+                "use": "latest worker-turn diff"
+            }
+        ],
+        "conditional_artifacts": [
+            {
+                "name": WORKTREE_PATCH,
+                "path": display_path(root, &out_dir.join(WORKTREE_PATCH)),
+                "bytes": metrics.worktree_patch_bytes,
+                "use_when": "approval, rollback, or cross-turn integration depends on the full active diff"
+            },
+            {
+                "name": TOOL_EVENTS_JSONL,
+                "path": display_path(root, &out_dir.join(TOOL_EVENTS_JSONL)),
+                "events": tool_event_count,
+                "use_when": "checking worker command/tool evidence or touched-file claims"
+            },
+            {
+                "name": REASONING_TRACE_JSONL,
+                "path": display_path(root, &out_dir.join(REASONING_TRACE_JSONL)),
+                "events": reasoning_trace_event_count,
+                "use_when": "debugging worker behavior, not ordinary correctness review"
+            },
+            {
+                "name": INTERVENTIONS_JSONL,
+                "path": display_path(root, &out_dir.join(INTERVENTIONS_JSONL)),
+                "events": metrics.intervention_count,
+                "use_when": "auto-followup, self-review, or live-control behavior matters"
+            },
+            {
+                "name": METRICS_JSON,
+                "path": display_path(root, &out_dir.join(METRICS_JSON)),
+                "use_when": "full token, timing, backend, or diagnostic accounting is needed"
+            }
+        ]
+    })
 }
 
 fn expect_patch_for_run(mode: DelegationMode, task: &Value) -> bool {

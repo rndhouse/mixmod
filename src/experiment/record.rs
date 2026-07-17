@@ -67,7 +67,7 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
 
     let run_metrics_path = out_dir.join(METRICS_JSON);
     let run_metrics_value = read_json_file(&run_metrics_path)?;
-    let compact_artifact_bytes = CODEX_REVIEW_ARTIFACTS
+    let compact_artifact_bytes = RUN_CORE_REVIEW_ARTIFACTS
         .iter()
         .map(|name| file_len(&out_dir.join(name)).unwrap_or(0))
         .sum::<u64>();
@@ -85,7 +85,7 @@ pub fn experiment_record_mixmod(root: &Path, name: &str, task: &Path) -> Result<
         "codex_token_usage": null,
         "codex_turns": null,
         "mixmod_delegations": 1,
-        "artifact_files_read_by_codex": RUN_COMPACT_ARTIFACTS,
+        "artifact_files_read_by_codex": RUN_CORE_REVIEW_ARTIFACTS,
         "did_codex_read_full_mixmod_session": false,
         "approximate_codex_input_bytes": compact_artifact_bytes,
         "approximate_codex_output_bytes": null,

@@ -114,9 +114,9 @@ fn supervisor_feedback_prompt_inner(
         r#"You are a terse supervisor reviewing a local worker.
 {worktree_policy}
 Do not ask the user for approval.
-Inspect the listed artifact files directly before deciding. Do not rely on this prompt as artifact content; it only names where the review evidence lives.
+Inspect the listed core artifact files directly before deciding. Do not rely on this prompt as artifact content; it only names where the review evidence lives.
 Treat supervisor input tokens as scarce. Inspect only the artifacts needed for the next decision and stop reading once the next action is clear.
-For ordinary worker-turn review, start with task context, compact metadata, and changes.patch. Inspect worktree.patch only when considering approval, rollback, or an integration question that depends on the full active diff.
+For ordinary worker-turn review, start with task context, receipt/report, review-signals.json, loop summary, and changes.patch. review-signals.json names conditional diagnostic artifacts; open them only for the stated use_when case. Inspect the full active diff only when considering approval, rollback, or an integration question that depends on cross-turn state.
 {worker_guidance}
 Worker shape contract:
 {shape_contract}
@@ -199,6 +199,7 @@ struct SupervisorFeedbackPromptSignals {
     context_pressure: bool,
     latest_delta_empty: bool,
     supervisor_control_seen: bool,
+    tool_events_available: bool,
     patch_request_progress_streak: bool,
 }
 
@@ -293,15 +294,16 @@ fn supervisor_feedback_review_context(artifact_paths: &[PathBuf]) -> String {
 }
 
 fn supervisor_feedback_core_context(signals: &SupervisorFeedbackPromptSignals) -> String {
-    let tool_evidence = if signals.has_any(&[TOOL_EVENTS_JSONL]) {
-        "- Use tool-events.jsonl as command/tool-call evidence when checking worker claims."
+    let tool_evidence = if signals.has_any(&[TOOL_EVENTS_JSONL]) || signals.tool_events_available {
+        "- Use tool-events.jsonl only as command/tool-call evidence when checking worker claims."
     } else {
-        "- If command evidence is unavailable, rely on report/metrics cautiously and revise for verification when important."
+        "- If command evidence is unavailable, rely on report/review-signals cautiously and revise for verification when important."
     };
     format!(
         r#"Core review contract:
-- Prefer latest-turn evidence first: receipt/report/metrics, tool-events.jsonl when useful, and changes.patch.
-- worktree.patch is the active current diff; changes.patch is only the latest worker-turn delta. Avoid opening worktree.patch unless approval, rollback, or integration with prior edits depends on it.
+- Prefer latest-turn evidence first: receipt/report/review-signals.json and changes.patch.
+- Treat review-signals.json as the routing layer for diagnostics. Do not open full metrics, reasoning traces, tool events, interventions, or full active diff unless a specific use_when case applies.
+- worktree.patch is the active current diff; changes.patch is only the latest worker-turn delta. Avoid opening worktree.patch or running broad git diff unless approval, rollback, or integration with prior edits depends on it.
 {tool_evidence}
 - Minimize supervisor input tokens: do not inspect more artifacts, logs, or diff content once the next action is clear.
 - For generated-output diffs, inspect authored-source changes and patch stats first. Avoid opening whole generated files; judge whether generated changes are bounded expected outputs and free of transient tool sidecars.
@@ -326,6 +328,7 @@ fn supervisor_feedback_prompt_signals(
         };
         signals.artifact_names.insert(name.to_string());
         match name {
+            REVIEW_SIGNALS_JSON => signals.update_from_review_signals(path),
             METRICS_JSON => signals.update_from_metrics(path),
             SUPERVISION_LOOP_SUMMARY_JSON => signals.update_from_loop_summary(path),
             WORKER_BRIEF_JSON => signals.update_from_worker_brief(path),
@@ -366,6 +369,20 @@ impl SupervisorFeedbackPromptSignals {
                 .get("supervisor_control_events")
                 .and_then(Value::as_array)
                 .is_some_and(|items| !items.is_empty());
+    }
+
+    fn update_from_review_signals(&mut self, path: &Path) {
+        let Ok(signals) = read_json_file(path) else {
+            return;
+        };
+        self.context_overflow |= get_u64(&signals, "context_overflow_count").unwrap_or(0) > 0;
+        self.context_pressure |=
+            get_u64(&signals, "worker_session_token_peak").is_some_and(|tokens| tokens >= 24_000);
+        self.supervisor_control_seen |= get_bool(&signals, "interrupted_by_supervisor")
+            .unwrap_or(false)
+            || get_str(&signals, "supervisor_control_action")
+                .is_some_and(|action| !action.trim().is_empty() && action.trim() != "none");
+        self.tool_events_available |= get_u64(&signals, "tool_event_count").unwrap_or(0) > 0;
     }
 
     fn update_from_loop_summary(&mut self, path: &Path) {

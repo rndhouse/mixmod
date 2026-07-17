@@ -44,9 +44,10 @@ fn supervisor_feedback_prompt_explains_worker_session_modes() {
     assert!(prompt.contains("After a planning_probe result"));
     assert!(prompt.contains("fresh worker session"));
     assert!(prompt.contains("For ordinary worker-turn review"));
-    assert!(prompt.contains("start with task context, compact metadata, and changes.patch"));
+    assert!(prompt.contains("start with task context, receipt/report, review-signals.json"));
     assert!(prompt.contains("Prefer latest-turn evidence first"));
-    assert!(prompt.contains("Avoid opening worktree.patch unless approval"));
+    assert!(prompt.contains("Avoid opening worktree.patch or running broad git diff"));
+    assert!(prompt.contains("Treat review-signals.json as the routing layer"));
     assert!(prompt.contains("do not inspect more artifacts, logs, or diff content"));
     assert!(prompt.contains("For generated-output diffs"));
     assert!(prompt.contains("Avoid opening whole generated files"));
@@ -128,15 +129,14 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     let worker_brief = root.join(WORKER_BRIEF_JSON);
-    let metrics = root.join(METRICS_JSON);
+    let review_signals = root.join(REVIEW_SIGNALS_JSON);
     let loop_summary = root.join(SUPERVISION_LOOP_SUMMARY_JSON);
-    let tool_events = root.join(TOOL_EVENTS_JSONL);
     let patch_comparison = root.join(PATCH_COMPARISON);
     let changes_patch = root.join(CHANGES_PATCH);
     atomic_write(&worker_brief, br#"{"worker_turn_shape":"patch_request"}"#).unwrap();
     atomic_write(
-        &metrics,
-        br#"{"context_overflow_count":1,"worker_session_token_peak":27000,"interrupted_by_supervisor":true,"supervisor_control_events":[{"action":"interrupt_context_focus"}]}"#,
+        &review_signals,
+        br#"{"context_overflow_count":1,"worker_session_token_peak":27000,"interrupted_by_supervisor":true,"supervisor_control_action":"interrupt_context_focus","tool_event_count":3}"#,
     )
     .unwrap();
     atomic_write(
@@ -144,7 +144,6 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
         br#"{"patch_request_nonempty_delta_streak":2,"turns":[{"worker_turn_shape":"patch_request","context_overflow_count":1,"worker_session_token_peak":27000}]}"#,
     )
     .unwrap();
-    atomic_write(&tool_events, b"").unwrap();
     atomic_write(&patch_comparison, b"{}").unwrap();
     atomic_write(&changes_patch, b"").unwrap();
 
@@ -152,9 +151,8 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
         root,
         &[
             worker_brief,
-            metrics,
+            review_signals,
             loop_summary,
-            tool_events,
             patch_comparison,
             changes_patch,
         ],
@@ -165,7 +163,7 @@ fn supervisor_feedback_prompt_adds_situational_context_from_artifacts() {
     )
     .unwrap();
 
-    assert!(prompt.contains("Use tool-events.jsonl as command/tool-call evidence"));
+    assert!(prompt.contains("Use tool-events.jsonl only as command/tool-call evidence"));
     assert!(prompt.contains("Patch request context"));
     assert!(prompt.contains("No-diff patch-request context"));
     assert!(prompt.contains("Context-pressure context"));
@@ -211,7 +209,7 @@ fn supervisor_feedback_prompt_lists_artifacts_without_embedding_contents() {
     .unwrap();
 
     assert!(prompt.contains("Artifact index:"));
-    assert!(prompt.contains("Inspect the listed artifact files directly"));
+    assert!(prompt.contains("Inspect the listed core artifact files directly"));
     assert!(prompt.contains("report.md"));
     assert!(prompt.contains("compact worker-turn summary"));
     assert!(prompt.contains("worktree.patch"));
@@ -526,7 +524,10 @@ fn supervisor_review_artifacts_include_task_and_handoff_context() {
     for name in [TASK_JSON, WORKER_BRIEF_JSON, WORKER_TASK_JSON] {
         atomic_write(&default_dir.join(name), b"{}").unwrap();
     }
-    for name in RUN_COMPACT_ARTIFACTS {
+    for name in RUN_CORE_REVIEW_ARTIFACTS
+        .iter()
+        .chain(RUN_DIAGNOSTIC_ARTIFACTS.iter())
+    {
         atomic_write(&worker_dir.join(name), b"{}").unwrap();
     }
 
@@ -539,7 +540,9 @@ fn supervisor_review_artifacts_include_task_and_handoff_context() {
         &paths[..3],
         &[TASK_JSON, WORKER_BRIEF_JSON, WORKER_TASK_JSON]
     );
-    assert!(paths.contains(&WORKTREE_PATCH.to_string()));
+    assert!(paths.contains(&REVIEW_SIGNALS_JSON.to_string()));
     assert!(paths.contains(&CHANGES_PATCH.to_string()));
-    assert!(paths.contains(&TOOL_EVENTS_JSONL.to_string()));
+    assert!(!paths.contains(&WORKTREE_PATCH.to_string()));
+    assert!(!paths.contains(&TOOL_EVENTS_JSONL.to_string()));
+    assert!(!paths.contains(&METRICS_JSON.to_string()));
 }

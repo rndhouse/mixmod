@@ -28,6 +28,8 @@ pub const PARTIAL_PATCH: &str = "partial.patch";
 pub const FINAL_PATCH: &str = "final.patch";
 /// Metrics artifact.
 pub const METRICS_JSON: &str = "metrics.json";
+/// Compact supervisor-facing status and review routing signals.
+pub const REVIEW_SIGNALS_JSON: &str = "review-signals.json";
 /// Supervisor feedback transcript artifact.
 pub const SUPERVISOR_FEEDBACK_JSONL: &str = "supervisor-feedback.jsonl";
 /// Local worker verification artifact.
@@ -61,14 +63,15 @@ pub const OPENCODE_EVENTS_JSONL: &str = "opencode.events.jsonl";
 /// Compact cross-turn telemetry for the supervisor's worker loop.
 pub const SUPERVISION_LOOP_SUMMARY_JSON: &str = "supervision-loop-summary.json";
 
-/// Compact artifacts that a supervisor can review for a single worker run.
-pub const RUN_COMPACT_ARTIFACTS: &[&str] = &[
-    RECEIPT_JSON,
-    REPORT_MD,
-    REASONING_TRACE_JSONL,
-    TOOL_EVENTS_JSONL,
+/// Core worker-run artifacts shown to the supervisor for normal review.
+pub const RUN_CORE_REVIEW_ARTIFACTS: &[&str] =
+    &[RECEIPT_JSON, REPORT_MD, REVIEW_SIGNALS_JSON, CHANGES_PATCH];
+
+/// Diagnostic worker-run artifacts kept off the normal supervisor menu.
+pub const RUN_DIAGNOSTIC_ARTIFACTS: &[&str] = &[
     WORKTREE_PATCH,
-    CHANGES_PATCH,
+    TOOL_EVENTS_JSONL,
+    REASONING_TRACE_JSONL,
     INTERVENTIONS_JSONL,
     METRICS_JSON,
 ];
@@ -88,7 +91,7 @@ pub(crate) fn supervisor_review_artifact_paths(
     .map(|name| default_dir.join(name))
     .filter(|path| path.exists())
     .chain(
-        RUN_COMPACT_ARTIFACTS
+        RUN_CORE_REVIEW_ARTIFACTS
             .iter()
             .map(|name| worker_run_dir.join(name)),
     )
@@ -99,21 +102,11 @@ pub(crate) fn supervisor_review_artifact_paths(
 pub const CODEX_REVIEW_ARTIFACTS: &[&str] = &[
     RECEIPT_JSON,
     REPORT_MD,
+    REVIEW_SIGNALS_JSON,
     SUPERVISION_LOOP_SUMMARY_JSON,
-    WORKTREE_PATCH,
     CHANGES_PATCH,
-    REASONING_TRACE_JSONL,
-    TOOL_EVENTS_JSONL,
-    INTERVENTIONS_JSONL,
-    METRICS_JSON,
     PATCH_COMPARISON,
-    PREVIOUS_WORKTREE_PATCH,
     PATCH_BASELINE_JSON,
-    BASELINE_ACCEPTED_PATCH,
-    BASELINE_ACTIVE_PATCH,
-    PATCH_ROLLBACK_JSON,
-    ROLLBACK_CURRENT_PATCH,
-    ROLLBACK_RESTORED_PATCH,
 ];
 
 /// Artifacts copied or size-counted from worker/default strategy run dirs.
@@ -125,6 +118,7 @@ pub const WORKER_RUN_ARTIFACTS: &[&str] = &[
     OPENCODE_INSTRUCTIONS_MD,
     REPORT_MD,
     SESSION_JSONL,
+    REVIEW_SIGNALS_JSON,
     REASONING_TRACE_JSONL,
     TOOL_EVENTS_JSONL,
     WORKTREE_PATCH,

@@ -70,6 +70,7 @@ fn supervisor_artifact_role(name: &str) -> &'static str {
         SUPERVISION_LOOP_SUMMARY_JSON => "cross-turn worker-loop telemetry",
         RECEIPT_JSON => "worker-turn status and artifact locations",
         REPORT_MD => "compact worker-turn summary",
+        REVIEW_SIGNALS_JSON => "compact review routing signals and conditional artifact paths",
         REASONING_TRACE_JSONL => "worker reasoning events extracted from structured output",
         TOOL_EVENTS_JSONL => "worker tool-call events extracted from structured output",
         WORKTREE_PATCH => "active current repository diff",
